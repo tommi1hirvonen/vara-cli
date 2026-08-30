@@ -1,0 +1,19 @@
+﻿profiles:
+  # List of profiles
+  - name: files
+    target: 'D:\backup\' # Target directory for the backup
+    sources:
+      # List of source directories and/or files
+      - path: 'C:\Users\user\Downloads\'
+        recursive: false # default = true
+      - path: 'C:\Users\user\Documents\'
+        recursive: true
+        exclude:
+          # Optional list of files and/or folders to exclude from the parent directory
+          - 'subfolder1\'
+          - 'subfolder2\'
+  - name: photos
+    target: 'D:\photos\'
+    sources:
+      - path: 'C:\Users\user\Pictures\'
+      - path: 'C:\Users\user\photos_db.db'

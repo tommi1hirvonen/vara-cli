@@ -1,0 +1,14 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PublishAot>true</PublishAot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Vara.Application\Vara.Application.csproj" />
+    <ProjectReference Include="..\Vara.Infrastructure\Vara.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="src/Vara.Application/Vara.Application.csproj" />
+  <Project Path="src/Vara.Cli/Vara.Cli.csproj" />
+  <Project Path="src/Vara.Core/Vara.Core.csproj" />
+  <Project Path="src/Vara.Infrastructure/Vara.Infrastructure.csproj" />
+</Solution>
