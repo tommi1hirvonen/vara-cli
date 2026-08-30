@@ -2,10 +2,22 @@
 
     <PropertyGroup>
         <ImplicitUsings>enable</ImplicitUsings>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     </PropertyGroup>
 
     <ItemGroup>
       <ProjectReference Include="..\Vara.Core\Vara.Core.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Microsoft.Data.Sqlite" />
+      <PackageReference Include="YamlDotNet" />
+      <PackageReference Include="System.IO.Hashing" />
+      <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <InternalsVisibleTo Include="Vara.Infrastructure.Tests" />
     </ItemGroup>
 
 </Project>

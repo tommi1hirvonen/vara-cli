@@ -12,6 +12,14 @@
           # Optional list of files and/or folders to exclude from the parent directory
           - 'subfolder1\'
           - 'subfolder2\'
+        # include_globs / exclude_globs: optional glob patterns, applied in addition to 'exclude'
+    retention:
+      # Optional tiered retention policy for `vara prune`. Omit this section entirely
+      # to leave pruning unavailable for this profile until configured.
+      keep_daily: 14
+      keep_weekly: 8
+      keep_monthly: 12
+      keep_yearly: 3
   - name: photos
     target: 'D:\photos\'
     sources:

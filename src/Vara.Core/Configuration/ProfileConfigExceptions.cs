@@ -1,0 +1,54 @@
+namespace Vara.Core.Configuration;
+
+/// <summary>
+/// Base type for all profile-configuration-related errors that should be surfaced
+/// to the user as clear, actionable messages rather than raw exceptions.
+/// </summary>
+public abstract class ProfileConfigException(string message) : Exception(message);
+
+/// <summary>
+/// The profile configuration file could not be found at its expected location.
+/// </summary>
+public sealed class ProfileConfigNotFoundException(string configPath)
+    : ProfileConfigException($"Profile configuration file not found at '{configPath}'.")
+{
+    public string ConfigPath { get; } = configPath;
+}
+
+/// <summary>
+/// A profile in the configuration file failed structural validation
+/// (missing required field, invalid value, etc.).
+/// </summary>
+public sealed class ProfileValidationException(string profileName, string reason)
+    : ProfileConfigException($"Profile '{profileName}' is invalid: {reason}")
+{
+    public string ProfileName { get; } = profileName;
+    public string Reason { get; } = reason;
+}
+
+/// <summary>
+/// The configuration file defines two or more profiles with the same name.
+/// </summary>
+public sealed class DuplicateProfileNameException(string profileName)
+    : ProfileConfigException($"Profile name '{profileName}' is defined more than once in the configuration file.")
+{
+    public string ProfileName { get; } = profileName;
+}
+
+/// <summary>
+/// A command referenced a profile name that does not exist in the configuration file.
+/// </summary>
+public sealed class UnknownProfileException(string profileName)
+    : ProfileConfigException($"No profile named '{profileName}' was found in the configuration file.")
+{
+    public string ProfileName { get; } = profileName;
+}
+
+/// <summary>
+/// A retention-dependent command was invoked for a profile without a configured retention policy.
+/// </summary>
+public sealed class RetentionPolicyNotConfiguredException(string profileName)
+    : ProfileConfigException($"Profile '{profileName}' has no retention policy configured.")
+{
+    public string ProfileName { get; } = profileName;
+}

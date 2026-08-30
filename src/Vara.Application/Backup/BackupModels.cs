@@ -1,0 +1,73 @@
+using Vara.Core.Abstractions;
+using Vara.Core.Snapshots;
+
+namespace Vara.Application.Backup;
+
+/// <summary>Pre-move-detection classification of a scanned entry against the manifest.</summary>
+public enum PendingChangeKind
+{
+    Added,
+    Changed,
+}
+
+/// <summary>A scanned entry whose content differs from (or is absent from) the current manifest state.</summary>
+public sealed record PendingChange(ScannedEntry Entry, PendingChangeKind Kind);
+
+/// <summary>The result of the diff stage: candidate changes needing content resolution, and paths no longer present in any source.</summary>
+public sealed record DiffResult(IReadOnlyList<PendingChange> Pending, IReadOnlyList<string> DeletedPaths);
+
+/// <summary>A fully resolved operation kind, after move detection.</summary>
+public enum PlannedOperationKind
+{
+    Add,
+    Change,
+    Move,
+    Delete,
+}
+
+/// <summary>
+/// A single resolved operation the execute stage will carry out. For <see cref="PlannedOperationKind.Move"/>
+/// and <see cref="PlannedOperationKind.Delete"/>, <see cref="KnownContentHash"/> is already known (no
+/// content read is needed); for <see cref="PlannedOperationKind.Add"/>/<see cref="PlannedOperationKind.Change"/>
+/// it is resolved during execution as content is streamed into the content store.
+/// </summary>
+public sealed record PlannedOperation(
+    PlannedOperationKind Kind,
+    string RelativePath,
+    string? PreviousRelativePath,
+    string? SourceAbsolutePath,
+    long Size,
+    DateTimeOffset SourceModifiedAt,
+    string? KnownContentHash);
+
+/// <summary>
+/// The full backup plan: every operation to carry out, and the total bytes that will
+/// actually be transferred (excluding moves and deletions, which are near-instant) -
+/// known before execution begins, per the progress-reporting spec's "Upfront work
+/// estimation" requirement.
+/// </summary>
+public sealed record BackupPlan(IReadOnlyList<PlannedOperation> Operations, long TotalBytesToTransfer);
+
+/// <summary>Live progress during the execute stage: bytes transferred so far vs. the plan's total.</summary>
+public sealed record BackupProgress(long BytesTransferred, long TotalBytes);
+
+/// <summary>The outcome of executing a plan: final counts, bytes moved, and any files that failed.</summary>
+public sealed record ExecutionOutcome(
+    long BytesTransferred,
+    int FilesAdded,
+    int FilesChanged,
+    int FilesMoved,
+    int FilesDeleted,
+    int FilesFailed,
+    IReadOnlyList<string> FailedPaths);
+
+/// <summary>The final result of a full backup run, for CLI run-summary reporting.</summary>
+public sealed record BackupRunResult(
+    long SnapshotId,
+    DateTimeOffset StartedAt,
+    DateTimeOffset CompletedAt,
+    SnapshotStats Stats,
+    IReadOnlyList<string> FailedPaths)
+{
+    public TimeSpan Elapsed => CompletedAt - StartedAt;
+}

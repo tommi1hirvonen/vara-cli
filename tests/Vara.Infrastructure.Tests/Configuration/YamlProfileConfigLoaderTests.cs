@@ -1,0 +1,142 @@
+using Vara.Core.Configuration;
+using Vara.Infrastructure.Configuration;
+using Xunit;
+
+namespace Vara.Infrastructure.Tests.Configuration;
+
+public class YamlProfileConfigLoaderTests
+{
+    private readonly YamlProfileConfigLoader _loader = new();
+
+    [Fact]
+    public void DefaultConfigPath_points_at_dot_vara_profiles_yml_under_the_user_profile()
+    {
+        var expected = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".vara", "profiles.yml");
+
+        Assert.Equal(expected, _loader.DefaultConfigPath);
+    }
+
+    [Fact]
+    public void Missing_configuration_file_throws()
+    {
+        var missingPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "profiles.yml");
+
+        var ex = Assert.Throws<ProfileConfigNotFoundException>(() => _loader.LoadProfiles(missingPath));
+        Assert.Equal(missingPath, ex.ConfigPath);
+    }
+
+    [Fact]
+    public void Loading_the_documented_sample_config_produces_the_expected_profiles()
+    {
+        var samplePath = FindRepoFile("docs", "config-sample.yml");
+
+        var profiles = _loader.LoadProfiles(samplePath);
+
+        Assert.Equal(2, profiles.Count);
+
+        var files = Assert.Single(profiles, p => p.Name == "files");
+        Assert.Equal(@"D:\backup\", files.TargetRoot);
+        Assert.Equal(2, files.Sources.Count);
+        Assert.False(files.Sources[0].Recursive);
+        Assert.True(files.Sources[1].Recursive);
+        Assert.Equal(["subfolder1\\", "subfolder2\\"], files.Sources[1].Excludes);
+        Assert.NotNull(files.Retention);
+        Assert.Equal(14, files.Retention!.KeepDaily);
+        Assert.Equal(8, files.Retention.KeepWeekly);
+        Assert.Equal(12, files.Retention.KeepMonthly);
+        Assert.Equal(3, files.Retention.KeepYearly);
+
+        var photos = Assert.Single(profiles, p => p.Name == "photos");
+        Assert.Equal(@"D:\photos\", photos.TargetRoot);
+        Assert.Equal(2, photos.Sources.Count);
+        Assert.Null(photos.Retention);
+    }
+
+    [Fact]
+    public void Profile_missing_target_field_throws_a_validation_error_naming_the_profile()
+    {
+        var path = WriteTempConfig(
+            """
+            profiles:
+              - name: broken
+                sources:
+                  - path: 'C:\data'
+            """);
+
+        var ex = Assert.Throws<ProfileValidationException>(() => _loader.LoadProfiles(path));
+        Assert.Equal("broken", ex.ProfileName);
+    }
+
+    [Fact]
+    public void Profile_with_zero_sources_throws_a_validation_error()
+    {
+        var path = WriteTempConfig(
+            """
+            profiles:
+              - name: broken
+                target: 'D:\backup'
+                sources: []
+            """);
+
+        Assert.Throws<ProfileValidationException>(() => _loader.LoadProfiles(path));
+    }
+
+    [Fact]
+    public void Source_without_a_recursive_flag_defaults_to_recursive_true()
+    {
+        var path = WriteTempConfig(
+            """
+            profiles:
+              - name: files
+                target: 'D:\backup'
+                sources:
+                  - path: 'C:\data'
+            """);
+
+        var profiles = _loader.LoadProfiles(path);
+
+        Assert.True(profiles[0].Sources[0].Recursive);
+    }
+
+    [Fact]
+    public void Duplicate_profile_names_throw()
+    {
+        var path = WriteTempConfig(
+            """
+            profiles:
+              - name: files
+                target: 'D:\backup'
+                sources:
+                  - path: 'C:\data'
+              - name: files
+                target: 'D:\other'
+                sources:
+                  - path: 'C:\other-data'
+            """);
+
+        var ex = Assert.Throws<DuplicateProfileNameException>(() => _loader.LoadProfiles(path));
+        Assert.Equal("files", ex.ProfileName);
+    }
+
+    private static string WriteTempConfig(string yaml)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"vara-test-{Guid.NewGuid():N}.yml");
+        File.WriteAllText(path, yaml);
+        return path;
+    }
+
+    private static string FindRepoFile(params string[] relativeSegments)
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var i = 0; i < 12 && dir is not null; i++, dir = dir.Parent)
+        {
+            var candidate = Path.Combine([dir.FullName, .. relativeSegments]);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        throw new FileNotFoundException($"Could not locate '{Path.Combine(relativeSegments)}' by walking up from '{AppContext.BaseDirectory}'.");
+    }
+}

@@ -3,4 +3,7 @@
   <Project Path="src/Vara.Cli/Vara.Cli.csproj" />
   <Project Path="src/Vara.Core/Vara.Core.csproj" />
   <Project Path="src/Vara.Infrastructure/Vara.Infrastructure.csproj" />
+  <Project Path="tests/Vara.Core.Tests/Vara.Core.Tests.csproj" />
+  <Project Path="tests/Vara.Application.Tests/Vara.Application.Tests.csproj" />
+  <Project Path="tests/Vara.Infrastructure.Tests/Vara.Infrastructure.Tests.csproj" />
 </Solution>

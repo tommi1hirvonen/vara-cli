@@ -18,24 +18,24 @@ This is the first real implementation on top of an existing clean-architecture s
 
 ### Storage layout
 ```
-<target>\
-  <profile-name>\              live mirror - exactly mirrors current source state
-    ...                        (real files, or hardlinks into the version store
-                                 when the target volume supports hardlinks)
+<target>\                     the profile's own target root (e.g. D:\backup\ for "files")
+  ...                         live mirror - exactly mirrors current source state,
+                               placed directly under the target root (real files, or
+                               hardlinks into the version store when the target volume
+                               supports hardlinks)
   .vara\
-    <profile-name>.db           SQLite manifest for this profile
-    <profile-name>\
-      versions\<xx>\<hash>      content-addressed store, one physical file per
-                                 unique content hash (xx = first bytes of hash,
-                                 for directory fan-out)
-      tmp\                      staging area for atomic writes
+    profile.db                SQLite manifest for this profile
+    versions\<xx>\<hash>       content-addressed store, one physical file per
+                               unique content hash (xx = first two hash characters,
+                               for directory fan-out)
+    tmp\                      staging area for atomic writes
 ```
-One SQLite database and one version store per profile, colocated under the profile's own target root (each profile already has an independent target directory in the sample configuration, so no cross-profile sharing is needed).
+One SQLite database and one version store per profile, colocated directly under that profile's own target root - each profile already has an independent target directory in the sample configuration, so there is no need to nest an extra profile-name segment inside a shared target (an earlier draft of this section nested `<target>\<profile-name>\` and `.vara\<profile-name>\`; that nesting was redundant given every profile already owns its whole target root, and has been simplified away here).
 
 **Alternative considered:** a single shared database/version store across all profiles for cross-profile dedup. Rejected for this change - adds cross-profile reference-counting complexity for a benefit that only applies if two profiles happen to share a target root, which the current configuration model doesn't encourage.
 
 ### Hardlink capability probe and degradation
-At the start of a run, the system attempts to create and immediately remove a throwaway hardlink inside `.vara\<profile>\tmp\`. Success or failure is cached for the duration of the run (not persisted, since removable/network drives can change over time) and passed down as a capability flag to the content-store component.
+At the start of a run, the system attempts to create and immediately remove a throwaway hardlink inside `.vara\tmp\`. Success or failure is cached for the duration of the run (not persisted, since removable/network drives can change over time) and passed down as a capability flag to the content-store component.
 
 - **Hardlinks supported:** unchanged files are left alone; changed files are hashed while streaming into `tmp`, then hardlinked into `versions\<hash>` (if not already present) and hardlinked again into the mirror path, replacing the old mirror entry.
 - **Hardlinks unsupported:** the version store still dedups by hash (skip writing if the hash already exists as a blob), but the mirror path receives an independent copy of the bytes rather than a hardlink.
@@ -50,9 +50,9 @@ Move detection is independent of this flag: whenever a hash that existed at path
 Content is referenced by hash only; `file_versions` never stores duplicate content itself, only pointers into `versions\<hash>`.
 
 ### Atomicity and crash safety
-Every content write follows: stream + hash into `.vara\<profile>\tmp\<random-name>` -> resolve/create the canonical blob in `versions\<hash>` -> hardlink or copy the blob into the mirror path, replacing any existing entry via rename (never an in-place overwrite). The manifest row for a snapshot is only marked `complete` after every planned file operation succeeds; if the process is killed mid-run, the mirror reflects a valid mix of old/new file states and the snapshot row is left `running`, later reconciled to `failed` by the next run's startup check, which also sweeps orphaned `tmp` entries.
+Every content write follows: stream + hash into `.vara\tmp\<random-name>` -> resolve/create the canonical blob in `versions\<hash>` -> hardlink or copy the blob into the mirror path, replacing any existing entry via rename (never an in-place overwrite). The manifest row for a snapshot is only marked `complete` after every planned file operation succeeds; if the process is killed mid-run, the mirror reflects a valid mix of old/new file states and the snapshot row is left `running`, later reconciled to `failed` by the next run's startup check, which also sweeps orphaned `tmp` entries.
 
-A per-profile run lock (a lock file under `.vara\<profile>\`, held for the process lifetime) prevents two concurrent runs against the same target.
+A per-profile run lock (a lock file under `.vara\`, held for the process lifetime) prevents two concurrent runs against the same target.
 
 ### Backup pipeline stages
 1. **Scan**: walk configured sources (respecting `recursive`, excludes, globs), skipping symlinks/junctions/reparse points (recorded, not traversed).
@@ -65,7 +65,7 @@ A per-profile run lock (a lock file under `.vara\<profile>\`, held for the proce
 The plan step's byte total is the denominator for progress; each execute-stage worker reports bytes written as it streams, giving continuous progress rather than per-file jumps. Move/delete/hardlink operations are counted in the file/operation summary but excluded from the bytes-transferred denominator so they cannot inflate or distort throughput.
 
 ### Retention/prune algorithm
-Snapshots are bucketed per configured tier (calendar day/week/month/year); within each tier, only the newest snapshot per bucket, up to the tier's configured count, is retained. A snapshot not retained by any tier is deleted (its `file_versions` rows removed). After deletion, a query for content hashes with zero remaining `file_versions` references (across all snapshots, including tombstones) and not equal to any current mirror file's hash identifies blobs to delete from the version store - this is a straightforward SQL query against the manifest, not separate filesystem reference counting.
+Snapshots are bucketed per configured tier (calendar day/week/month/year); within each tier, only the newest snapshot per bucket, up to the tier's configured count, is retained. A snapshot not retained by any tier is eligible for pruning, but pruning operates at the **file-version-row** granularity, not the whole-snapshot granularity: a row is only deleted if it is not the current (latest, non-deleted) row for its path. This matters because a file that hasn't changed in a long time would otherwise have its only manifest row silently deleted once its introducing snapshot ages out of every retention tier, orphaning a still-live file from the current-state view. A snapshot's own record is only removed once none of its rows remain. After row deletion, garbage collection compares the manifest's remaining referenced hashes (a simple SQL query: distinct `content_hash` across all remaining `file_versions` rows, current or tombstoned) against the version store's physical blob listing; any stored blob whose hash is absent from the referenced set is deleted. Splitting it this way (manifest query + store listing + an in-memory set difference in the Application layer) keeps the manifest repository from needing to know anything about physical storage, and the content store from needing to know anything about SQL.
 
 ### Composition and libraries
 - CLI command surface: `System.CommandLine` for argument/option parsing and command routing (`vara backup <profile>`, `vara prune <profile>`, `vara history <profile> [path]`, `vara snapshots <profile>`, `vara restore <profile> <path> --at <date|version> --out <path>`).
@@ -73,6 +73,7 @@ Snapshots are bucketed per configured tier (calendar day/week/month/year); withi
 - SQLite access: `Microsoft.Data.Sqlite` (thin ADO.NET wrapper over native SQLite, no heavy reflection-based ORM, AOT-friendly). **Alternative considered:** EF Core - rejected for this data model. The schema is small and stable (two tables), the key queries (latest-row-per-path, calendar-bucketed retention, reference-count garbage collection) are naturally set-based/raw-SQL rather than object-graph-shaped, bulk-inserting large per-snapshot row counts is simpler without change-tracking overhead, and avoiding EF Core's heavier reflection surface reduces Native AOT/trimming risk. Dapper (or an AOT-oriented variant) remains a lightweight fallback if hand-written row mapping becomes tedious.
 - Testing: one xUnit test project per `src/` layer (`tests/Vara.Core.Tests`, `tests/Vara.Application.Tests`, `tests/Vara.Infrastructure.Tests`), mirroring `src/`, so `Vara.Core`'s tests never depend on Infrastructure/SQLite and each layer's ports/seams stay independently testable.
 - Hashing: a fast non-cryptographic hash (e.g. `System.IO.Hashing`'s XxHash3/XxHash128) computed while streaming file content, since collision-resistance requirements here are about accidental duplication detection, not adversarial security.
+- Hardlink creation: `System.IO.File.CreateHardLink` is not available on the `net10.0` target framework (it ships starting with .NET 11) - implemented instead via a small `LibraryImport`-based P/Invoke wrapper around Win32 `CreateHardLinkW`. `LibraryImport`'s source-generated marshalling keeps this fully Native AOT / trimming safe, unlike classic `DllImport` reflection-driven stub generation.
 - YAML parsing: needs an AOT/trimming-safe path. If the chosen library's reflection-based deserializer is not fully AOT-safe, use its source-generated/static-context mode, or fall back to a small hand-written mapping layer for the known profile schema. This is called out as an implementation-time verification step in tasks, not resolved here, since it doesn't change any spec-level behavior.
 
 ## Risks / Trade-offs

@@ -11,4 +11,9 @@
     <ProjectReference Include="..\Vara.Infrastructure\Vara.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+  </ItemGroup>
+
 </Project>
