@@ -73,6 +73,32 @@ merges them with the executor's own failures before building `SnapshotStats` and
 caller checks, instead of two separate failure lists a caller could forget to
 check.
 
+## Verified limitation (found during implementation)
+
+Direct experimentation (applying an explicit ACL deny via `icacls`, up to and
+including a full deny, for the current user on a test file) showed that
+`File.GetAttributes`, `FileInfo.Length`, `FileInfo.LastWriteTimeUtc`, and
+`FileInfo.LinkTarget` do **not** throw `UnauthorizedAccessException` for a
+per-file ACL deny on Windows - these are lightweight metadata queries that do not
+enforce the target file's own DACL, only the containing directory's
+list/traverse rights. Only actually opening file content (e.g. `File.OpenRead`,
+already covered by `BackupExecutor`) enforces the per-file ACL.
+
+`Directory.EnumerateFileSystemEntries` **does** enforce the ACL and reliably
+throws `UnauthorizedAccessException` for a directory the caller cannot list
+(verified the same way, and matches the well-known real-world case of a
+non-admin listing `System Volume Information`) - this is exactly the path
+Decision 3 and task 2.4 target, and it is covered by a real, passing test.
+
+Net effect: the per-entry catch widening in `Walk`/`ToEntry`/`TryGetLinkTarget`
+(Decision 1) is kept as defensive coding - it is still correct and consistent
+with `BackupExecutor`'s existing pattern, and may matter in environments where
+these APIs behave differently (e.g. non-NTFS filesystems, different OS
+versions/policies) - but it is not reproducible, and therefore not asserted, via
+ACL manipulation in a test on this platform. Test coverage for "unreadable file"
+is consequently scoped to the directory-enumeration case only; there is no
+per-file ACL-deny test.
+
 ## Risks / Trade-offs
 
 - [Risk] Changing `IFileSystemScanner.Scan`'s signature/return shape is a breaking

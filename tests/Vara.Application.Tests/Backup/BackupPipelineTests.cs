@@ -57,6 +57,31 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
+    public void A_scan_time_failure_is_recorded_but_does_not_abort_the_run()
+    {
+        var path = Path.Combine(_root, "a.txt");
+        File.WriteAllText(path, "hello");
+        var entry = new ScannedEntry("a.txt", path, 5, File.GetLastWriteTimeUtc(path), false, null);
+        var scanFailure = new ScanFailure("denied-dir", ScanFailureReason.UnreadableDirectory);
+        var repository = new FakeSnapshotRepository();
+
+        var pipeline = new BackupPipeline(
+            new FakeFileSystemScanner([entry], [scanFailure]), new FakeHasher(), new FakeContentStore(), repository, new FakeRunLock());
+
+        var result = pipeline.Run(SimpleProfile(_root));
+
+        // The run still completes and commits a snapshot rather than failing it ...
+        var snapshot = Assert.Single(repository.ListSnapshots());
+        Assert.Equal(SnapshotStatus.Complete, snapshot.Status);
+        Assert.Equal(1, result.Stats.FilesAdded);
+
+        // ... but the scan-time failure is folded into the same failure
+        // reporting as per-file transfer failures.
+        Assert.Equal(1, result.Stats.FilesFailed);
+        Assert.Contains("denied-dir", result.FailedPaths);
+    }
+
+    [Fact]
     public void A_failure_during_the_run_marks_the_snapshot_failed_and_rethrows()
     {
         var repository = new FakeSnapshotRepository();
@@ -98,6 +123,6 @@ public class BackupPipelineTests : IDisposable
 
     private sealed class ThrowingScanner : IFileSystemScanner
     {
-        public IEnumerable<ScannedEntry> Scan(IReadOnlyList<Source> sources) => throw new InvalidOperationException("scan failed");
+        public ScanResult Scan(IReadOnlyList<Source> sources) => throw new InvalidOperationException("scan failed");
     }
 }

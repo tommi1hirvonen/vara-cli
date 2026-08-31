@@ -56,9 +56,10 @@ public class PortAbstractionsTests
     {
         IFileSystemScanner scanner = new FakeFileSystemScanner();
 
-        var entries = scanner.Scan([new Source(@"C:\data")]);
+        var result = scanner.Scan([new Source(@"C:\data")]);
 
-        Assert.Empty(entries);
+        Assert.Empty(result.Entries);
+        Assert.Empty(result.Failures);
     }
 
     [Fact]
@@ -132,7 +133,7 @@ public class PortAbstractionsTests
 
     private sealed class FakeFileSystemScanner : IFileSystemScanner
     {
-        public IEnumerable<ScannedEntry> Scan(IReadOnlyList<Source> sources) => [];
+        public ScanResult Scan(IReadOnlyList<Source> sources) => new([], []);
     }
 
     private sealed class FakeRunLock : IRunLock

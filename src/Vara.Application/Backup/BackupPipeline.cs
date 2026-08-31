@@ -36,8 +36,8 @@ public sealed class BackupPipeline(
             try
             {
                 var currentState = repository.GetCurrentState();
-                var scanned = scanner.Scan(profile.Sources);
-                var diff = new BackupDiffer().Diff(scanned, currentState);
+                var scanResult = scanner.Scan(profile.Sources);
+                var diff = new BackupDiffer().Diff(scanResult.Entries, currentState);
                 var plan = new BackupPlanner(hasher).Plan(diff, currentState);
 
                 progress?.Report(new BackupProgress(0, plan.TotalBytesToTransfer));
@@ -49,12 +49,19 @@ public sealed class BackupPipeline(
                     progress?.Report(new BackupProgress(bytesSoFar, plan.TotalBytesToTransfer));
                 });
 
+                // BackupDiffer.Diff above fully enumerates scanResult.Entries, so
+                // scanResult.Failures is guaranteed complete by this point. Scan-time
+                // failures join the executor's per-file failures in the same run
+                // result, per the backup-execution spec's "Unreadable files do not
+                // abort the run" requirement.
+                var failedPaths = scanResult.Failures.Select(f => f.RelativePath).Concat(outcome.FailedPaths).ToList();
                 var stats = new SnapshotStats(
-                    outcome.BytesTransferred, outcome.FilesAdded, outcome.FilesChanged, outcome.FilesMoved, outcome.FilesDeleted, outcome.FilesFailed);
+                    outcome.BytesTransferred, outcome.FilesAdded, outcome.FilesChanged, outcome.FilesMoved, outcome.FilesDeleted,
+                    outcome.FilesFailed + scanResult.Failures.Count);
                 var completedAt = DateTimeOffset.UtcNow;
                 repository.CompleteSnapshot(snapshotId, completedAt, stats);
 
-                return new BackupRunResult(snapshotId, startedAt, completedAt, stats, outcome.FailedPaths);
+                return new BackupRunResult(snapshotId, startedAt, completedAt, stats, failedPaths);
             }
             catch
             {

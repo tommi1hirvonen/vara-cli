@@ -176,10 +176,10 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
     public IReadOnlySet<string> GetAllReferencedContentHashes() => _fileVersions.Select(r => r.ContentHash).ToHashSet();
 }
 
-/// <summary>Fake scanner returning a pre-set, test-controlled list of entries regardless of the sources argument.</summary>
-internal sealed class FakeFileSystemScanner(IReadOnlyList<ScannedEntry> entries) : IFileSystemScanner
+/// <summary>Fake scanner returning a pre-set, test-controlled list of entries (and, optionally, scan failures) regardless of the sources argument.</summary>
+internal sealed class FakeFileSystemScanner(IReadOnlyList<ScannedEntry> entries, IReadOnlyList<ScanFailure>? failures = null) : IFileSystemScanner
 {
-    public IEnumerable<ScannedEntry> Scan(IReadOnlyList<Source> sources) => entries;
+    public ScanResult Scan(IReadOnlyList<Source> sources) => new(entries, failures ?? []);
 }
 
 /// <summary>Fake run lock whose acquisition outcome is test-controlled.</summary>

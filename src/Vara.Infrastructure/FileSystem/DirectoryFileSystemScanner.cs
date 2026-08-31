@@ -9,28 +9,45 @@ namespace Vara.Infrastructure.FileSystem;
 /// <see cref="Directory.EnumerateFiles(string, string, SearchOption)"/>) so that
 /// symlinks, junctions, and other reparse points can be detected and reported without
 /// ever being traversed - the backup-execution spec requires they are recorded, not
-/// followed.
+/// followed. A file, directory, or link that cannot be read (for example, an
+/// ACL-protected path) never throws out of <see cref="Scan"/> - it is recorded as a
+/// <see cref="ScanFailure"/> and skipped instead, per the backup-execution spec's
+/// "Unreadable files do not abort the run" requirement.
 /// </summary>
 public sealed class DirectoryFileSystemScanner : IFileSystemScanner
 {
-    public IEnumerable<ScannedEntry> Scan(IReadOnlyList<Source> sources)
+    public ScanResult Scan(IReadOnlyList<Source> sources)
+    {
+        // Failures is a shared mutable list captured by the lazily-evaluated Entries
+        // enumerable below: it fills in as Entries is walked, and is only guaranteed
+        // complete once Entries has been fully enumerated by the caller.
+        var failures = new List<ScanFailure>();
+        return new ScanResult(EnumerateEntries(sources, failures), failures);
+    }
+
+    private static IEnumerable<ScannedEntry> EnumerateEntries(IReadOnlyList<Source> sources, List<ScanFailure> failures)
     {
         foreach (var source in sources)
         {
-            foreach (var entry in ScanSource(source))
+            foreach (var entry in ScanSource(source, failures))
             {
                 yield return entry;
             }
         }
     }
 
-    private static IEnumerable<ScannedEntry> ScanSource(Source source)
+    private static IEnumerable<ScannedEntry> ScanSource(Source source, List<ScanFailure> failures)
     {
         if (File.Exists(source.Path))
         {
             // The profile schema also allows a source to point directly at a single file.
             var fileName = Path.GetFileName(source.Path);
-            yield return ToEntry(source.Path, fileName);
+            var entry = ToEntry(source.Path, fileName, failures);
+            if (entry is not null)
+            {
+                yield return entry;
+            }
+
             yield break;
         }
 
@@ -42,7 +59,7 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
         var matcher = BuildGlobMatcher(source);
         var root = source.Path.TrimEnd('\\', '/');
 
-        foreach (var path in Walk(root, source.Recursive))
+        foreach (var path in Walk(root, source.Recursive, root, failures))
         {
             var relativePath = Path.GetRelativePath(root, path);
 
@@ -51,7 +68,11 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
                 continue;
             }
 
-            yield return ToEntry(path, relativePath);
+            var entry = ToEntry(path, relativePath, failures);
+            if (entry is not null)
+            {
+                yield return entry;
+            }
         }
     }
 
@@ -61,7 +82,7 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
     /// descended into. Plain (non-reparse) directories are recursed through but not
     /// themselves yielded.
     /// </summary>
-    private static IEnumerable<string> Walk(string directory, bool recursive)
+    private static IEnumerable<string> Walk(string directory, bool recursive, string root, List<ScanFailure> failures)
     {
         IEnumerable<string> entries;
         try
@@ -70,6 +91,7 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
         {
+            failures.Add(new ScanFailure(Path.GetRelativePath(root, directory), ScanFailureReason.UnreadableDirectory));
             yield break;
         }
 
@@ -80,8 +102,9 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
             {
                 attributes = File.GetAttributes(entryPath);
             }
-            catch (IOException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
+                failures.Add(new ScanFailure(Path.GetRelativePath(root, entryPath), ScanFailureReason.UnreadableEntry));
                 continue;
             }
 
@@ -100,7 +123,7 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
             {
                 if (recursive)
                 {
-                    foreach (var nested in Walk(entryPath, recursive))
+                    foreach (var nested in Walk(entryPath, recursive, root, failures))
                     {
                         yield return nested;
                     }
@@ -113,16 +136,17 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
         }
     }
 
-    private static ScannedEntry ToEntry(string absolutePath, string relativePath)
+    private static ScannedEntry? ToEntry(string absolutePath, string relativePath, List<ScanFailure> failures)
     {
         FileAttributes attributes;
         try
         {
             attributes = File.GetAttributes(absolutePath);
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            attributes = FileAttributes.Normal;
+            failures.Add(new ScanFailure(relativePath, ScanFailureReason.UnreadableEntry));
+            return null;
         }
 
         if (attributes.HasFlag(FileAttributes.ReparsePoint))
@@ -130,8 +154,16 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
             return new ScannedEntry(relativePath, absolutePath, 0, DateTimeOffset.MinValue, IsLink: true, TryGetLinkTarget(absolutePath));
         }
 
-        var info = new FileInfo(absolutePath);
-        return new ScannedEntry(relativePath, absolutePath, info.Length, info.LastWriteTimeUtc, IsLink: false, LinkTarget: null);
+        try
+        {
+            var info = new FileInfo(absolutePath);
+            return new ScannedEntry(relativePath, absolutePath, info.Length, info.LastWriteTimeUtc, IsLink: false, LinkTarget: null);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            failures.Add(new ScanFailure(relativePath, ScanFailureReason.UnreadableEntry));
+            return null;
+        }
     }
 
     private static bool IsExcluded(string relativePath, Source source)
@@ -175,7 +207,7 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
         {
             return new FileInfo(path).LinkTarget;
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return null;
         }

@@ -28,8 +28,10 @@ transfer, not failures encountered while scanning.
   adjacent requirement) in the `backup-execution` spec to explicitly cover
   unreadable/inaccessible directories and entries encountered during scanning, not
   just files that fail during transfer.
-- Add scanner test coverage for an ACL-protected file and an ACL-protected directory,
-  asserting the run continues and the failure is recorded.
+- Add scanner test coverage for an ACL-protected directory (recorded as a scan
+  failure, run continues). An ACL-protected single file was investigated but is
+  not exercisable this way - see design.md's "Verified limitation" note; the
+  existing per-file exception-handling widening remains as defensive coding.
 
 ## Capabilities
 
