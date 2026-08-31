@@ -27,15 +27,19 @@ public static class BackupCommand
 
                 var pipeline = new BackupPipeline(scanner, hasher, services.ContentStore, services.Repository, services.RunLock);
                 var calculator = new BackupProgressCalculator();
+                var displayGate = new ProgressDisplayGate();
                 var progress = new Progress<BackupProgress>(p =>
                 {
-                    var snapshot = calculator.Calculate(p);
-                    var eta = snapshot.EstimatedTimeRemaining is { } remaining
-                        ? BackupRunSummaryFormatter.FormatDuration(remaining)
-                        : "calculating...";
-                    Console.Write(
-                        $"\r{BackupRunSummaryFormatter.FormatBytes(snapshot.BytesTransferred)} / {BackupRunSummaryFormatter.FormatBytes(snapshot.TotalBytes)} " +
-                        $"({snapshot.PercentComplete:0.0}%) - {BackupRunSummaryFormatter.FormatBytes((long)snapshot.ThroughputBytesPerSecond)}/s - ETA {eta}   ");
+                    displayGate.Report(p, admitted =>
+                    {
+                        var snapshot = calculator.Calculate(admitted);
+                        var eta = snapshot.EstimatedTimeRemaining is { } remaining
+                            ? BackupRunSummaryFormatter.FormatDuration(remaining)
+                            : "calculating...";
+                        Console.Write(
+                            $"\r{BackupRunSummaryFormatter.FormatBytes(snapshot.BytesTransferred)} / {BackupRunSummaryFormatter.FormatBytes(snapshot.TotalBytes)} " +
+                            $"({snapshot.PercentComplete:0.0}%) - {BackupRunSummaryFormatter.FormatBytes((long)snapshot.ThroughputBytesPerSecond)}/s - ETA {eta}   ");
+                    });
                 });
 
                 var result = pipeline.Run(profile, progress);
