@@ -4,6 +4,7 @@
     <OutputType>Exe</OutputType>
     <ImplicitUsings>enable</ImplicitUsings>
     <PublishAot>true</PublishAot>
+    <AssemblyName>vara</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>
