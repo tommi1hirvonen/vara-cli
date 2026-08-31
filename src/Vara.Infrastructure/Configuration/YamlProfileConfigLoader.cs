@@ -123,12 +123,13 @@ public sealed class YamlProfileConfigLoader : IProfileConfigLoader
             return null;
         }
 
-        var retentionMapping = AsMapping(retentionValue, GetOptionalScalar(mapping, "name") ?? "<unnamed>", "'retention' must be a mapping");
+        var profileName = GetOptionalScalar(mapping, "name") ?? "<unnamed>";
+        var retentionMapping = AsMapping(retentionValue, profileName, "'retention' must be a mapping");
 
-        var keepDaily = GetOptionalInt(retentionMapping, "keep_daily") ?? 0;
-        var keepWeekly = GetOptionalInt(retentionMapping, "keep_weekly") ?? 0;
-        var keepMonthly = GetOptionalInt(retentionMapping, "keep_monthly") ?? 0;
-        var keepYearly = GetOptionalInt(retentionMapping, "keep_yearly") ?? 0;
+        var keepDaily = GetOptionalRetentionCount(retentionMapping, profileName, "keep_daily") ?? 0;
+        var keepWeekly = GetOptionalRetentionCount(retentionMapping, profileName, "keep_weekly") ?? 0;
+        var keepMonthly = GetOptionalRetentionCount(retentionMapping, profileName, "keep_monthly") ?? 0;
+        var keepYearly = GetOptionalRetentionCount(retentionMapping, profileName, "keep_yearly") ?? 0;
 
         return new RetentionPolicy(keepDaily, keepWeekly, keepMonthly, keepYearly);
     }
@@ -154,10 +155,25 @@ public sealed class YamlProfileConfigLoader : IProfileConfigLoader
     private static string? GetOptionalScalar(YamlMappingNode mapping, string key) =>
         TryGetChild(mapping, key, out var value) && value is YamlScalarNode scalar ? scalar.Value : null;
 
-    private static int? GetOptionalInt(YamlMappingNode mapping, string key)
+    private static int? GetOptionalRetentionCount(YamlMappingNode mapping, string profileName, string key)
     {
         var text = GetOptionalScalar(mapping, key);
-        return text is null ? null : int.Parse(text);
+        if (text is null)
+        {
+            return null;
+        }
+
+        if (!int.TryParse(text, out var value))
+        {
+            throw new ProfileValidationException(profileName, $"retention field '{key}' has an invalid value '{text}' (expected a non-negative whole number)");
+        }
+
+        if (value < 0)
+        {
+            throw new ProfileValidationException(profileName, $"retention field '{key}' has an invalid value '{text}' (expected a non-negative whole number)");
+        }
+
+        return value;
     }
 
     private static IReadOnlyList<string>? GetOptionalStringList(YamlMappingNode mapping, string key)

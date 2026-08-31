@@ -172,6 +172,73 @@ public class YamlProfileConfigLoaderTests
         Assert.Equal("files", ex.ProfileName);
     }
 
+    [Fact]
+    public void Retention_field_with_a_non_numeric_value_throws_a_validation_error_naming_the_field()
+    {
+        var path = WriteTempConfig(
+            """
+            profiles:
+              - name: broken
+                target: 'D:\backup'
+                sources:
+                  - path: 'C:\data'
+                retention:
+                  keep_daily: abc
+            """);
+
+        var ex = Assert.Throws<ProfileValidationException>(() => _loader.LoadProfiles(path));
+        Assert.Equal("broken", ex.ProfileName);
+        Assert.Contains("keep_daily", ex.Reason);
+        Assert.Contains("abc", ex.Reason);
+    }
+
+    [Fact]
+    public void Retention_field_with_a_negative_value_throws_a_validation_error_naming_the_field()
+    {
+        var path = WriteTempConfig(
+            """
+            profiles:
+              - name: broken
+                target: 'D:\backup'
+                sources:
+                  - path: 'C:\data'
+                retention:
+                  keep_weekly: -1
+            """);
+
+        var ex = Assert.Throws<ProfileValidationException>(() => _loader.LoadProfiles(path));
+        Assert.Equal("broken", ex.ProfileName);
+        Assert.Contains("keep_weekly", ex.Reason);
+        Assert.Contains("-1", ex.Reason);
+    }
+
+    [Fact]
+    public void Retention_fields_with_zero_values_load_successfully()
+    {
+        var path = WriteTempConfig(
+            """
+            profiles:
+              - name: files
+                target: 'D:\backup'
+                sources:
+                  - path: 'C:\data'
+                retention:
+                  keep_daily: 0
+                  keep_weekly: 0
+                  keep_monthly: 0
+                  keep_yearly: 0
+            """);
+
+        var profiles = _loader.LoadProfiles(path);
+
+        var retention = profiles[0].Retention;
+        Assert.NotNull(retention);
+        Assert.Equal(0, retention!.KeepDaily);
+        Assert.Equal(0, retention.KeepWeekly);
+        Assert.Equal(0, retention.KeepMonthly);
+        Assert.Equal(0, retention.KeepYearly);
+    }
+
     private static string WriteTempConfig(string yaml)
     {
         var path = Path.Combine(Path.GetTempPath(), $"vara-test-{Guid.NewGuid():N}.yml");
