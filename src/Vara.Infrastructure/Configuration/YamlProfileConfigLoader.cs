@@ -34,12 +34,17 @@ public sealed class YamlProfileConfigLoader : IProfileConfigLoader
 
         if (yamlStream.Documents[0].RootNode is not YamlMappingNode root)
         {
+            throw new ProfileConfigMalformedException(configPath, "the document root must be a mapping");
+        }
+
+        if (!TryGetChild(root, "profiles", out var profilesValue))
+        {
             return [];
         }
 
-        if (!TryGetChild(root, "profiles", out var profilesValue) || profilesValue is not YamlSequenceNode profilesNode)
+        if (profilesValue is not YamlSequenceNode profilesNode)
         {
-            return [];
+            throw new ProfileConfigMalformedException(configPath, "'profiles' must be a list");
         }
 
         var profiles = new List<Profile>();

@@ -16,6 +16,18 @@ public sealed class ProfileConfigNotFoundException(string configPath)
 }
 
 /// <summary>
+/// The profile configuration file is structurally malformed (its root is not a
+/// mapping, or a known top-level key has the wrong shape) rather than merely
+/// defining zero profiles.
+/// </summary>
+public sealed class ProfileConfigMalformedException(string configPath, string reason)
+    : ProfileConfigException($"Profile configuration file '{configPath}' is malformed: {reason}")
+{
+    public string ConfigPath { get; } = configPath;
+    public string Reason { get; } = reason;
+}
+
+/// <summary>
 /// A profile in the configuration file failed structural validation
 /// (missing required field, invalid value, etc.).
 /// </summary>

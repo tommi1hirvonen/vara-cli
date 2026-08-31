@@ -99,6 +99,60 @@ public class YamlProfileConfigLoaderTests
     }
 
     [Fact]
+    public void Configuration_file_with_a_non_mapping_root_throws_a_malformed_error()
+    {
+        var path = WriteTempConfig(
+            """
+            - just
+            - a
+            - list
+            """);
+
+        var ex = Assert.Throws<ProfileConfigMalformedException>(() => _loader.LoadProfiles(path));
+        Assert.Equal(path, ex.ConfigPath);
+    }
+
+    [Fact]
+    public void Configuration_file_with_profiles_not_a_list_throws_a_malformed_error()
+    {
+        var path = WriteTempConfig(
+            """
+            profiles:
+              name: files
+              target: 'D:\backup'
+            """);
+
+        var ex = Assert.Throws<ProfileConfigMalformedException>(() => _loader.LoadProfiles(path));
+        Assert.Equal(path, ex.ConfigPath);
+    }
+
+    [Fact]
+    public void Empty_configuration_file_produces_zero_profiles_without_throwing()
+    {
+        var path = WriteTempConfig(
+            """
+            # just a comment, no documents
+            """);
+
+        var profiles = _loader.LoadProfiles(path);
+
+        Assert.Empty(profiles);
+    }
+
+    [Fact]
+    public void Configuration_file_without_a_profiles_key_produces_zero_profiles_without_throwing()
+    {
+        var path = WriteTempConfig(
+            """
+            some_other_key: value
+            """);
+
+        var profiles = _loader.LoadProfiles(path);
+
+        Assert.Empty(profiles);
+    }
+
+    [Fact]
     public void Duplicate_profile_names_throw()
     {
         var path = WriteTempConfig(
