@@ -90,6 +90,21 @@ public class SqliteSnapshotRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void GetCurrentState_matches_a_recorded_path_case_insensitively()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = Repository.BeginSnapshot(now);
+        Repository.RecordFileVersion(snapshot, "a.txt", null, "hash-v1", 10, now, FileChangeKind.Added, now);
+        Repository.CompleteSnapshot(snapshot, now, SnapshotStats.Empty);
+
+        var current = Repository.GetCurrentState();
+
+        Assert.Single(current);
+        Assert.True(current.ContainsKey("A.TXT"));
+        Assert.Equal("hash-v1", current["A.TXT"].ContentHash);
+    }
+
+    [Fact]
     public void GetCurrentState_excludes_deleted_paths()
     {
         var now = DateTimeOffset.UtcNow;

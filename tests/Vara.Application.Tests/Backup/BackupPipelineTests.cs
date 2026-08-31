@@ -121,6 +121,42 @@ public class BackupPipelineTests : IDisposable
         Assert.Empty(secondRun.FailedPaths);
     }
 
+    [Fact]
+    public void Running_twice_after_a_source_files_casing_changes_treats_it_as_unchanged_not_as_a_new_addition()
+    {
+        var path = Path.Combine(_root, "Photo.JPG");
+        File.WriteAllText(path, "hello");
+        var modifiedAt = File.GetLastWriteTimeUtc(path);
+
+        var repository = new FakeSnapshotRepository();
+        var contentStore = new FakeContentStore();
+
+        var firstEntry = new ScannedEntry("Photo.JPG", path, 5, modifiedAt, false, null);
+        var firstRun = new BackupPipeline(
+            new FakeFileSystemScanner([firstEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock()).Run(SimpleProfile(_root));
+        Assert.Equal(1, firstRun.Stats.FilesAdded);
+
+        // Simulate the source file being renamed with only its casing changed - size and
+        // modified time are unaffected, so the scanner reports the same file under a
+        // different-cased path. A fresh scanner/lock models the second run's process
+        // lifetime, but the same repository/content store carries persisted state forward.
+        var secondEntry = new ScannedEntry("photo.jpg", path, 5, modifiedAt, false, null);
+        var secondRun = new BackupPipeline(
+            new FakeFileSystemScanner([secondEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock()).Run(SimpleProfile(_root));
+
+        Assert.Equal(0, secondRun.Stats.FilesAdded);
+        Assert.Equal(0, secondRun.Stats.FilesChanged);
+        Assert.Equal(0, secondRun.Stats.FilesDeleted);
+        Assert.Equal(0, secondRun.Stats.BytesTransferred);
+        Assert.Empty(secondRun.FailedPaths);
+
+        // The prior entry is matched, not orphaned: exactly one current-state entry exists,
+        // reachable under either casing.
+        var current = repository.GetCurrentState();
+        Assert.Single(current);
+        Assert.True(current.ContainsKey("photo.jpg"));
+    }
+
     private sealed class ThrowingScanner : IFileSystemScanner
     {
         public ScanResult Scan(IReadOnlyList<Source> sources) => throw new InvalidOperationException("scan failed");

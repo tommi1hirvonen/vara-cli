@@ -36,6 +36,21 @@ public class BackupDifferTests
     }
 
     [Fact]
+    public void A_path_differing_only_in_casing_with_matching_size_and_mtime_is_unchanged()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var current = new Dictionary<string, CurrentFileState>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Photo.JPG"] = new("Photo.JPG", "hash", 10, now)
+        };
+
+        var result = _differ.Diff([Entry("photo.jpg", 10, now)], current);
+
+        Assert.Empty(result.Pending);
+        Assert.Empty(result.DeletedPaths);
+    }
+
+    [Fact]
     public void A_path_with_a_different_size_is_classified_as_changed()
     {
         var now = DateTimeOffset.UtcNow;

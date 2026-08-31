@@ -272,7 +272,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
             """;
         command.Parameters.AddWithValue("$deleted", nameof(FileChangeKind.Deleted));
 
-        var result = new Dictionary<string, CurrentFileState>();
+        var result = new Dictionary<string, CurrentFileState>(StringComparer.OrdinalIgnoreCase);
         using var reader = command.ExecuteReader();
         while (reader.Read())
         {

@@ -60,4 +60,10 @@ comparer is ordinal/case-sensitive while the deleted-set check is case-insensiti
 
 ## Open Questions
 
-(none)
+- Should this repo have a cross-layer integration test project (e.g. one that references both
+  `Vara.Application` and `Vara.Infrastructure`) so pipeline-level regression tests can run
+  against real port implementations instead of hand-maintained fakes? This change's regression
+  test (task 2.3) still exercises `FakeSnapshotRepository`, not the real
+  `SqliteSnapshotRepository`, because no such project exists today and `Vara.Application.Tests`
+  has no reference to `Vara.Infrastructure`. Deferred to a follow-up proposal after this change
+  is archived - does not change this change's specs, approach, or task breakdown.

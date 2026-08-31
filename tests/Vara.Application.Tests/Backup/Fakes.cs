@@ -264,7 +264,7 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
 
     public IReadOnlyDictionary<string, CurrentFileState> GetCurrentState()
     {
-        var result = new Dictionary<string, CurrentFileState>();
+        var result = new Dictionary<string, CurrentFileState>(StringComparer.OrdinalIgnoreCase);
         foreach (var group in _fileVersions.GroupBy(r => r.RelativePath))
         {
             var latest = group.OrderByDescending(r => r.Id).First();
