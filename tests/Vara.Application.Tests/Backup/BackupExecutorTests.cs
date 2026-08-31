@@ -90,6 +90,32 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
+    public void A_move_retried_after_the_mirror_was_already_relocated_completes_normally()
+    {
+        // Simulates a run interrupted between the mirror's physical relocation and the
+        // manifest transaction recording it: the destination already holds the content
+        // and the source is already gone, but no manifest row exists yet for either path.
+        _contentStore.PlaceAtMirrorPath("hash-1", @"Documents\report.pdf");
+        var plan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Move, @"Documents\report.pdf", @"Downloads\report.pdf", null, 100, DateTimeOffset.UtcNow, "hash-1")],
+            0);
+        var executor = new BackupExecutor(_contentStore, _repository);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+
+        Assert.Equal(1, outcome.FilesMoved);
+        Assert.Empty(outcome.FailedPaths);
+        Assert.True(_contentStore.Mirror.ContainsKey(@"Documents\report.pdf"));
+        Assert.Contains(
+            _repository.GetFileHistory(@"Downloads\report.pdf"),
+            r => r.ChangeKind == Vara.Core.Snapshots.FileChangeKind.Deleted);
+        Assert.Contains(
+            _repository.GetFileHistory(@"Documents\report.pdf"),
+            r => r.ChangeKind == Vara.Core.Snapshots.FileChangeKind.Moved);
+    }
+
+    [Fact]
     public void Executing_a_delete_removes_the_mirror_entry_and_records_a_tombstone()
     {
         _contentStore.PlaceAtMirrorPath("hash-1", "gone.txt");

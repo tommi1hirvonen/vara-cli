@@ -55,7 +55,18 @@ internal sealed class FakeContentStore : IContentStore
         if (Mirror.TryRemove(fromRelativePath, out var hash))
         {
             Mirror[toRelativePath] = hash;
+            return;
         }
+
+        if (Mirror.ContainsKey(toRelativePath))
+        {
+            // Mirrors FileSystemContentStore.MoveMirrorEntry's crash-recovery behavior:
+            // the source is already gone but the destination already holds the expected
+            // content, meaning a prior interrupted run already completed this relocation.
+            return;
+        }
+
+        throw new FileNotFoundException($"No mirror entry at '{fromRelativePath}' or '{toRelativePath}'.");
     }
 
     public void RemoveFromMirror(string mirrorRelativePath)

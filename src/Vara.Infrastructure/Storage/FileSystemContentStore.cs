@@ -134,10 +134,26 @@ public sealed class FileSystemContentStore : IContentStore
         File.Move(stagingPath, mirrorPath, overwrite: true);
     }
 
+    /// <summary>
+    /// Relocates an existing mirror entry from one relative path to another. If
+    /// <paramref name="fromRelativePath"/> no longer exists but <paramref name="toRelativePath"/>
+    /// already does, a prior run already completed this exact relocation before being
+    /// interrupted between the mirror rename and its manifest commit (see design.md's
+    /// "Crash between a move's mirror relocation and its manifest commit") - the relocation
+    /// is treated as already satisfied instead of failing every retry. If neither path
+    /// exists, this is a genuine failure and <see cref="File.Move(string, string, bool)"/>
+    /// still throws as before.
+    /// </summary>
     public void MoveMirrorEntry(string fromRelativePath, string toRelativePath)
     {
         var fromPath = Path.Combine(_mirrorRoot, fromRelativePath);
         var toPath = Path.Combine(_mirrorRoot, toRelativePath);
+
+        if (!File.Exists(fromPath) && File.Exists(toPath))
+        {
+            return;
+        }
+
         Directory.CreateDirectory(Path.GetDirectoryName(toPath)!);
         File.Move(fromPath, toPath, overwrite: true);
     }

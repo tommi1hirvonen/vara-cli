@@ -128,6 +128,35 @@ public class FileSystemContentStoreTests : IDisposable
     }
 
     [Fact]
+    public void MoveMirrorEntry_retried_after_the_destination_already_exists_is_a_no_op()
+    {
+        // Simulates a run interrupted between the mirror rename and its manifest commit:
+        // the physical relocation already happened, so the retry must not throw.
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        var (hash, _) = store.StoreFromStream(Content("movable content"));
+        store.PlaceAtMirrorPath(hash, @"Downloads\report.pdf");
+        store.MoveMirrorEntry(@"Downloads\report.pdf", @"Documents\report.pdf");
+
+        store.MoveMirrorEntry(@"Downloads\report.pdf", @"Documents\report.pdf");
+
+        Assert.False(File.Exists(Path.Combine(_targetRoot, "Downloads", "report.pdf")));
+        var newPath = Path.Combine(_targetRoot, "Documents", "report.pdf");
+        Assert.True(File.Exists(newPath));
+        Assert.Equal("movable content", File.ReadAllText(newPath));
+    }
+
+    [Fact]
+    public void MoveMirrorEntry_throws_when_neither_source_nor_destination_exists()
+    {
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+
+        Assert.Throws<FileNotFoundException>(() =>
+            store.MoveMirrorEntry(@"Downloads\missing.pdf", @"Documents\missing.pdf"));
+    }
+
+    [Fact]
     public void RemoveFromMirror_deletes_the_mirror_entry_but_keeps_the_blob()
     {
         var store = CreateStore();
