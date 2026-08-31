@@ -18,11 +18,15 @@ After a successful backup run, the target mirror directory SHALL contain exactly
 - **THEN** after the next backup run, the file no longer exists in the mirror
 
 ### Requirement: Source exclusion rules honored
-The system SHALL exclude files and directories matching a source's configured exclude list or glob patterns from both scanning and the mirror, treating them as if they do not exist in the source.
+The system SHALL exclude files and directories matching a source's configured exclude list or glob patterns from both scanning and the mirror, treating them as if they do not exist in the source. Matching a nested exclude entry against a scanned path SHALL be insensitive to whether the entry or the scanned path uses a forward slash (`/`) or a backslash (`\`) as its path separator, so an exclude entry written with either separator style matches consistently.
 
 #### Scenario: Excluded subfolder
 - **WHEN** a source configures an excluded subfolder
 - **THEN** files under that subfolder do not appear in the mirror and are not scanned for changes
+
+#### Scenario: Nested exclude written with the non-native path separator
+- **WHEN** a source configures a nested excluded path (for example, a subfolder within a subfolder) using a path separator different from the one the host platform normally produces for relative paths
+- **THEN** files under that nested path do not appear in the mirror and are not scanned for changes, the same as if the entry had used the platform's native separator
 
 ### Requirement: Incremental change detection
 The system SHALL determine which files changed since the last successful snapshot by comparing current source file size and modification time against the recorded manifest, without reading or transferring unchanged file content. The system SHALL match a scanned source path against the manifest's recorded paths case-insensitively, consistent with the case-insensitive, case-preserving semantics of the filesystems it targets, so that a path differing from a recorded path only in character casing is recognized as the same tracked file rather than an unrelated addition.
