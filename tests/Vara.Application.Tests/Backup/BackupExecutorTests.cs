@@ -104,6 +104,79 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
+    public void A_locked_mirror_entry_during_move_is_recorded_as_failed_without_aborting_the_run()
+    {
+        _contentStore.PlaceAtMirrorPath("hash-1", @"Downloads\report.pdf");
+        _contentStore.ThrowOnMove = new IOException("The process cannot access the file because it is being used by another process.");
+        var okPath = WriteFile("ok.txt", "this one is fine");
+
+        var plan = new BackupPlan(
+            [
+                new PlannedOperation(PlannedOperationKind.Move, @"Documents\report.pdf", @"Downloads\report.pdf", null, 100, DateTimeOffset.UtcNow, "hash-1"),
+                new PlannedOperation(PlannedOperationKind.Add, "ok.txt", null, okPath, 17, DateTimeOffset.UtcNow, null),
+            ],
+            17);
+        var executor = new BackupExecutor(_contentStore, _repository);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+
+        Assert.Equal(1, outcome.FilesFailed);
+        Assert.Equal([@"Documents\report.pdf"], outcome.FailedPaths);
+        Assert.Equal(0, outcome.FilesMoved);
+        Assert.Equal(1, outcome.FilesAdded);
+        Assert.True(_contentStore.Mirror.ContainsKey("ok.txt"));
+    }
+
+    [Fact]
+    public void A_locked_mirror_entry_during_delete_is_recorded_as_failed_without_aborting_the_run()
+    {
+        _contentStore.PlaceAtMirrorPath("hash-1", "gone.txt");
+        _contentStore.ThrowOnRemove = new IOException("The process cannot access the file because it is being used by another process.");
+        var okPath = WriteFile("ok.txt", "this one is fine");
+
+        var plan = new BackupPlan(
+            [
+                new PlannedOperation(PlannedOperationKind.Delete, "gone.txt", null, null, 10, DateTimeOffset.UtcNow, "hash-1"),
+                new PlannedOperation(PlannedOperationKind.Add, "ok.txt", null, okPath, 17, DateTimeOffset.UtcNow, null),
+            ],
+            17);
+        var executor = new BackupExecutor(_contentStore, _repository);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+
+        Assert.Equal(1, outcome.FilesFailed);
+        Assert.Equal(["gone.txt"], outcome.FailedPaths);
+        Assert.Equal(0, outcome.FilesDeleted);
+        Assert.Equal(1, outcome.FilesAdded);
+        Assert.True(_contentStore.Mirror.ContainsKey("ok.txt"));
+    }
+
+    [Fact]
+    public void A_failed_move_does_not_record_any_file_version_for_the_affected_paths()
+    {
+        _contentStore.PlaceAtMirrorPath("hash-1", @"Downloads\report.pdf");
+        _contentStore.ThrowOnMove = new IOException("locked");
+        var okPath = WriteFile("ok.txt", "this one is fine");
+
+        var plan = new BackupPlan(
+            [
+                new PlannedOperation(PlannedOperationKind.Move, @"Documents\report.pdf", @"Downloads\report.pdf", null, 100, DateTimeOffset.UtcNow, "hash-1"),
+                new PlannedOperation(PlannedOperationKind.Add, "ok.txt", null, okPath, 17, DateTimeOffset.UtcNow, null),
+            ],
+            17);
+        var executor = new BackupExecutor(_contentStore, _repository);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+
+        Assert.Empty(_repository.GetFileHistory(@"Downloads\report.pdf"));
+        Assert.Empty(_repository.GetFileHistory(@"Documents\report.pdf"));
+        Assert.Single(_repository.GetFileHistory("ok.txt"));
+    }
+
+    [Fact]
     public void Many_adds_execute_correctly_under_bounded_parallelism()
     {
         const int fileCount = 50;

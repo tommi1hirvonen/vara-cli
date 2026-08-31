@@ -23,6 +23,12 @@ internal sealed class FakeContentStore : IContentStore
     public readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> Mirror = new(StringComparer.OrdinalIgnoreCase);
     private readonly FakeHasher _hasher = new();
 
+    /// <summary>Test seam: when set, <see cref="MoveMirrorEntry"/> throws this instead of performing the move.</summary>
+    public Exception? ThrowOnMove { get; set; }
+
+    /// <summary>Test seam: when set, <see cref="RemoveFromMirror"/> throws this instead of performing the removal.</summary>
+    public Exception? ThrowOnRemove { get; set; }
+
     public bool SupportsHardlinks { get; private set; }
     public bool ProbeHardlinkSupport() => SupportsHardlinks = true;
 
@@ -41,13 +47,27 @@ internal sealed class FakeContentStore : IContentStore
 
     public void MoveMirrorEntry(string fromRelativePath, string toRelativePath)
     {
+        if (ThrowOnMove is not null)
+        {
+            throw ThrowOnMove;
+        }
+
         if (Mirror.TryRemove(fromRelativePath, out var hash))
         {
             Mirror[toRelativePath] = hash;
         }
     }
 
-    public void RemoveFromMirror(string mirrorRelativePath) => Mirror.TryRemove(mirrorRelativePath, out _);
+    public void RemoveFromMirror(string mirrorRelativePath)
+    {
+        if (ThrowOnRemove is not null)
+        {
+            throw ThrowOnRemove;
+        }
+
+        Mirror.TryRemove(mirrorRelativePath, out _);
+    }
+
     public void DeleteContent(string hash) => _blobs.TryRemove(hash, out _);
     public void CleanupOrphanedTemp() { }
     public IReadOnlySet<string> ListAllStoredHashes() => _blobs.Keys.ToHashSet();

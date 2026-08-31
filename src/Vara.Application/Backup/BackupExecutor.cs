@@ -5,13 +5,15 @@ namespace Vara.Application.Backup;
 
 /// <summary>
 /// Carries out a resolved <see cref="BackupPlan"/> against the content store and
-/// manifest. Per-file failures (e.g. a locked file) are caught and recorded rather
-/// than aborting the run (backup-execution spec: "Unreadable files do not abort the
-/// run"). Add/Change operations - the only ones that perform real source-disk I/O -
-/// run with bounded parallelism suited to NVMe queue depth (design.md); Move/Delete
-/// operations are cheap metadata-only changes and run sequentially beforehand.
-/// Manifest writes and progress/counter updates are serialized under a lock, since a
-/// single SQLite connection is not safe for concurrent use from multiple threads.
+/// manifest. Per-operation failures (e.g. a locked file) are caught and recorded
+/// rather than aborting the run (backup-execution spec: "Unreadable files do not
+/// abort the run"), for Move/Delete against the mirror just as much as for
+/// Add/Change reads from the source. Add/Change operations - the only ones that
+/// perform real source-disk I/O - run with bounded parallelism suited to NVMe
+/// queue depth (design.md); Move/Delete operations are cheap metadata-only changes
+/// and run sequentially beforehand. Manifest writes and progress/counter updates
+/// are serialized under a lock, since a single SQLite connection is not safe for
+/// concurrent use from multiple threads.
 /// </summary>
 public sealed class BackupExecutor(IContentStore contentStore, ISnapshotRepository repository, int maxDegreeOfParallelism = 0)
 {
@@ -25,7 +27,7 @@ public sealed class BackupExecutor(IContentStore contentStore, ISnapshotReposito
 
         foreach (var operation in plan.Operations.Where(o => o.Kind is PlannedOperationKind.Move or PlannedOperationKind.Delete))
         {
-            ExecuteMoveOrDelete(operation, snapshotId, recordedAt, counts);
+            ExecuteMoveOrDelete(operation, snapshotId, recordedAt, counts, failedPaths, reportLock);
         }
 
         var transferOperations = plan.Operations.Where(o => o.Kind is PlannedOperationKind.Add or PlannedOperationKind.Change).ToList();
@@ -38,26 +40,37 @@ public sealed class BackupExecutor(IContentStore contentStore, ISnapshotReposito
         return new ExecutionOutcome(counts.BytesTransferred, counts.Added, counts.Changed, counts.Moved, counts.Deleted, counts.Failed, failedPaths);
     }
 
-    private void ExecuteMoveOrDelete(PlannedOperation operation, long snapshotId, DateTimeOffset recordedAt, Counts counts)
+    private void ExecuteMoveOrDelete(PlannedOperation operation, long snapshotId, DateTimeOffset recordedAt, Counts counts, List<string> failedPaths, object reportLock)
     {
-        if (operation.Kind == PlannedOperationKind.Move)
+        try
         {
-            contentStore.MoveMirrorEntry(operation.PreviousRelativePath!, operation.RelativePath);
-            repository.RecordFileVersion(
-                snapshotId, operation.PreviousRelativePath!, null, operation.KnownContentHash!,
-                operation.Size, operation.SourceModifiedAt, FileChangeKind.Deleted, recordedAt);
-            repository.RecordFileVersion(
-                snapshotId, operation.RelativePath, operation.PreviousRelativePath, operation.KnownContentHash!,
-                operation.Size, operation.SourceModifiedAt, FileChangeKind.Moved, recordedAt);
-            counts.Moved++;
+            if (operation.Kind == PlannedOperationKind.Move)
+            {
+                contentStore.MoveMirrorEntry(operation.PreviousRelativePath!, operation.RelativePath);
+                repository.RecordFileVersion(
+                    snapshotId, operation.PreviousRelativePath!, null, operation.KnownContentHash!,
+                    operation.Size, operation.SourceModifiedAt, FileChangeKind.Deleted, recordedAt);
+                repository.RecordFileVersion(
+                    snapshotId, operation.RelativePath, operation.PreviousRelativePath, operation.KnownContentHash!,
+                    operation.Size, operation.SourceModifiedAt, FileChangeKind.Moved, recordedAt);
+                counts.Moved++;
+            }
+            else
+            {
+                contentStore.RemoveFromMirror(operation.RelativePath);
+                repository.RecordFileVersion(
+                    snapshotId, operation.RelativePath, null, operation.KnownContentHash!,
+                    operation.Size, operation.SourceModifiedAt, FileChangeKind.Deleted, recordedAt);
+                counts.Deleted++;
+            }
         }
-        else
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            contentStore.RemoveFromMirror(operation.RelativePath);
-            repository.RecordFileVersion(
-                snapshotId, operation.RelativePath, null, operation.KnownContentHash!,
-                operation.Size, operation.SourceModifiedAt, FileChangeKind.Deleted, recordedAt);
-            counts.Deleted++;
+            lock (reportLock)
+            {
+                counts.Failed++;
+                failedPaths.Add(operation.RelativePath);
+            }
         }
     }
 
