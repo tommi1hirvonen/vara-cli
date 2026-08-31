@@ -71,6 +71,20 @@ public interface IContentStore
     void ExtractTo(string hash, string destinationAbsolutePath);
 
     /// <summary>
+    /// Whether <paramref name="absolutePath"/> resolves to a location inside this store's
+    /// mirror root. Used by the snapshot-history capability's restore command to refuse
+    /// restoring into the live mirror, which would corrupt it.
+    /// </summary>
+    bool IsWithinMirror(string absolutePath);
+
+    /// <summary>
+    /// Whether a file already exists at <paramref name="absolutePath"/>. Used by the
+    /// snapshot-history capability's restore command to guard against silently overwriting
+    /// an existing destination without explicit user confirmation.
+    /// </summary>
+    bool TargetExists(string absolutePath);
+
+    /// <summary>
     /// Enumerates every content hash physically present in the store. Used together with
     /// <see cref="Vara.Core.Abstractions.ISnapshotRepository.GetAllReferencedContentHashes"/> to
     /// compute which blobs are safe to garbage-collect after pruning.

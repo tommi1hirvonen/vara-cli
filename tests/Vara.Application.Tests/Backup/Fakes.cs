@@ -22,12 +22,19 @@ internal sealed class FakeContentStore : IContentStore
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> _blobs = new();
     public readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> Mirror = new(StringComparer.OrdinalIgnoreCase);
     private readonly FakeHasher _hasher = new();
+    private readonly HashSet<string> _existingTargets = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Test seam: when set, <see cref="MoveMirrorEntry"/> throws this instead of performing the move.</summary>
     public Exception? ThrowOnMove { get; set; }
 
     /// <summary>Test seam: when set, <see cref="RemoveFromMirror"/> throws this instead of performing the removal.</summary>
     public Exception? ThrowOnRemove { get; set; }
+
+    /// <summary>Test seam: destination paths for which <see cref="IsWithinMirror"/> should report containment.</summary>
+    public HashSet<string> MirrorPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Test seam: marks <paramref name="absolutePath"/> as already existing, so <see cref="TargetExists"/> reports it.</summary>
+    public void SeedExistingTarget(string absolutePath) => _existingTargets.Add(absolutePath);
 
     public bool SupportsHardlinks { get; private set; }
     public bool ProbeHardlinkSupport() => SupportsHardlinks = true;
@@ -98,6 +105,9 @@ internal sealed class FakeContentStore : IContentStore
 
         File.WriteAllBytes(destinationAbsolutePath, bytes);
     }
+
+    public bool IsWithinMirror(string absolutePath) => MirrorPaths.Contains(absolutePath);
+    public bool TargetExists(string absolutePath) => _existingTargets.Contains(absolutePath);
 }
 
 /// <summary>In-memory manifest standing in for <see cref="Vara.Infrastructure.Snapshots.SqliteSnapshotRepository"/>.

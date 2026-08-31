@@ -260,4 +260,64 @@ public class FileSystemContentStoreTests : IDisposable
         Assert.All(results, h => Assert.Equal(results[0], h));
         Assert.Single(store.ListAllStoredHashes());
     }
+
+    [Fact]
+    public void IsWithinMirror_reports_true_for_a_path_inside_the_mirror_root()
+    {
+        var store = CreateStore();
+
+        Assert.True(store.IsWithinMirror(Path.Combine(_targetRoot, "sub", "file.txt")));
+    }
+
+    [Fact]
+    public void IsWithinMirror_reports_true_for_the_mirror_root_itself()
+    {
+        var store = CreateStore();
+
+        Assert.True(store.IsWithinMirror(_targetRoot));
+    }
+
+    [Fact]
+    public void IsWithinMirror_reports_false_for_a_path_outside_the_mirror_root()
+    {
+        var store = CreateStore();
+        var outsidePath = Path.Combine(Path.GetTempPath(), $"vara-outside-{Guid.NewGuid():N}", "file.txt");
+
+        Assert.False(store.IsWithinMirror(outsidePath));
+    }
+
+    [Fact]
+    public void IsWithinMirror_reports_false_for_a_sibling_whose_name_merely_starts_with_the_mirror_roots_name()
+    {
+        var store = CreateStore();
+        var siblingWithSharedPrefix = _targetRoot + "-sibling";
+
+        Assert.False(store.IsWithinMirror(Path.Combine(siblingWithSharedPrefix, "file.txt")));
+    }
+
+    [Fact]
+    public void TargetExists_reports_true_for_an_existing_file()
+    {
+        var store = CreateStore();
+        var path = Path.Combine(Path.GetTempPath(), $"vara-existing-{Guid.NewGuid():N}.txt");
+        File.WriteAllText(path, "content");
+
+        try
+        {
+            Assert.True(store.TargetExists(path));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void TargetExists_reports_false_for_a_non_existing_file()
+    {
+        var store = CreateStore();
+        var path = Path.Combine(Path.GetTempPath(), $"vara-missing-{Guid.NewGuid():N}.txt");
+
+        Assert.False(store.TargetExists(path));
+    }
 }

@@ -131,6 +131,8 @@ public class PortAbstractionsTests
         public void CleanupOrphanedTemp() { }
         public IReadOnlySet<string> ListAllStoredHashes() => new HashSet<string>();
         public void ExtractTo(string hash, string destinationAbsolutePath) { }
+        public bool IsWithinMirror(string absolutePath) => false;
+        public bool TargetExists(string absolutePath) => false;
     }
 
     private sealed class FakeHasher : IHasher

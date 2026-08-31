@@ -166,4 +166,122 @@ public class SnapshotHistoryServiceTests
 
         Assert.Throws<NoMatchingVersionException>(() => service.RestoreVersion("a.txt", 9999, "out.txt"));
     }
+
+    [Fact]
+    public void RestoreAsOf_to_a_destination_within_the_mirror_throws_even_when_overwrite_is_true()
+    {
+        var contentStore = new FakeContentStore();
+        var (hash, _) = contentStore.StoreFromStream(new MemoryStream("content"u8.ToArray()));
+        contentStore.MirrorPaths.Add(@"C:\mirror\a.txt");
+        var repository = new FakeSnapshotRepository();
+        var t0 = DateTimeOffset.UtcNow;
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, "a.txt", null, hash, 7, t0, FileChangeKind.Added, t0);
+        var service = new SnapshotHistoryService(repository, contentStore);
+
+        var ex = Assert.Throws<RestoreDestinationInMirrorException>(
+            () => service.RestoreAsOf("a.txt", t0.AddDays(1), @"C:\mirror\a.txt", overwrite: true));
+        Assert.Equal(@"C:\mirror\a.txt", ex.DestinationPath);
+    }
+
+    [Fact]
+    public void RestoreAsOf_to_an_existing_destination_without_overwrite_throws_DestinationExists()
+    {
+        var contentStore = new FakeContentStore();
+        var (hash, _) = contentStore.StoreFromStream(new MemoryStream("content"u8.ToArray()));
+        contentStore.SeedExistingTarget("out.txt");
+        var repository = new FakeSnapshotRepository();
+        var t0 = DateTimeOffset.UtcNow;
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, "a.txt", null, hash, 7, t0, FileChangeKind.Added, t0);
+        var service = new SnapshotHistoryService(repository, contentStore);
+
+        var ex = Assert.Throws<DestinationExistsException>(() => service.RestoreAsOf("a.txt", t0.AddDays(1), "out.txt"));
+        Assert.Equal("out.txt", ex.DestinationPath);
+    }
+
+    [Fact]
+    public void RestoreAsOf_to_an_existing_destination_with_overwrite_true_overwrites_it()
+    {
+        var contentStore = new FakeContentStore();
+        var (hash, _) = contentStore.StoreFromStream(new MemoryStream("new content"u8.ToArray()));
+        contentStore.SeedExistingTarget("out.txt");
+        var repository = new FakeSnapshotRepository();
+        var t0 = DateTimeOffset.UtcNow;
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, "a.txt", null, hash, 11, t0, FileChangeKind.Added, t0);
+        var service = new SnapshotHistoryService(repository, contentStore);
+        var destination = Path.Combine(Path.GetTempPath(), $"vara-restore-{Guid.NewGuid():N}.txt");
+        contentStore.SeedExistingTarget(destination);
+
+        try
+        {
+            service.RestoreAsOf("a.txt", t0.AddDays(1), destination, overwrite: true);
+
+            Assert.Equal("new content", File.ReadAllText(destination));
+        }
+        finally
+        {
+            File.Delete(destination);
+        }
+    }
+
+    [Fact]
+    public void RestoreVersion_to_a_destination_within_the_mirror_throws_even_when_overwrite_is_true()
+    {
+        var contentStore = new FakeContentStore();
+        var (hash, _) = contentStore.StoreFromStream(new MemoryStream("content"u8.ToArray()));
+        contentStore.MirrorPaths.Add(@"C:\mirror\a.txt");
+        var repository = new FakeSnapshotRepository();
+        var s1 = repository.BeginSnapshot(DateTimeOffset.UtcNow);
+        repository.RecordFileVersion(s1, "a.txt", null, hash, 7, DateTimeOffset.UtcNow, FileChangeKind.Added, DateTimeOffset.UtcNow);
+        var versionId = repository.GetFileHistory("a.txt").Single().Id;
+        var service = new SnapshotHistoryService(repository, contentStore);
+
+        var ex = Assert.Throws<RestoreDestinationInMirrorException>(
+            () => service.RestoreVersion("a.txt", versionId, @"C:\mirror\a.txt", overwrite: true));
+        Assert.Equal(@"C:\mirror\a.txt", ex.DestinationPath);
+    }
+
+    [Fact]
+    public void RestoreVersion_to_an_existing_destination_without_overwrite_throws_DestinationExists()
+    {
+        var contentStore = new FakeContentStore();
+        var (hash, _) = contentStore.StoreFromStream(new MemoryStream("content"u8.ToArray()));
+        contentStore.SeedExistingTarget("out.txt");
+        var repository = new FakeSnapshotRepository();
+        var s1 = repository.BeginSnapshot(DateTimeOffset.UtcNow);
+        repository.RecordFileVersion(s1, "a.txt", null, hash, 7, DateTimeOffset.UtcNow, FileChangeKind.Added, DateTimeOffset.UtcNow);
+        var versionId = repository.GetFileHistory("a.txt").Single().Id;
+        var service = new SnapshotHistoryService(repository, contentStore);
+
+        var ex = Assert.Throws<DestinationExistsException>(() => service.RestoreVersion("a.txt", versionId, "out.txt"));
+        Assert.Equal("out.txt", ex.DestinationPath);
+    }
+
+    [Fact]
+    public void RestoreVersion_to_an_existing_destination_with_overwrite_true_overwrites_it()
+    {
+        var contentStore = new FakeContentStore();
+        var (hash, _) = contentStore.StoreFromStream(new MemoryStream("versioned content"u8.ToArray()));
+        var repository = new FakeSnapshotRepository();
+        var t0 = DateTimeOffset.UtcNow;
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, "a.txt", null, hash, 17, t0, FileChangeKind.Added, t0);
+        var versionId = repository.GetFileHistory("a.txt").Single().Id;
+        var service = new SnapshotHistoryService(repository, contentStore);
+        var destination = Path.Combine(Path.GetTempPath(), $"vara-restore-{Guid.NewGuid():N}.txt");
+        contentStore.SeedExistingTarget(destination);
+
+        try
+        {
+            service.RestoreVersion("a.txt", versionId, destination, overwrite: true);
+
+            Assert.Equal("versioned content", File.ReadAllText(destination));
+        }
+        finally
+        {
+            File.Delete(destination);
+        }
+    }
 }

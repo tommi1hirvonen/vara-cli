@@ -33,7 +33,9 @@ public static class ErrorReporting
                 or BackupAlreadyRunningException
                 or PruneAlreadyRunningException
                 or NoHistoryForPathException
-                or NoMatchingVersionException:
+                or NoMatchingVersionException
+                or RestoreDestinationInMirrorException
+                or DestinationExistsException:
                 message = ex.Message;
                 return true;
             default:

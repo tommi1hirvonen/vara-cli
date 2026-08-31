@@ -34,3 +34,24 @@ public sealed class NoMatchingVersionException : Exception
         VersionId = versionId;
     }
 }
+
+/// <summary>
+/// A restore was requested to a destination path that resolves inside the profile's live
+/// mirror. Refused unconditionally, since restore's contract is to extract content without
+/// touching the live mirror.
+/// </summary>
+public sealed class RestoreDestinationInMirrorException(string destinationPath)
+    : Exception($"Restore destination '{destinationPath}' is inside the profile's live mirror and would corrupt it. Choose a destination outside the mirror.")
+{
+    public string DestinationPath { get; } = destinationPath;
+}
+
+/// <summary>
+/// A restore was requested to a destination path that already contains a file, and no
+/// explicit overwrite override was given.
+/// </summary>
+public sealed class DestinationExistsException(string destinationPath)
+    : Exception($"Restore destination '{destinationPath}' already exists. Pass --force to overwrite it.")
+{
+    public string DestinationPath { get; } = destinationPath;
+}

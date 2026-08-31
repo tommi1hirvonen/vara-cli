@@ -228,6 +228,20 @@ public sealed class FileSystemContentStore : IContentStore
         File.Copy(blobPath, destinationAbsolutePath, overwrite: true);
     }
 
+    public bool IsWithinMirror(string absolutePath)
+    {
+        var resolvedMirrorRoot = Path.GetFullPath(_mirrorRoot);
+        var mirrorRootWithSeparator = resolvedMirrorRoot.EndsWith(Path.DirectorySeparatorChar)
+            ? resolvedMirrorRoot
+            : resolvedMirrorRoot + Path.DirectorySeparatorChar;
+
+        var resolvedPath = Path.GetFullPath(absolutePath);
+        return resolvedPath.Equals(resolvedMirrorRoot, StringComparison.OrdinalIgnoreCase)
+            || resolvedPath.StartsWith(mirrorRootWithSeparator, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public bool TargetExists(string absolutePath) => File.Exists(absolutePath);
+
     public IReadOnlySet<string> ListAllStoredHashes()
     {
         if (!Directory.Exists(_versionsRoot))
