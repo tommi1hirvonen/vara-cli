@@ -168,11 +168,16 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
 
     private static bool IsExcluded(string relativePath, Source source)
     {
+        // Normalize both sides to '/' so an exclude entry written with either separator
+        // style matches consistently, regardless of the platform's native separator
+        // used by Path.GetRelativePath - mirrors the normalization MatchesGlob applies.
+        var normalizedRelativePath = relativePath.Replace('\\', '/');
+
         foreach (var exclude in source.Excludes)
         {
-            var normalized = exclude.Trim().TrimEnd('\\', '/');
-            if (string.Equals(relativePath, normalized, StringComparison.OrdinalIgnoreCase) ||
-                relativePath.StartsWith(normalized + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            var normalized = exclude.Trim().TrimEnd('\\', '/').Replace('\\', '/');
+            if (string.Equals(normalizedRelativePath, normalized, StringComparison.OrdinalIgnoreCase) ||
+                normalizedRelativePath.StartsWith(normalized + '/', StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }

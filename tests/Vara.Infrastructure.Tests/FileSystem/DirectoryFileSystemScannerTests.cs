@@ -84,6 +84,30 @@ public class DirectoryFileSystemScannerTests : IDisposable
     }
 
     [Fact]
+    public void Nested_exclude_written_with_forward_slash_is_skipped()
+    {
+        WriteFile(Path_("keep.txt"), "keep");
+        WriteFile(Path_("sub", "excluded", "skip.txt"), "skip");
+
+        var entries = _scanner.Scan([new Source(_root, excludes: ["sub/excluded"])]).Entries.ToList();
+
+        var entry = Assert.Single(entries);
+        Assert.Equal("keep.txt", entry.RelativePath);
+    }
+
+    [Fact]
+    public void Nested_exclude_written_with_backslash_is_skipped()
+    {
+        WriteFile(Path_("keep.txt"), "keep");
+        WriteFile(Path_("sub", "excluded", "skip.txt"), "skip");
+
+        var entries = _scanner.Scan([new Source(_root, excludes: ["sub\\excluded"])]).Entries.ToList();
+
+        var entry = Assert.Single(entries);
+        Assert.Equal("keep.txt", entry.RelativePath);
+    }
+
+    [Fact]
     public void A_source_pointing_directly_at_a_single_file_scans_just_that_file()
     {
         var filePath = Path_("standalone.db");
