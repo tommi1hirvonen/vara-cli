@@ -67,11 +67,29 @@ The system SHALL NOT follow symbolic links, junctions, or other reparse points e
 - **THEN** the backup run completes without traversing the link's target, and records that a link existed at that path
 
 ### Requirement: Unreadable files do not abort the run
-WHEN a source file cannot be read (for example, because it is locked by another process), the system SHALL record the failure, skip the file for that run, and continue backing up the remaining files rather than aborting the entire run.
+WHEN a source file, directory, or other filesystem entry cannot be read (for example,
+because it is locked by another process, or the current user lacks permission to
+access it), the system SHALL record the failure, skip the affected file or subtree
+for that run, and continue backing up the remaining eligible files rather than
+aborting the entire run or exiting with an unhandled error.
 
 #### Scenario: Locked file encountered
 - **WHEN** a file in scope for backup is locked by another process and cannot be read
-- **THEN** the backup run completes, reports the file as failed, and backs up all other eligible files
+- **THEN** the backup run completes, reports the file as failed, and backs up all
+  other eligible files
+
+#### Scenario: Permission-denied file encountered during scanning
+- **WHEN** a file's metadata cannot be read while scanning because the current user
+  lacks permission to access it
+- **THEN** the backup run completes without an unhandled error, reports the file as
+  failed, and backs up all other eligible files
+
+#### Scenario: Permission-denied directory encountered during scanning
+- **WHEN** a directory's contents cannot be enumerated while scanning because the
+  current user lacks permission to access it
+- **THEN** the backup run completes, the run's result records that the directory's
+  subtree was skipped due to the failure, and the system backs up all other
+  eligible files outside that subtree
 
 ### Requirement: Crash and interruption safety
 The system SHALL apply changes to the mirror and version store such that an interrupted backup run (for example, due to process termination or power loss) leaves the mirror in a valid state consistent with some point during the run, never a partially-written or corrupted file.
