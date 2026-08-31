@@ -98,6 +98,43 @@ public class PruneServiceTests
     }
 
     [Fact]
+    public void Prune_never_removes_the_most_recent_completed_snapshot_even_with_an_all_zero_tier_policy()
+    {
+        var repository = new FakeSnapshotRepository();
+        var day1 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var day2 = day1.AddDays(1);
+        var day3 = day1.AddDays(2);
+
+        var addedSnapshot = repository.BeginSnapshot(day1);
+        repository.RecordFileVersion(addedSnapshot, "a.txt", null, "hash-1", 10, day1, FileChangeKind.Added, day1);
+        repository.CompleteSnapshot(addedSnapshot, day1, SnapshotStats.Empty);
+
+        var changedSnapshot = repository.BeginSnapshot(day2);
+        repository.RecordFileVersion(changedSnapshot, "a.txt", null, "hash-2", 10, day2, FileChangeKind.Changed, day2);
+        repository.CompleteSnapshot(changedSnapshot, day2, SnapshotStats.Empty);
+
+        // The most recent completed snapshot is a no-op re-run: nothing changed since
+        // changedSnapshot, so it records zero file_versions rows and has nothing of its
+        // own to anchor it in the manifest store.
+        var noOpSnapshot = repository.BeginSnapshot(day3);
+        repository.CompleteSnapshot(noOpSnapshot, day3, SnapshotStats.Empty);
+
+        // An all-zero-tier policy retains nothing via bucket math, so without the
+        // newest-snapshot guarantee every completed snapshot - including noOpSnapshot -
+        // would be eligible for removal.
+        var policy = new RetentionPolicy(0, 0, 0, 0);
+        var service = new PruneService(repository, new FakeContentStore(), new FakeRunLock());
+
+        var result = service.Prune(ProfileWithRetention(policy));
+
+        Assert.Equal(1, result.SnapshotsRemoved); // only addedSnapshot, superseded by changedSnapshot
+        var remainingIds = repository.ListSnapshots().Select(s => s.Id).ToHashSet();
+        Assert.DoesNotContain(addedSnapshot, remainingIds);
+        Assert.Contains(changedSnapshot, remainingIds); // still anchors the current row for a.txt
+        Assert.Contains(noOpSnapshot, remainingIds); // retained solely via the newest-snapshot guarantee
+    }
+
+    [Fact]
     public void Prune_throws_when_another_operation_already_holds_the_lock()
     {
         var service = new PruneService(new FakeSnapshotRepository(), new FakeContentStore(), new FakeRunLock(acquirable: false));
