@@ -9,10 +9,15 @@ namespace Vara.Infrastructure.Snapshots;
 /// SQLite-backed manifest for a single profile: snapshots and their file-version
 /// history. Uses <c>Microsoft.Data.Sqlite</c> directly (no ORM) - see design.md for
 /// the rationale (small, stable schema; set-based queries; Native AOT safety).
+/// Opens with <c>journal_mode=WAL</c>/<c>synchronous=NORMAL</c> and supports an
+/// explicit <see cref="BeginManifestBatch"/> scope so a caller can group many
+/// <see cref="RecordFileVersion"/> (and outcome) writes into one commit instead of
+/// paying a fsync per call - see the batch-manifest-writes change's design.md.
 /// </summary>
 public sealed class SqliteSnapshotRepository : ISnapshotRepository
 {
     private readonly SqliteConnection _connection;
+    private SqliteTransaction? _activeBatchTransaction;
 
     public SqliteSnapshotRepository(string databasePath)
     {
@@ -24,7 +29,24 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
 
         _connection = new SqliteConnection($"Data Source={databasePath}");
         _connection.Open();
+        ConfigurePragmas();
         InitializeSchema();
+    }
+
+    /// <summary>
+    /// WAL journaling lets the single writer commit without exclusively locking the
+    /// whole file, and <c>synchronous=NORMAL</c> avoids an fsync on every commit while
+    /// still guaranteeing the database itself is never corrupted on crash - only that a
+    /// very recent commit might not survive a power loss, which the batch commit
+    /// boundary already tolerates a wider exposure than (see design.md's PRAGMA
+    /// decision). WAL mode persists in the database file itself, so this only needs to
+    /// be requested once; <c>synchronous</c> is connection-scoped and is set every open.
+    /// </summary>
+    private void ConfigurePragmas()
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = "PRAGMA journal_mode = 'wal'; PRAGMA synchronous = 'normal';";
+        command.ExecuteNonQuery();
     }
 
     private void InitializeSchema()
@@ -102,6 +124,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
         DateTimeOffset recordedAt)
     {
         using var command = _connection.CreateCommand();
+        command.Transaction = _activeBatchTransaction;
         command.CommandText = """
             INSERT INTO file_versions
                 (snapshot_id, relative_path, previous_relative_path, content_hash, size, source_modified_at, change_kind, recorded_at)
@@ -125,9 +148,90 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
     public void FailSnapshot(long snapshotId, DateTimeOffset failedAt, SnapshotStats stats) =>
         UpdateSnapshotOutcome(snapshotId, failedAt, SnapshotStatus.Failed, stats);
 
+    /// <summary>
+    /// See <see cref="ISnapshotRepository.BeginManifestBatch"/>. Backed by a real SQLite
+    /// transaction: <see cref="RecordFileVersion"/> and <see cref="UpdateSnapshotOutcome"/>
+    /// attach to it via <see cref="_activeBatchTransaction"/> for as long as it is open, so
+    /// they commit (or roll back) together instead of one auto-commit per call.
+    /// </summary>
+    public IManifestBatch BeginManifestBatch()
+    {
+        if (_activeBatchTransaction is not null)
+        {
+            throw new InvalidOperationException("A manifest batch is already active on this repository.");
+        }
+
+        _activeBatchTransaction = _connection.BeginTransaction();
+        return new ManifestBatch(this);
+    }
+
+    private void CommitActiveBatch()
+    {
+        if (_activeBatchTransaction is null)
+        {
+            throw new InvalidOperationException("No active manifest batch to commit.");
+        }
+
+        _activeBatchTransaction.Commit();
+        _activeBatchTransaction.Dispose();
+        _activeBatchTransaction = null;
+
+        // Fold the just-committed writes back into the main database file so a plain
+        // copy of it (without the -wal/-shm sidecar files) is self-contained again
+        // between runs - see design.md's WAL-checkpoint decision.
+        using var checkpoint = _connection.CreateCommand();
+        checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+        checkpoint.ExecuteNonQuery();
+    }
+
+    private void DiscardActiveBatch()
+    {
+        if (_activeBatchTransaction is null)
+        {
+            return;
+        }
+
+        _activeBatchTransaction.Rollback();
+        _activeBatchTransaction.Dispose();
+        _activeBatchTransaction = null;
+    }
+
+    /// <summary>
+    /// Disposing without a prior <see cref="Commit"/> rolls back the transaction, discarding
+    /// every write made during the batch - modeling (or recovering cleanly from) an
+    /// interrupted run per the backup-execution spec's batching requirement.
+    /// </summary>
+    private sealed class ManifestBatch(SqliteSnapshotRepository owner) : IManifestBatch
+    {
+        private bool _finished;
+
+        public void Commit()
+        {
+            if (_finished)
+            {
+                return;
+            }
+
+            owner.CommitActiveBatch();
+            _finished = true;
+        }
+
+        public void Dispose()
+        {
+            if (_finished)
+            {
+                return;
+            }
+
+            owner.DiscardActiveBatch();
+            _finished = true;
+        }
+    }
+
     private void UpdateSnapshotOutcome(long snapshotId, DateTimeOffset completedAt, SnapshotStatus status, SnapshotStats stats)
     {
         using var command = _connection.CreateCommand();
+        command.Transaction = _activeBatchTransaction;
         command.CommandText = """
             UPDATE snapshots
             SET completed_at = $completedAt, status = $status,

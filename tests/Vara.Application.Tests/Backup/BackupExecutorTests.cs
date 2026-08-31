@@ -206,4 +206,73 @@ public class BackupExecutorTests : IDisposable
         Assert.Equal(fileCount, _contentStore.Mirror.Count);
         Assert.Equal(fileCount, _repository.GetCurrentState().Count);
     }
+
+    [Fact]
+    public void Manifest_writes_for_many_files_commit_once_as_a_batch_not_per_file()
+    {
+        const int fileCount = 25;
+        var operations = new List<PlannedOperation>();
+        long expectedBytes = 0;
+
+        for (var i = 0; i < fileCount; i++)
+        {
+            var content = $"content of file {i}";
+            var path = WriteFile($"file-{i}.txt", content);
+            var size = new FileInfo(path).Length;
+            expectedBytes += size;
+            operations.Add(new PlannedOperation(PlannedOperationKind.Add, $"file-{i}.txt", null, path, size, DateTimeOffset.UtcNow, null));
+        }
+
+        var plan = new BackupPlan(operations, expectedBytes);
+        var executor = new BackupExecutor(_contentStore, _repository, maxDegreeOfParallelism: 8);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        ExecutionOutcome outcome;
+        using (var batch = _repository.BeginManifestBatch())
+        {
+            outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+
+            // Nothing is durable yet - the batch covering all 25 files has not committed.
+            Assert.Empty(_repository.GetFileHistory("file-0.txt"));
+
+            batch.Commit();
+        }
+
+        Assert.Equal(fileCount, outcome.FilesAdded);
+        // One commit made every file's row durable - not one commit per file.
+        Assert.Equal(1, _repository.CommitCount);
+        Assert.Equal(fileCount, _repository.GetCurrentState().Count);
+        for (var i = 0; i < fileCount; i++)
+        {
+            Assert.Single(_repository.GetFileHistory($"file-{i}.txt"));
+        }
+    }
+
+    [Fact]
+    public void A_crash_before_batch_commit_leaves_mirror_correct_but_manifest_rows_absent()
+    {
+        var path = WriteFile("new.txt", "hello world");
+        var plan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Add, "new.txt", null, path, 11, DateTimeOffset.UtcNow, null)], 11);
+        var executor = new BackupExecutor(_contentStore, _repository);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        using (_repository.BeginManifestBatch())
+        {
+            var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+            Assert.Equal(1, outcome.FilesAdded);
+            // No Commit() call here - models the process crashing mid-run, before the
+            // batch's transaction would have committed.
+        }
+
+        // The mirror content is already correct, since content-store writes happen
+        // outside the manifest batch...
+        Assert.True(_contentStore.Mirror.ContainsKey("new.txt"));
+
+        // ...but the manifest never durably recorded it, so the next run's incremental
+        // scan will find no history for "new.txt" and simply re-add it - self-healing,
+        // not data loss or corruption (backup-execution spec's batching requirement).
+        Assert.Empty(_repository.GetFileHistory("new.txt"));
+        Assert.Empty(_repository.GetCurrentState());
+    }
 }

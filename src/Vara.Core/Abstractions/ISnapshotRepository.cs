@@ -44,6 +44,17 @@ public interface ISnapshotRepository : IDisposable
     void FailSnapshot(long snapshotId, DateTimeOffset failedAt, SnapshotStats stats);
 
     /// <summary>
+    /// Begins a batch scope grouping subsequent <see cref="RecordFileVersion"/>,
+    /// <see cref="CompleteSnapshot"/>, and <see cref="FailSnapshot"/> calls into one
+    /// commit, instead of each committing independently (backup-execution spec's
+    /// "Manifest writes are batched per snapshot" requirement). <see cref="BeginSnapshot"/>
+    /// is unaffected and always commits immediately, so an interrupted run is still
+    /// discoverable as <see cref="Snapshots.SnapshotStatus.Running"/> on next startup.
+    /// Only one batch may be active at a time.
+    /// </summary>
+    IManifestBatch BeginManifestBatch();
+
+    /// <summary>
     /// The current (latest, non-deleted) state of every tracked path, keyed by relative path.
     /// </summary>
     IReadOnlyDictionary<string, CurrentFileState> GetCurrentState();

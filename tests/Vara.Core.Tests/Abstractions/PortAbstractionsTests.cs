@@ -101,6 +101,7 @@ public class PortAbstractionsTests
         }
 
         public void FailSnapshot(long snapshotId, DateTimeOffset failedAt, SnapshotStats stats) { }
+        public IManifestBatch BeginManifestBatch() => new NoOpManifestBatch();
         public IReadOnlyDictionary<string, CurrentFileState> GetCurrentState() => new Dictionary<string, CurrentFileState>();
         public IReadOnlyList<Snapshot> ListSnapshots() => _snapshots;
         public Snapshot? GetLastCompletedSnapshot() => _snapshots.LastOrDefault(s => s.Status == SnapshotStatus.Complete);
@@ -109,6 +110,12 @@ public class PortAbstractionsTests
         public void DeleteSnapshot(long snapshotId) { }
         public int PruneSnapshots(IReadOnlyList<long> snapshotIds) => 0;
         public IReadOnlySet<string> GetAllReferencedContentHashes() => new HashSet<string>();
+
+        private sealed class NoOpManifestBatch : IManifestBatch
+        {
+            public void Commit() { }
+            public void Dispose() { }
+        }
     }
 
     private sealed class FakeContentStore : IContentStore

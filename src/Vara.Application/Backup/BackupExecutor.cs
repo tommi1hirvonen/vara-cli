@@ -13,7 +13,12 @@ namespace Vara.Application.Backup;
 /// queue depth (design.md); Move/Delete operations are cheap metadata-only changes
 /// and run sequentially beforehand. Manifest writes and progress/counter updates
 /// are serialized under a lock, since a single SQLite connection is not safe for
-/// concurrent use from multiple threads.
+/// concurrent use from multiple threads. The caller (<see cref="BackupPipeline"/>)
+/// wraps a whole snapshot's manifest writes - the ones made here plus its own
+/// trailing outcome update - in one <see cref="Vara.Core.Abstractions.IManifestBatch"/>
+/// commit, so this executor pays no per-file commit cost even though it still calls
+/// <see cref="Vara.Core.Abstractions.ISnapshotRepository.RecordFileVersion"/> once per
+/// operation (batch-manifest-writes change's design.md).
 /// </summary>
 public sealed class BackupExecutor(IContentStore contentStore, ISnapshotRepository repository, int maxDegreeOfParallelism = 0)
 {

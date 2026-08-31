@@ -249,4 +249,97 @@ public class SqliteSnapshotRepositoryTests : IDisposable
         Assert.DoesNotContain(oldSnapshot, Repository.ListSnapshots().Select(s => s.Id));
         Assert.Equal("hash-2", Repository.GetCurrentState()["a.txt"].ContentHash);
     }
+
+    [Fact]
+    public void A_fresh_database_uses_wal_journal_mode()
+    {
+        _ = Repository; // trigger creation
+
+        using var connection = new SqliteConnection($"Data Source={_dbPath}");
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA journal_mode;";
+        var mode = (string)command.ExecuteScalar()!;
+
+        // WAL mode is persisted in the database file's header, so any connection that
+        // opens the file - not just the one that requested it - reports "wal".
+        Assert.Equal("wal", mode, ignoreCase: true);
+    }
+
+    [Fact]
+    public void Manifest_batch_writes_are_not_durable_until_committed()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var snapshotId = Repository.BeginSnapshot(now);
+
+        using (var batch = Repository.BeginManifestBatch())
+        {
+            Repository.RecordFileVersion(snapshotId, "a.txt", null, "hash-1", 10, now, FileChangeKind.Added, now);
+
+            Assert.Equal(0, CountFileVersionRowsViaSeparateConnection());
+
+            batch.Commit();
+        }
+
+        Assert.Equal(1, CountFileVersionRowsViaSeparateConnection());
+    }
+
+    [Fact]
+    public void A_batch_disposed_without_commit_rolls_back_both_rows_and_snapshot_outcome()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var snapshotId = Repository.BeginSnapshot(now);
+
+        using (var batch = Repository.BeginManifestBatch())
+        {
+            Repository.RecordFileVersion(snapshotId, "a.txt", null, "hash-1", 10, now, FileChangeKind.Added, now);
+            Repository.CompleteSnapshot(snapshotId, now, new SnapshotStats(10, 1, 0, 0, 0, 0));
+            // No Commit() call - models a crash mid-batch: the rows and the outcome
+            // update above must both roll back together (design.md's atomic-outcome decision).
+        }
+
+        // A fresh repository instance opening the same file models the process restarting.
+        using var reopened = new SqliteSnapshotRepository(_dbPath);
+        reopened.ReconcileIncompleteSnapshots();
+
+        var snapshot = reopened.ListSnapshots().Single(s => s.Id == snapshotId);
+        Assert.Equal(SnapshotStatus.Failed, snapshot.Status); // reconciled from the still-Running state
+        Assert.Empty(reopened.GetFileHistory("a.txt"));
+    }
+
+    [Fact]
+    public void Committing_a_batch_checkpoints_and_truncates_the_wal_file()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var snapshotId = Repository.BeginSnapshot(now);
+
+        using (var batch = Repository.BeginManifestBatch())
+        {
+            Repository.RecordFileVersion(snapshotId, "a.txt", null, "hash-1", 10, now, FileChangeKind.Added, now);
+            Repository.CompleteSnapshot(snapshotId, now, new SnapshotStats(10, 1, 0, 0, 0, 0));
+            batch.Commit();
+        }
+
+        var walPath = _dbPath + "-wal";
+        var walSize = File.Exists(walPath) ? new FileInfo(walPath).Length : 0;
+        Assert.Equal(0, walSize);
+    }
+
+    [Fact]
+    public void Beginning_a_second_batch_while_one_is_active_throws()
+    {
+        Repository.BeginSnapshot(DateTimeOffset.UtcNow);
+        using var batch = Repository.BeginManifestBatch();
+
+        Assert.Throws<InvalidOperationException>(() => Repository.BeginManifestBatch());
+    }
+
+    private int CountFileVersionRowsViaSeparateConnection()
+    {
+        using var connection = new SqliteConnection($"Data Source={_dbPath}");
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM file_versions";
+        return Convert.ToInt32(command.ExecuteScalar());
+    }
 }

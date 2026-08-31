@@ -89,7 +89,11 @@ internal sealed class FakeContentStore : IContentStore
     }
 }
 
-/// <summary>In-memory manifest standing in for <see cref="Vara.Infrastructure.Snapshots.SqliteSnapshotRepository"/>.</summary>
+/// <summary>In-memory manifest standing in for <see cref="Vara.Infrastructure.Snapshots.SqliteSnapshotRepository"/>.
+/// Models <see cref="BeginManifestBatch"/> by buffering writes made during an open batch and
+/// only folding them into the "durable" lists on <see cref="IManifestBatch.Commit"/> - this
+/// approximates what would actually survive a real process crash before a commit, which is
+/// exactly what the batch-manifest-writes change's tests need to assert.</summary>
 internal sealed class FakeSnapshotRepository : ISnapshotRepository
 {
     private readonly List<Snapshot> _snapshots = [];
@@ -97,7 +101,15 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
     private long _nextSnapshotId = 1;
     private long _nextRecordId = 1;
 
+    private List<FileVersionRecord>? _pendingFileVersions;
+    private List<(long SnapshotId, DateTimeOffset At, SnapshotStatus Status, SnapshotStats Stats)>? _pendingOutcomes;
+    private bool _batchActive;
+
     public int ReconcileCallCount { get; private set; }
+
+    /// <summary>Number of times a manifest batch was durably committed - used by tests to
+    /// assert that many manifest writes fold into one commit rather than one-per-file.</summary>
+    public int CommitCount { get; private set; }
 
     public void Dispose() { }
 
@@ -122,9 +134,20 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
 
     public void RecordFileVersion(
         long snapshotId, string relativePath, string? previousRelativePath, string contentHash,
-        long size, DateTimeOffset sourceModifiedAt, FileChangeKind changeKind, DateTimeOffset recordedAt) =>
-        _fileVersions.Add(new FileVersionRecord(
-            _nextRecordId++, snapshotId, relativePath, previousRelativePath, contentHash, size, sourceModifiedAt, changeKind, recordedAt));
+        long size, DateTimeOffset sourceModifiedAt, FileChangeKind changeKind, DateTimeOffset recordedAt)
+    {
+        var record = new FileVersionRecord(
+            _nextRecordId++, snapshotId, relativePath, previousRelativePath, contentHash, size, sourceModifiedAt, changeKind, recordedAt);
+
+        if (_batchActive)
+        {
+            (_pendingFileVersions ??= []).Add(record);
+        }
+        else
+        {
+            _fileVersions.Add(record);
+        }
+    }
 
     public void CompleteSnapshot(long snapshotId, DateTimeOffset completedAt, SnapshotStats stats) =>
         SetOutcome(snapshotId, completedAt, SnapshotStatus.Complete, stats);
@@ -134,8 +157,86 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
 
     private void SetOutcome(long snapshotId, DateTimeOffset at, SnapshotStatus status, SnapshotStats stats)
     {
+        if (_batchActive)
+        {
+            (_pendingOutcomes ??= []).Add((snapshotId, at, status, stats));
+        }
+        else
+        {
+            ApplyOutcome(snapshotId, at, status, stats);
+        }
+    }
+
+    private void ApplyOutcome(long snapshotId, DateTimeOffset at, SnapshotStatus status, SnapshotStats stats)
+    {
         var index = _snapshots.FindIndex(s => s.Id == snapshotId);
         _snapshots[index] = _snapshots[index] with { CompletedAt = at, Status = status, Stats = stats };
+    }
+
+    public IManifestBatch BeginManifestBatch()
+    {
+        if (_batchActive)
+        {
+            throw new InvalidOperationException("A manifest batch is already active on this repository.");
+        }
+
+        _batchActive = true;
+        return new FakeManifestBatch(this);
+    }
+
+    private void CommitBatch()
+    {
+        if (_pendingFileVersions is not null)
+        {
+            _fileVersions.AddRange(_pendingFileVersions);
+        }
+
+        if (_pendingOutcomes is not null)
+        {
+            foreach (var (snapshotId, at, status, stats) in _pendingOutcomes)
+            {
+                ApplyOutcome(snapshotId, at, status, stats);
+            }
+        }
+
+        CommitCount++;
+        DiscardBatchState();
+    }
+
+    private void DiscardBatch() => DiscardBatchState();
+
+    private void DiscardBatchState()
+    {
+        _pendingFileVersions = null;
+        _pendingOutcomes = null;
+        _batchActive = false;
+    }
+
+    private sealed class FakeManifestBatch(FakeSnapshotRepository owner) : IManifestBatch
+    {
+        private bool _finished;
+
+        public void Commit()
+        {
+            if (_finished)
+            {
+                return;
+            }
+
+            owner.CommitBatch();
+            _finished = true;
+        }
+
+        public void Dispose()
+        {
+            if (_finished)
+            {
+                return;
+            }
+
+            owner.DiscardBatch();
+            _finished = true;
+        }
     }
 
     public IReadOnlyDictionary<string, CurrentFileState> GetCurrentState()

@@ -33,6 +33,17 @@ public sealed class BackupPipeline(
             var startedAt = DateTimeOffset.UtcNow;
             var snapshotId = repository.BeginSnapshot(startedAt);
 
+            // BeginSnapshot above commits immediately (outside the batch) so an
+            // interrupted run is still discoverable as Running on next startup. Everything
+            // from here on - the executor's per-file manifest writes plus the trailing
+            // outcome update - is grouped into one batch commit per the
+            // "Manifest writes are batched per snapshot" requirement, instead of paying a
+            // durable commit for every file. A crash before Commit() rolls the whole batch
+            // back; ReconcileIncompleteSnapshots then finds the snapshot still Running on
+            // the next startup, and the next run's incremental scan re-detects and
+            // re-records any affected paths (self-healing, not data loss - see design.md).
+            using var manifestBatch = repository.BeginManifestBatch();
+
             try
             {
                 var currentState = repository.GetCurrentState();
@@ -60,12 +71,18 @@ public sealed class BackupPipeline(
                     outcome.FilesFailed + scanResult.Failures.Count);
                 var completedAt = DateTimeOffset.UtcNow;
                 repository.CompleteSnapshot(snapshotId, completedAt, stats);
+                manifestBatch.Commit();
 
                 return new BackupRunResult(snapshotId, startedAt, completedAt, stats, failedPaths);
             }
             catch
             {
+                // A handled failure (unlike a real process crash) still commits: the
+                // snapshot's Failed status and whatever rows were recorded should persist
+                // rather than vanish, so history/listing reflect the failed run instead of
+                // relying on ReconcileIncompleteSnapshots to notice it next startup.
                 repository.FailSnapshot(snapshotId, DateTimeOffset.UtcNow, SnapshotStats.Empty);
+                manifestBatch.Commit();
                 throw;
             }
         }
