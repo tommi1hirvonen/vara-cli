@@ -16,6 +16,17 @@ public class ProfileTests
         Assert.Equal(@"D:\backup", profile.TargetRoot);
         Assert.Single(profile.Sources);
         Assert.Null(profile.Retention);
+        Assert.Null(profile.Concurrency);
+    }
+
+    [Fact]
+    public void Constructing_a_profile_with_concurrency_configured_preserves_it()
+    {
+        var concurrency = new ConcurrencySettings(8, 2);
+
+        var profile = new Profile("files", @"D:\backup", [ValidSource()], retention: null, concurrency);
+
+        Assert.Same(concurrency, profile.Concurrency);
     }
 
     [Theory]
@@ -102,5 +113,42 @@ public class RetentionPolicyTests
     public void Constructing_with_a_negative_count_throws(int daily, int weekly, int monthly, int yearly)
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => new RetentionPolicy(daily, weekly, monthly, yearly));
+    }
+}
+
+public class ConcurrencySettingsTests
+{
+    [Fact]
+    public void Constructing_with_positive_values_succeeds()
+    {
+        var settings = new ConcurrencySettings(8, 2);
+
+        Assert.Equal(8, settings.ScanConcurrency);
+        Assert.Equal(2, settings.TransferConcurrency);
+    }
+
+    [Fact]
+    public void Constructing_with_both_values_null_succeeds()
+    {
+        var settings = new ConcurrencySettings(null, null);
+
+        Assert.Null(settings.ScanConcurrency);
+        Assert.Null(settings.TransferConcurrency);
+    }
+
+    [Theory]
+    [InlineData(0, null)]
+    [InlineData(-1, null)]
+    public void Constructing_with_a_non_positive_scan_concurrency_throws(int? scanConcurrency, int? transferConcurrency)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ConcurrencySettings(scanConcurrency, transferConcurrency));
+    }
+
+    [Theory]
+    [InlineData(null, 0)]
+    [InlineData(null, -1)]
+    public void Constructing_with_a_non_positive_transfer_concurrency_throws(int? scanConcurrency, int? transferConcurrency)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ConcurrencySettings(scanConcurrency, transferConcurrency));
     }
 }

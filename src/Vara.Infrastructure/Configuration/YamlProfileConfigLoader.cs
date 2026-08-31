@@ -90,8 +90,9 @@ public sealed class YamlProfileConfigLoader : IProfileConfigLoader
             .ToList();
 
         var retention = ParseRetention(mapping);
+        var concurrency = ParseConcurrency(mapping);
 
-        return new Profile(name, target, sources, retention);
+        return new Profile(name, target, sources, retention, concurrency);
     }
 
     private static Source ParseSource(string profileName, YamlMappingNode mapping)
@@ -134,6 +135,22 @@ public sealed class YamlProfileConfigLoader : IProfileConfigLoader
         return new RetentionPolicy(keepDaily, keepWeekly, keepMonthly, keepYearly);
     }
 
+    private static ConcurrencySettings? ParseConcurrency(YamlMappingNode mapping)
+    {
+        if (!TryGetChild(mapping, "concurrency", out var concurrencyValue))
+        {
+            return null;
+        }
+
+        var profileName = GetOptionalScalar(mapping, "name") ?? "<unnamed>";
+        var concurrencyMapping = AsMapping(concurrencyValue, profileName, "'concurrency' must be a mapping");
+
+        var scanConcurrency = GetOptionalPositiveConcurrency(concurrencyMapping, profileName, "scan_concurrency");
+        var transferConcurrency = GetOptionalPositiveConcurrency(concurrencyMapping, profileName, "transfer_concurrency");
+
+        return new ConcurrencySettings(scanConcurrency, transferConcurrency);
+    }
+
     private static YamlMappingNode AsMapping(YamlNode node, string profileName, string reason) =>
         node as YamlMappingNode ?? throw new ProfileValidationException(profileName, reason);
 
@@ -171,6 +188,22 @@ public sealed class YamlProfileConfigLoader : IProfileConfigLoader
         if (value < 0)
         {
             throw new ProfileValidationException(profileName, $"retention field '{key}' has an invalid value '{text}' (expected a non-negative whole number)");
+        }
+
+        return value;
+    }
+
+    private static int? GetOptionalPositiveConcurrency(YamlMappingNode mapping, string profileName, string key)
+    {
+        var text = GetOptionalScalar(mapping, key);
+        if (text is null)
+        {
+            return null;
+        }
+
+        if (!int.TryParse(text, out var value) || value <= 0)
+        {
+            throw new ProfileValidationException(profileName, $"concurrency field '{key}' has an invalid value '{text}' (expected a positive whole number)");
         }
 
         return value;

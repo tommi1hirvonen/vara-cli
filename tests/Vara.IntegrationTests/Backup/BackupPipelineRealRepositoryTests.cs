@@ -39,8 +39,8 @@ public class BackupPipelineRealRepositoryTests : IDisposable
         }
     }
 
-    private static Profile SimpleProfile(string targetRoot) =>
-        new("files", targetRoot, [new Source(@"C:\irrelevant-for-fake-scanner")], null);
+    private static Profile SimpleProfile(string targetRoot, ConcurrencySettings? concurrency = null) =>
+        new("files", targetRoot, [new Source(@"C:\irrelevant-for-fake-scanner")], null, concurrency);
 
     [Fact]
     public void A_run_against_the_real_repository_records_an_added_file_in_current_state()
@@ -110,5 +110,39 @@ public class BackupPipelineRealRepositoryTests : IDisposable
         var current = Repository.GetCurrentState();
         Assert.Single(current);
         Assert.True(current.ContainsKey("photo.jpg"));
+    }
+
+    [Fact]
+    public void A_run_with_a_configured_transfer_concurrency_above_one_still_produces_a_correct_one_to_one_mirror()
+    {
+        const int fileCount = 30;
+        var entries = new List<ScannedEntry>();
+        for (var i = 0; i < fileCount; i++)
+        {
+            var path = Path.Combine(_root, $"file-{i}.txt");
+            var content = $"content of file {i}";
+            File.WriteAllText(path, content);
+            entries.Add(new ScannedEntry($"file-{i}.txt", path, new FileInfo(path).Length, File.GetLastWriteTimeUtc(path), false, null));
+        }
+
+        var contentStore = new FakeContentStore();
+        var profile = SimpleProfile(_root, new ConcurrencySettings(scanConcurrency: null, transferConcurrency: 8));
+
+        var result = new BackupPipeline(
+            new FakeFileSystemScanner(entries), new FakeHasher(), contentStore, Repository, new FakeRunLock()).Run(profile);
+
+        // Functional correctness under non-default concurrency, not a timing/performance
+        // assertion: every source file made it into the mirror and the current-state
+        // view, with no failures, regardless of how many transfers ran concurrently.
+        Assert.Equal(fileCount, result.Stats.FilesAdded);
+        Assert.Empty(result.FailedPaths);
+        Assert.Equal(fileCount, contentStore.Mirror.Count);
+        var current = Repository.GetCurrentState();
+        Assert.Equal(fileCount, current.Count);
+        for (var i = 0; i < fileCount; i++)
+        {
+            Assert.True(current.ContainsKey($"file-{i}.txt"));
+            Assert.True(contentStore.Mirror.ContainsKey($"file-{i}.txt"));
+        }
     }
 }

@@ -8,7 +8,7 @@ namespace Vara.Core.Configuration;
 /// </summary>
 public sealed record Profile
 {
-    public Profile(string name, string targetRoot, IReadOnlyList<Source> sources, RetentionPolicy? retention)
+    public Profile(string name, string targetRoot, IReadOnlyList<Source> sources, RetentionPolicy? retention, ConcurrencySettings? concurrency = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetRoot);
@@ -22,12 +22,14 @@ public sealed record Profile
         TargetRoot = targetRoot;
         Sources = sources;
         Retention = retention;
+        Concurrency = concurrency;
     }
 
     public string Name { get; }
     public string TargetRoot { get; }
     public IReadOnlyList<Source> Sources { get; }
     public RetentionPolicy? Retention { get; }
+    public ConcurrencySettings? Concurrency { get; }
 }
 
 /// <summary>

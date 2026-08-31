@@ -23,7 +23,15 @@ namespace Vara.Application.Backup;
 /// </summary>
 public sealed class BackupExecutor(IContentStore contentStore, ISnapshotRepository repository, IHasher hasher, int maxDegreeOfParallelism = 0)
 {
-    private readonly int _maxDegreeOfParallelism = maxDegreeOfParallelism > 0 ? maxDegreeOfParallelism : Environment.ProcessorCount;
+    // The most common target is a slower external drive (e.g. an HDD), which performs
+    // best when written to by one stream at a time rather than several interleaved
+    // ones; the scan stage's own default (Environment.ProcessorCount) is unaffected,
+    // since it only reads the source and never touches the target. See design.md of
+    // the configure-backup-concurrency change - kept as a single named constant so the
+    // default can be revised later without touching call sites.
+    private const int DefaultTransferConcurrency = 1;
+
+    private readonly int _maxDegreeOfParallelism = maxDegreeOfParallelism > 0 ? maxDegreeOfParallelism : DefaultTransferConcurrency;
 
     public ExecutionOutcome Execute(long snapshotId, DateTimeOffset recordedAt, BackupPlan plan, Action<long>? onBytesTransferred = null)
     {

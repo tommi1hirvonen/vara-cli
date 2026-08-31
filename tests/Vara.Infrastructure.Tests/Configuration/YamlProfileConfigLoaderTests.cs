@@ -45,11 +45,15 @@ public class YamlProfileConfigLoaderTests
         Assert.Equal(8, files.Retention.KeepWeekly);
         Assert.Equal(12, files.Retention.KeepMonthly);
         Assert.Equal(3, files.Retention.KeepYearly);
+        Assert.NotNull(files.Concurrency);
+        Assert.Equal(8, files.Concurrency!.ScanConcurrency);
+        Assert.Equal(2, files.Concurrency.TransferConcurrency);
 
         var photos = Assert.Single(profiles, p => p.Name == "photos");
         Assert.Equal(@"D:\photos\", photos.TargetRoot);
         Assert.Equal(2, photos.Sources.Count);
         Assert.Null(photos.Retention);
+        Assert.Null(photos.Concurrency);
     }
 
     [Fact]
@@ -237,6 +241,88 @@ public class YamlProfileConfigLoaderTests
         Assert.Equal(0, retention.KeepWeekly);
         Assert.Equal(0, retention.KeepMonthly);
         Assert.Equal(0, retention.KeepYearly);
+    }
+
+    [Fact]
+    public void Profile_without_a_concurrency_section_loads_with_null_concurrency()
+    {
+        var path = WriteTempConfig(
+            """
+            profiles:
+              - name: files
+                target: 'D:\backup'
+                sources:
+                  - path: 'C:\data'
+            """);
+
+        var profiles = _loader.LoadProfiles(path);
+
+        Assert.Null(profiles[0].Concurrency);
+    }
+
+    [Fact]
+    public void Concurrency_fields_with_positive_values_load_successfully()
+    {
+        var path = WriteTempConfig(
+            """
+            profiles:
+              - name: files
+                target: 'D:\backup'
+                sources:
+                  - path: 'C:\data'
+                concurrency:
+                  scan_concurrency: 8
+                  transfer_concurrency: 2
+            """);
+
+        var profiles = _loader.LoadProfiles(path);
+
+        var concurrency = profiles[0].Concurrency;
+        Assert.NotNull(concurrency);
+        Assert.Equal(8, concurrency!.ScanConcurrency);
+        Assert.Equal(2, concurrency.TransferConcurrency);
+    }
+
+    [Fact]
+    public void Concurrency_field_with_a_non_numeric_value_throws_a_validation_error_naming_the_field()
+    {
+        var path = WriteTempConfig(
+            """
+            profiles:
+              - name: broken
+                target: 'D:\backup'
+                sources:
+                  - path: 'C:\data'
+                concurrency:
+                  scan_concurrency: abc
+            """);
+
+        var ex = Assert.Throws<ProfileValidationException>(() => _loader.LoadProfiles(path));
+        Assert.Equal("broken", ex.ProfileName);
+        Assert.Contains("scan_concurrency", ex.Reason);
+        Assert.Contains("abc", ex.Reason);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-1")]
+    public void Concurrency_field_with_a_non_positive_value_throws_a_validation_error_naming_the_field(string value)
+    {
+        var path = WriteTempConfig(
+            $$"""
+            profiles:
+              - name: broken
+                target: 'D:\backup'
+                sources:
+                  - path: 'C:\data'
+                concurrency:
+                  transfer_concurrency: {{value}}
+            """);
+
+        var ex = Assert.Throws<ProfileValidationException>(() => _loader.LoadProfiles(path));
+        Assert.Equal("broken", ex.ProfileName);
+        Assert.Contains("transfer_concurrency", ex.Reason);
+        Assert.Contains(value, ex.Reason);
     }
 
     private static string WriteTempConfig(string yaml)

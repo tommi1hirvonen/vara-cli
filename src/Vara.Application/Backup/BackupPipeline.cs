@@ -49,12 +49,12 @@ public sealed class BackupPipeline(
                 var currentState = repository.GetCurrentState();
                 var scanResult = scanner.Scan(profile.Sources);
                 var diff = new BackupDiffer().Diff(scanResult.Entries, currentState);
-                var plan = new BackupPlanner(hasher).Plan(diff, currentState);
+                var plan = new BackupPlanner(hasher, profile.Concurrency?.ScanConcurrency ?? 0).Plan(diff, currentState);
 
                 progress?.Report(new BackupProgress(0, plan.TotalBytesToTransfer));
 
                 var bytesSoFar = 0L;
-                var outcome = new BackupExecutor(contentStore, repository, hasher).Execute(snapshotId, startedAt, plan, transferred =>
+                var outcome = new BackupExecutor(contentStore, repository, hasher, profile.Concurrency?.TransferConcurrency ?? 0).Execute(snapshotId, startedAt, plan, transferred =>
                 {
                     bytesSoFar += transferred;
                     progress?.Report(new BackupProgress(bytesSoFar, plan.TotalBytesToTransfer));

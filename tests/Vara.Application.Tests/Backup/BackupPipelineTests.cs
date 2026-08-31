@@ -21,8 +21,8 @@ public class BackupPipelineTests : IDisposable
         }
     }
 
-    private static Profile SimpleProfile(string targetRoot) =>
-        new("files", targetRoot, [new Source(@"C:\irrelevant-for-fake-scanner")], null);
+    private static Profile SimpleProfile(string targetRoot, ConcurrencySettings? concurrency = null) =>
+        new("files", targetRoot, [new Source(@"C:\irrelevant-for-fake-scanner")], null, concurrency);
 
     [Fact]
     public void Run_throws_when_the_lock_cannot_be_acquired()
@@ -54,6 +54,46 @@ public class BackupPipelineTests : IDisposable
         Assert.Equal(SnapshotStatus.Complete, snapshot.Status);
         Assert.Equal(1, result.Stats.FilesAdded);
         Assert.Equal(1, repository.ReconcileCallCount);
+    }
+
+    private static List<ScannedEntry> WriteFiles(string root, int count)
+    {
+        var entries = new List<ScannedEntry>();
+        for (var i = 0; i < count; i++)
+        {
+            var path = Path.Combine(root, $"file-{i}.txt");
+            File.WriteAllText(path, $"content {i}");
+            entries.Add(new ScannedEntry($"file-{i}.txt", path, new FileInfo(path).Length, File.GetLastWriteTimeUtc(path), false, null));
+        }
+
+        return entries;
+    }
+
+    [Fact]
+    public void Run_with_unconfigured_concurrency_leaves_the_executors_own_default_of_one_in_effect()
+    {
+        var entries = WriteFiles(_root, count: 12);
+        var hasher = new ConcurrencyObservingHasher();
+        var pipeline = new BackupPipeline(
+            new FakeFileSystemScanner(entries), hasher, new FakeContentStore(), new FakeSnapshotRepository(), new FakeRunLock());
+
+        pipeline.Run(SimpleProfile(_root));
+
+        Assert.Equal(1, hasher.MaxObservedConcurrency);
+    }
+
+    [Fact]
+    public void Run_with_configured_transfer_concurrency_passes_it_through_to_the_executor()
+    {
+        var entries = WriteFiles(_root, count: 12);
+        var hasher = new ConcurrencyObservingHasher();
+        var pipeline = new BackupPipeline(
+            new FakeFileSystemScanner(entries), hasher, new FakeContentStore(), new FakeSnapshotRepository(), new FakeRunLock());
+        var profile = SimpleProfile(_root, new ConcurrencySettings(scanConcurrency: null, transferConcurrency: 8));
+
+        pipeline.Run(profile);
+
+        Assert.True(hasher.MaxObservedConcurrency > 1, $"expected more than one concurrent transfer, observed {hasher.MaxObservedConcurrency}");
     }
 
     [Fact]

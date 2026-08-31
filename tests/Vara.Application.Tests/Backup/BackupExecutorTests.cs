@@ -294,6 +294,61 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
+    public void Unconfigured_transfer_concurrency_defaults_to_one_not_processor_count()
+    {
+        const int fileCount = 12;
+        var operations = new List<PlannedOperation>();
+        long expectedBytes = 0;
+
+        for (var i = 0; i < fileCount; i++)
+        {
+            var content = $"content of file {i}";
+            var path = WriteFile($"file-{i}.txt", content);
+            var size = new FileInfo(path).Length;
+            expectedBytes += size;
+            operations.Add(new PlannedOperation(PlannedOperationKind.Add, $"file-{i}.txt", null, path, size, DateTimeOffset.UtcNow, null));
+        }
+
+        var plan = new BackupPlan(operations, expectedBytes);
+        var hasher = new ConcurrencyObservingHasher();
+        // No explicit maxDegreeOfParallelism - proves the executor's own unconfigured
+        // default is 1 (configure-backup-concurrency), regardless of how many
+        // processors are available on the machine running this test.
+        var executor = new BackupExecutor(_contentStore, _repository, hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+
+        Assert.Equal(1, hasher.MaxObservedConcurrency);
+    }
+
+    [Fact]
+    public void Configuring_transfer_concurrency_above_one_allows_concurrent_transfers()
+    {
+        const int fileCount = 12;
+        var operations = new List<PlannedOperation>();
+        long expectedBytes = 0;
+
+        for (var i = 0; i < fileCount; i++)
+        {
+            var content = $"content of file {i}";
+            var path = WriteFile($"file-{i}.txt", content);
+            var size = new FileInfo(path).Length;
+            expectedBytes += size;
+            operations.Add(new PlannedOperation(PlannedOperationKind.Add, $"file-{i}.txt", null, path, size, DateTimeOffset.UtcNow, null));
+        }
+
+        var plan = new BackupPlan(operations, expectedBytes);
+        var hasher = new ConcurrencyObservingHasher();
+        var executor = new BackupExecutor(_contentStore, _repository, hasher, maxDegreeOfParallelism: 8);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+
+        Assert.True(hasher.MaxObservedConcurrency > 1, $"expected more than one concurrent transfer, observed {hasher.MaxObservedConcurrency}");
+    }
+
+    [Fact]
     public void Manifest_writes_for_many_files_commit_once_as_a_batch_not_per_file()
     {
         const int fileCount = 25;

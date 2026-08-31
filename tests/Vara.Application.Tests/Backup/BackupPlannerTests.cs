@@ -253,6 +253,42 @@ public class BackupPlannerTests : IDisposable
         Assert.Contains(plan.Operations, o => o.Kind == PlannedOperationKind.Delete && o.RelativePath == "second-candidate.txt");
     }
 
+    [Fact]
+    public void Unconfigured_scan_concurrency_permits_more_than_one_concurrent_hash_call()
+    {
+        // Documents that this change intentionally leaves BackupPlanner's own default
+        // (Environment.ProcessorCount) untouched, unlike BackupExecutor's new default
+        // of 1 (configure-backup-concurrency) - this stage only ever reads the source.
+        const int candidateCount = 20;
+        var deletedContent = RepeatingBytes(64, fill: 0xFF);
+        var deletedPaths = new List<string>();
+        var currentState = new Dictionary<string, CurrentFileState>();
+        for (var i = 0; i < candidateCount; i++)
+        {
+            var name = $"deleted-{i}.bin";
+            deletedPaths.Add(name);
+            currentState[name] = new(name, HashOf(deletedContent), deletedContent.Length, DateTimeOffset.UtcNow.AddDays(-1));
+        }
+
+        var pending = Enumerable.Range(0, candidateCount)
+            .Select(i =>
+            {
+                var content = RepeatingBytes(64, fill: (byte)i);
+                var path = WriteFile($"added-{i}.bin", content);
+                return new PendingChange(
+                    new ScannedEntry($"added-{i}.bin", path, content.Length, DateTimeOffset.UtcNow, false, null), PendingChangeKind.Added);
+            })
+            .ToList();
+
+        var diff = new DiffResult(pending, deletedPaths);
+        var hasher = new ConcurrencyObservingHasher();
+        var planner = new BackupPlanner(hasher);
+
+        planner.Plan(diff, currentState);
+
+        Assert.True(hasher.MaxObservedConcurrency > 1, $"expected more than one concurrent hash call by default, observed {hasher.MaxObservedConcurrency}");
+    }
+
     /// <summary>Wraps <see cref="FakeHasher"/>, recording the byte-length hashed on every call - used to prove exactly how much of a stream was actually read.</summary>
     private sealed class CountingHasher : IHasher
     {

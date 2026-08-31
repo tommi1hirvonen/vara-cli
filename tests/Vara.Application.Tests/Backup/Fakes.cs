@@ -16,6 +16,50 @@ internal sealed class FakeHasher : IHasher
     }
 }
 
+/// <summary>
+/// Wraps <see cref="FakeHasher"/>, briefly holding each call open (via a short sleep)
+/// so overlapping calls actually overlap in wall-clock time, and tracks the highest
+/// number of concurrent <see cref="ComputeHash"/> calls observed. Used to prove a
+/// configured <c>maxDegreeOfParallelism</c> - or its absence - actually bounds how
+/// many operations run at once, rather than merely being passed to a constructor.
+/// </summary>
+internal sealed class ConcurrencyObservingHasher : IHasher
+{
+    private readonly FakeHasher _inner = new();
+    private int _current;
+    private int _maxObserved;
+
+    public int MaxObservedConcurrency => _maxObserved;
+
+    public string ComputeHash(Stream content)
+    {
+        var current = Interlocked.Increment(ref _current);
+        InterlockedMax(ref _maxObserved, current);
+        try
+        {
+            Thread.Sleep(20);
+            return _inner.ComputeHash(content);
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _current);
+        }
+    }
+
+    private static void InterlockedMax(ref int target, int candidate)
+    {
+        int initial;
+        do
+        {
+            initial = target;
+            if (candidate <= initial)
+            {
+                return;
+            }
+        } while (Interlocked.CompareExchange(ref target, candidate, initial) != initial);
+    }
+}
+
 /// <summary>Fully in-memory content store standing in for <see cref="Vara.Infrastructure.Storage.FileSystemContentStore"/>. Thread-safe, since production execution parallelizes Add/Change operations.</summary>
 internal sealed class FakeContentStore : IContentStore
 {

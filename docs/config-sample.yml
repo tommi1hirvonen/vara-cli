@@ -20,6 +20,11 @@
       keep_weekly: 8
       keep_monthly: 12
       keep_yearly: 3
+    concurrency:
+      # Optional. Bounds how many files each backup stage processes at once. Omit
+      # this section, or either field, to use its default - most users never need it.
+      scan_concurrency: 8 # default = number of available processor cores (this stage only reads the source)
+      transfer_concurrency: 2 # default = 1 (kept low since the target is often a slower external drive)
   - name: photos
     target: 'D:\photos\'
     sources:
