@@ -1,5 +1,6 @@
 using Vara.Application.Backup;
 using Vara.Core.Abstractions;
+using Vara.Core.Hashing;
 using Vara.Core.Snapshots;
 using Xunit;
 
@@ -28,7 +29,27 @@ public class BackupPlannerTests : IDisposable
         return path;
     }
 
+    private string WriteFile(string name, byte[] content)
+    {
+        var path = Path.Combine(_root, name);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllBytes(path, content);
+        return path;
+    }
+
     private static string HashOf(string content) => new FakeHasher().ComputeHash(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(content)));
+
+    private static string HashOf(byte[] content) => new FakeHasher().ComputeHash(new MemoryStream(content));
+
+    private static string QuickHashOf(byte[] content) =>
+        HashOf(content[..Math.Min(content.Length, QuickHashPolicy.WindowSizeBytes)]);
+
+    private static byte[] RepeatingBytes(int length, byte fill)
+    {
+        var bytes = new byte[length];
+        Array.Fill(bytes, fill);
+        return bytes;
+    }
 
     [Fact]
     public void A_genuinely_new_file_is_planned_as_an_add_and_counted_in_the_byte_total()
@@ -119,5 +140,131 @@ public class BackupPlannerTests : IDisposable
         var operation = Assert.Single(plan.Operations);
         Assert.Equal(PlannedOperationKind.Delete, operation.Kind);
         Assert.Equal(0, plan.TotalBytesToTransfer);
+    }
+
+    [Fact]
+    public void A_same_size_candidate_ruled_out_by_quick_hash_is_never_fully_read()
+    {
+        // Larger than the quick-hash window so a full read would hash strictly more
+        // bytes than the bounded prefix - proves the rest of the file was never read.
+        var addedContent = RepeatingBytes(QuickHashPolicy.WindowSizeBytes * 2, fill: 0xAA);
+        var deletedContent = RepeatingBytes(QuickHashPolicy.WindowSizeBytes * 2, fill: 0xBB);
+        var path = WriteFile("new.bin", addedContent);
+        var hasher = new CountingHasher();
+        var planner = new BackupPlanner(hasher);
+
+        var scannedEntry = new ScannedEntry("new.bin", path, addedContent.Length, DateTimeOffset.UtcNow, false, null);
+        var diff = new DiffResult([new PendingChange(scannedEntry, PendingChangeKind.Added)], ["old.bin"]);
+        var currentState = new Dictionary<string, CurrentFileState>
+        {
+            ["old.bin"] = new(
+                "old.bin", HashOf(deletedContent), deletedContent.Length, DateTimeOffset.UtcNow.AddDays(-1),
+                QuickHashOf(deletedContent), QuickHashPolicy.CurrentScheme),
+        };
+
+        var plan = planner.Plan(diff, currentState);
+
+        Assert.Contains(plan.Operations, o => o.Kind == PlannedOperationKind.Add);
+        var bytesHashed = Assert.Single(hasher.CallLengths);
+        Assert.Equal(QuickHashPolicy.WindowSizeBytes, bytesHashed); // only the bounded prefix was ever hashed/read
+    }
+
+    [Fact]
+    public void A_same_size_candidate_matched_by_quick_hash_is_confirmed_via_a_full_read()
+    {
+        var content = RepeatingBytes(QuickHashPolicy.WindowSizeBytes * 2, fill: 0xCC);
+        var path = WriteFile("Documents/report.bin".Replace('/', Path.DirectorySeparatorChar), content);
+        var hasher = new CountingHasher();
+        var planner = new BackupPlanner(hasher);
+
+        var scannedEntry = new ScannedEntry(@"Documents\report.bin", path, content.Length, DateTimeOffset.UtcNow, false, null);
+        var diff = new DiffResult([new PendingChange(scannedEntry, PendingChangeKind.Added)], [@"Downloads\report.bin"]);
+        var currentState = new Dictionary<string, CurrentFileState>
+        {
+            [@"Downloads\report.bin"] = new(
+                @"Downloads\report.bin", HashOf(content), content.Length, DateTimeOffset.UtcNow.AddDays(-1),
+                QuickHashOf(content), QuickHashPolicy.CurrentScheme),
+        };
+
+        var plan = planner.Plan(diff, currentState);
+
+        var operation = Assert.Single(plan.Operations);
+        Assert.Equal(PlannedOperationKind.Move, operation.Kind);
+        Assert.Equal(2, hasher.CallLengths.Count); // the quick hash, then a full-content confirmation
+        Assert.Contains(content.Length, hasher.CallLengths);
+    }
+
+    [Fact]
+    public void A_candidate_missing_a_recorded_quick_hash_still_gets_a_full_read_and_correct_match()
+    {
+        // "unmatched" has a recorded (but non-matching) quick hash and can be cheaply
+        // ruled out; "no-signature" has none recorded at all, so it cannot be ruled out
+        // cheaply and forces a full read - which is exactly what correctly finds it as
+        // the true match, proving the fallback doesn't silently misclassify the file.
+        var content = RepeatingBytes(50, fill: 0x11);
+        var differentSameSizeContent = RepeatingBytes(50, fill: 0x22);
+        var path = WriteFile("new.bin", content);
+
+        var scannedEntry = new ScannedEntry("new.bin", path, content.Length, DateTimeOffset.UtcNow, false, null);
+        var diff = new DiffResult([new PendingChange(scannedEntry, PendingChangeKind.Added)], ["unmatched.bin", "no-signature.bin"]);
+        var currentState = new Dictionary<string, CurrentFileState>
+        {
+            ["unmatched.bin"] = new(
+                "unmatched.bin", HashOf(differentSameSizeContent), differentSameSizeContent.Length, DateTimeOffset.UtcNow.AddDays(-1),
+                QuickHashOf(differentSameSizeContent), QuickHashPolicy.CurrentScheme),
+            ["no-signature.bin"] = new("no-signature.bin", HashOf(content), content.Length, DateTimeOffset.UtcNow.AddDays(-1)),
+        };
+
+        var plan = _planner.Plan(diff, currentState);
+
+        Assert.Contains(plan.Operations, o => o.Kind == PlannedOperationKind.Move && o.PreviousRelativePath == "no-signature.bin");
+        Assert.Contains(plan.Operations, o => o.Kind == PlannedOperationKind.Delete && o.RelativePath == "unmatched.bin");
+    }
+
+    [Fact]
+    public void A_tie_between_identical_candidates_is_broken_by_deleted_path_order_under_parallel_hashing()
+    {
+        var content = "identical content, relocated";
+        var path = WriteFile("new.txt", content);
+        var size = new FileInfo(path).Length;
+
+        // Many size-matched entries force the parallel signature-computation phase to
+        // actually run across multiple candidates concurrently, not just a single one.
+        var otherEntries = Enumerable.Range(0, 20)
+            .Select(i => new PendingChange(
+                new ScannedEntry($"other-{i}.txt", WriteFile($"other-{i}.txt", $"unrelated content {i}"), size, DateTimeOffset.UtcNow, false, null),
+                PendingChangeKind.Added))
+            .ToList();
+        var scannedEntry = new ScannedEntry("new.txt", path, size, DateTimeOffset.UtcNow, false, null);
+        var pending = new List<PendingChange> { new(scannedEntry, PendingChangeKind.Added) };
+        pending.AddRange(otherEntries);
+
+        var diff = new DiffResult(pending, ["first-candidate.txt", "second-candidate.txt"]);
+        var currentState = new Dictionary<string, CurrentFileState>
+        {
+            ["first-candidate.txt"] = new("first-candidate.txt", HashOf(content), size, DateTimeOffset.UtcNow.AddDays(-1)),
+            ["second-candidate.txt"] = new("second-candidate.txt", HashOf(content), size, DateTimeOffset.UtcNow.AddDays(-1)),
+        };
+
+        var plan = _planner.Plan(diff, currentState);
+
+        var move = Assert.Single(plan.Operations, o => o.Kind == PlannedOperationKind.Move);
+        Assert.Equal("first-candidate.txt", move.PreviousRelativePath); // first in DeletedPaths order wins the tie
+        Assert.Contains(plan.Operations, o => o.Kind == PlannedOperationKind.Delete && o.RelativePath == "second-candidate.txt");
+    }
+
+    /// <summary>Wraps <see cref="FakeHasher"/>, recording the byte-length hashed on every call - used to prove exactly how much of a stream was actually read.</summary>
+    private sealed class CountingHasher : IHasher
+    {
+        private readonly FakeHasher _inner = new();
+        public List<long> CallLengths { get; } = [];
+
+        public string ComputeHash(Stream content)
+        {
+            using var buffer = new MemoryStream();
+            content.CopyTo(buffer);
+            CallLengths.Add(buffer.Length);
+            return _inner.ComputeHash(new MemoryStream(buffer.ToArray()));
+        }
     }
 }

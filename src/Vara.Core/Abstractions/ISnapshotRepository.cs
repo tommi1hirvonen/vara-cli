@@ -22,6 +22,10 @@ public interface ISnapshotRepository : IDisposable
 
     /// <summary>
     /// Records a single file-version event as part of the given snapshot.
+    /// <paramref name="quickHash"/>/<paramref name="quickHashScheme"/> carry the
+    /// bounded-prefix content signature (see
+    /// <see cref="Vara.Core.Hashing.QuickHashPolicy"/>), when known, alongside the full
+    /// <paramref name="contentHash"/> - see <see cref="Snapshots.FileVersionRecord.QuickHash"/>.
     /// </summary>
     void RecordFileVersion(
         long snapshotId,
@@ -31,7 +35,9 @@ public interface ISnapshotRepository : IDisposable
         long size,
         DateTimeOffset sourceModifiedAt,
         FileChangeKind changeKind,
-        DateTimeOffset recordedAt);
+        DateTimeOffset recordedAt,
+        string? quickHash = null,
+        int? quickHashScheme = null);
 
     /// <summary>
     /// Marks a snapshot as successfully completed with its final statistics.

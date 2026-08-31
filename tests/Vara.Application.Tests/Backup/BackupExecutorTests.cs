@@ -8,6 +8,7 @@ public class BackupExecutorTests : IDisposable
     private readonly string _root = Path.Combine(Path.GetTempPath(), $"vara-test-{Guid.NewGuid():N}");
     private readonly FakeContentStore _contentStore = new();
     private readonly FakeSnapshotRepository _repository = new();
+    private readonly FakeHasher _hasher = new();
 
     public BackupExecutorTests() => Directory.CreateDirectory(_root);
 
@@ -32,7 +33,7 @@ public class BackupExecutorTests : IDisposable
         var path = WriteFile("new.txt", "hello world");
         var plan = new BackupPlan(
             [new PlannedOperation(PlannedOperationKind.Add, "new.txt", null, path, 11, DateTimeOffset.UtcNow, null)], 11);
-        var executor = new BackupExecutor(_contentStore, _repository);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
         var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
@@ -41,6 +42,22 @@ public class BackupExecutorTests : IDisposable
         Assert.Equal(11, outcome.BytesTransferred);
         Assert.Empty(outcome.FailedPaths);
         Assert.True(_contentStore.Mirror.ContainsKey("new.txt"));
+    }
+
+    [Fact]
+    public void Executing_an_add_records_a_quick_hash_for_the_stored_content()
+    {
+        var path = WriteFile("new.txt", "hello world");
+        var plan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Add, "new.txt", null, path, 11, DateTimeOffset.UtcNow, null)], 11);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+
+        var record = Assert.Single(_repository.GetFileHistory("new.txt"));
+        Assert.NotNull(record.QuickHash);
+        Assert.Equal(Vara.Core.Hashing.QuickHashPolicy.CurrentScheme, record.QuickHashScheme);
     }
 
     [Fact]
@@ -55,7 +72,7 @@ public class BackupExecutorTests : IDisposable
         var path = WriteFile("over-linked.txt", "content whose blob hit the hard-link cap");
         var plan = new BackupPlan(
             [new PlannedOperation(PlannedOperationKind.Add, "over-linked.txt", null, path, 41, DateTimeOffset.UtcNow, null)], 41);
-        var executor = new BackupExecutor(_contentStore, _repository);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
         var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
@@ -79,7 +96,7 @@ public class BackupExecutorTests : IDisposable
                 new PlannedOperation(PlannedOperationKind.Add, "ok.txt", null, okPath, 17, DateTimeOffset.UtcNow, null),
             ],
             32);
-        var executor = new BackupExecutor(_contentStore, _repository);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
         var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
@@ -98,7 +115,7 @@ public class BackupExecutorTests : IDisposable
         var plan = new BackupPlan(
             [new PlannedOperation(PlannedOperationKind.Move, @"Documents\report.pdf", @"Downloads\report.pdf", null, 100, DateTimeOffset.UtcNow, "hash-1")],
             0);
-        var executor = new BackupExecutor(_contentStore, _repository);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
         var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
@@ -113,6 +130,26 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
+    public void Executing_a_move_carries_the_matched_candidates_quick_hash_forward_without_rehashing()
+    {
+        _contentStore.PlaceAtMirrorPath("hash-1", @"Downloads\report.pdf");
+        var plan = new BackupPlan(
+            [new PlannedOperation(
+                PlannedOperationKind.Move, @"Documents\report.pdf", @"Downloads\report.pdf", null, 100, DateTimeOffset.UtcNow,
+                "hash-1", QuickHash: "quick-1", QuickHashScheme: 1)],
+            0);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+
+        var newPathRecord = _repository.GetFileHistory(@"Documents\report.pdf")
+            .Single(r => r.ChangeKind == Vara.Core.Snapshots.FileChangeKind.Moved);
+        Assert.Equal("quick-1", newPathRecord.QuickHash);
+        Assert.Equal(1, newPathRecord.QuickHashScheme);
+    }
+
+    [Fact]
     public void A_move_retried_after_the_mirror_was_already_relocated_completes_normally()
     {
         // Simulates a run interrupted between the mirror's physical relocation and the
@@ -122,7 +159,7 @@ public class BackupExecutorTests : IDisposable
         var plan = new BackupPlan(
             [new PlannedOperation(PlannedOperationKind.Move, @"Documents\report.pdf", @"Downloads\report.pdf", null, 100, DateTimeOffset.UtcNow, "hash-1")],
             0);
-        var executor = new BackupExecutor(_contentStore, _repository);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
         var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
@@ -143,7 +180,7 @@ public class BackupExecutorTests : IDisposable
     {
         _contentStore.PlaceAtMirrorPath("hash-1", "gone.txt");
         var plan = new BackupPlan([new PlannedOperation(PlannedOperationKind.Delete, "gone.txt", null, null, 10, DateTimeOffset.UtcNow, "hash-1")], 0);
-        var executor = new BackupExecutor(_contentStore, _repository);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
         var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
@@ -165,7 +202,7 @@ public class BackupExecutorTests : IDisposable
                 new PlannedOperation(PlannedOperationKind.Add, "ok.txt", null, okPath, 17, DateTimeOffset.UtcNow, null),
             ],
             17);
-        var executor = new BackupExecutor(_contentStore, _repository);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
         var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
@@ -190,7 +227,7 @@ public class BackupExecutorTests : IDisposable
                 new PlannedOperation(PlannedOperationKind.Add, "ok.txt", null, okPath, 17, DateTimeOffset.UtcNow, null),
             ],
             17);
-        var executor = new BackupExecutor(_contentStore, _repository);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
         var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
@@ -215,7 +252,7 @@ public class BackupExecutorTests : IDisposable
                 new PlannedOperation(PlannedOperationKind.Add, "ok.txt", null, okPath, 17, DateTimeOffset.UtcNow, null),
             ],
             17);
-        var executor = new BackupExecutor(_contentStore, _repository);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
         executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
@@ -242,7 +279,7 @@ public class BackupExecutorTests : IDisposable
         }
 
         var plan = new BackupPlan(operations, expectedBytes);
-        var executor = new BackupExecutor(_contentStore, _repository, maxDegreeOfParallelism: 8);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher, maxDegreeOfParallelism: 8);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
         var reportedBytes = 0L;
@@ -273,7 +310,7 @@ public class BackupExecutorTests : IDisposable
         }
 
         var plan = new BackupPlan(operations, expectedBytes);
-        var executor = new BackupExecutor(_contentStore, _repository, maxDegreeOfParallelism: 8);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher, maxDegreeOfParallelism: 8);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
         ExecutionOutcome outcome;
@@ -303,7 +340,7 @@ public class BackupExecutorTests : IDisposable
         var path = WriteFile("new.txt", "hello world");
         var plan = new BackupPlan(
             [new PlannedOperation(PlannedOperationKind.Add, "new.txt", null, path, 11, DateTimeOffset.UtcNow, null)], 11);
-        var executor = new BackupExecutor(_contentStore, _repository);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
         using (_repository.BeginManifestBatch())

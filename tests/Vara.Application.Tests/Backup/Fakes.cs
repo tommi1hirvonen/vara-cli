@@ -155,10 +155,12 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
 
     public void RecordFileVersion(
         long snapshotId, string relativePath, string? previousRelativePath, string contentHash,
-        long size, DateTimeOffset sourceModifiedAt, FileChangeKind changeKind, DateTimeOffset recordedAt)
+        long size, DateTimeOffset sourceModifiedAt, FileChangeKind changeKind, DateTimeOffset recordedAt,
+        string? quickHash = null, int? quickHashScheme = null)
     {
         var record = new FileVersionRecord(
-            _nextRecordId++, snapshotId, relativePath, previousRelativePath, contentHash, size, sourceModifiedAt, changeKind, recordedAt);
+            _nextRecordId++, snapshotId, relativePath, previousRelativePath, contentHash, size, sourceModifiedAt, changeKind, recordedAt,
+            quickHash, quickHashScheme);
 
         if (_batchActive)
         {
@@ -268,7 +270,8 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
             var latest = group.OrderByDescending(r => r.Id).First();
             if (latest.ChangeKind != FileChangeKind.Deleted)
             {
-                result[latest.RelativePath] = new CurrentFileState(latest.RelativePath, latest.ContentHash, latest.Size, latest.SourceModifiedAt);
+                result[latest.RelativePath] = new CurrentFileState(
+                    latest.RelativePath, latest.ContentHash, latest.Size, latest.SourceModifiedAt, latest.QuickHash, latest.QuickHashScheme);
             }
         }
 

@@ -75,7 +75,9 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
                 size INTEGER NOT NULL,
                 source_modified_at TEXT NOT NULL,
                 change_kind TEXT NOT NULL,
-                recorded_at TEXT NOT NULL
+                recorded_at TEXT NOT NULL,
+                quick_hash TEXT NULL,
+                quick_hash_scheme INTEGER NULL
             );
 
             CREATE INDEX IF NOT EXISTS idx_file_versions_relative_path ON file_versions(relative_path, id);
@@ -121,15 +123,17 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
         long size,
         DateTimeOffset sourceModifiedAt,
         FileChangeKind changeKind,
-        DateTimeOffset recordedAt)
+        DateTimeOffset recordedAt,
+        string? quickHash = null,
+        int? quickHashScheme = null)
     {
         using var command = _connection.CreateCommand();
         command.Transaction = _activeBatchTransaction;
         command.CommandText = """
             INSERT INTO file_versions
-                (snapshot_id, relative_path, previous_relative_path, content_hash, size, source_modified_at, change_kind, recorded_at)
+                (snapshot_id, relative_path, previous_relative_path, content_hash, size, source_modified_at, change_kind, recorded_at, quick_hash, quick_hash_scheme)
             VALUES
-                ($snapshotId, $relativePath, $previousPath, $hash, $size, $sourceModifiedAt, $changeKind, $recordedAt)
+                ($snapshotId, $relativePath, $previousPath, $hash, $size, $sourceModifiedAt, $changeKind, $recordedAt, $quickHash, $quickHashScheme)
             """;
         command.Parameters.AddWithValue("$snapshotId", snapshotId);
         command.Parameters.AddWithValue("$relativePath", relativePath);
@@ -139,6 +143,8 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
         command.Parameters.AddWithValue("$sourceModifiedAt", ToIso(sourceModifiedAt));
         command.Parameters.AddWithValue("$changeKind", changeKind.ToString());
         command.Parameters.AddWithValue("$recordedAt", ToIso(recordedAt));
+        command.Parameters.AddWithValue("$quickHash", (object?)quickHash ?? DBNull.Value);
+        command.Parameters.AddWithValue("$quickHashScheme", (object?)quickHashScheme ?? DBNull.Value);
         command.ExecuteNonQuery();
     }
 
@@ -255,7 +261,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
     {
         using var command = _connection.CreateCommand();
         command.CommandText = """
-            SELECT fv.relative_path, fv.content_hash, fv.size, fv.source_modified_at
+            SELECT fv.relative_path, fv.content_hash, fv.size, fv.source_modified_at, fv.quick_hash, fv.quick_hash_scheme
             FROM file_versions fv
             INNER JOIN (
                 SELECT relative_path, MAX(id) AS max_id
@@ -275,7 +281,9 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
                 relativePath,
                 reader.GetString(1),
                 reader.GetInt64(2),
-                ParseIso(reader.GetString(3)));
+                ParseIso(reader.GetString(3)),
+                reader.IsDBNull(4) ? null : reader.GetString(4),
+                reader.IsDBNull(5) ? null : reader.GetInt32(5));
         }
 
         return result;
@@ -435,7 +443,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
     {
         using var command = _connection.CreateCommand();
         command.CommandText = """
-            SELECT id, snapshot_id, relative_path, previous_relative_path, content_hash, size, source_modified_at, change_kind, recorded_at
+            SELECT id, snapshot_id, relative_path, previous_relative_path, content_hash, size, source_modified_at, change_kind, recorded_at, quick_hash, quick_hash_scheme
             FROM file_versions
             WHERE relative_path = $path
             ORDER BY id DESC
@@ -477,7 +485,9 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
         Size: reader.GetInt64(5),
         SourceModifiedAt: ParseIso(reader.GetString(6)),
         ChangeKind: Enum.Parse<FileChangeKind>(reader.GetString(7)),
-        RecordedAt: ParseIso(reader.GetString(8)));
+        RecordedAt: ParseIso(reader.GetString(8)),
+        QuickHash: reader.IsDBNull(9) ? null : reader.GetString(9),
+        QuickHashScheme: reader.IsDBNull(10) ? null : reader.GetInt32(10));
 
     private static string ToIso(DateTimeOffset value) => value.ToString("o", CultureInfo.InvariantCulture);
 

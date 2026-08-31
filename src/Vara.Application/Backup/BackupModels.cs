@@ -27,9 +27,10 @@ public enum PlannedOperationKind
 
 /// <summary>
 /// A single resolved operation the execute stage will carry out. For <see cref="PlannedOperationKind.Move"/>
-/// and <see cref="PlannedOperationKind.Delete"/>, <see cref="KnownContentHash"/> is already known (no
-/// content read is needed); for <see cref="PlannedOperationKind.Add"/>/<see cref="PlannedOperationKind.Change"/>
-/// it is resolved during execution as content is streamed into the content store.
+/// and <see cref="PlannedOperationKind.Delete"/>, <see cref="KnownContentHash"/> (and, when known,
+/// <see cref="QuickHash"/>/<see cref="QuickHashScheme"/>) is already known (no content read is
+/// needed); for <see cref="PlannedOperationKind.Add"/>/<see cref="PlannedOperationKind.Change"/> these
+/// are resolved during execution as content is streamed into the content store.
 /// </summary>
 public sealed record PlannedOperation(
     PlannedOperationKind Kind,
@@ -38,7 +39,9 @@ public sealed record PlannedOperation(
     string? SourceAbsolutePath,
     long Size,
     DateTimeOffset SourceModifiedAt,
-    string? KnownContentHash);
+    string? KnownContentHash,
+    string? QuickHash = null,
+    int? QuickHashScheme = null);
 
 /// <summary>
 /// The full backup plan: every operation to carry out, and the total bytes that will

@@ -1,4 +1,5 @@
 using Vara.Core.Abstractions;
+using Vara.Core.Hashing;
 using Vara.Core.Snapshots;
 
 namespace Vara.Application.Backup;
@@ -20,7 +21,7 @@ namespace Vara.Application.Backup;
 /// <see cref="Vara.Core.Abstractions.ISnapshotRepository.RecordFileVersion"/> once per
 /// operation (batch-manifest-writes change's design.md).
 /// </summary>
-public sealed class BackupExecutor(IContentStore contentStore, ISnapshotRepository repository, int maxDegreeOfParallelism = 0)
+public sealed class BackupExecutor(IContentStore contentStore, ISnapshotRepository repository, IHasher hasher, int maxDegreeOfParallelism = 0)
 {
     private readonly int _maxDegreeOfParallelism = maxDegreeOfParallelism > 0 ? maxDegreeOfParallelism : Environment.ProcessorCount;
 
@@ -54,10 +55,12 @@ public sealed class BackupExecutor(IContentStore contentStore, ISnapshotReposito
                 contentStore.MoveMirrorEntry(operation.PreviousRelativePath!, operation.RelativePath);
                 repository.RecordFileVersion(
                     snapshotId, operation.PreviousRelativePath!, null, operation.KnownContentHash!,
-                    operation.Size, operation.SourceModifiedAt, FileChangeKind.Deleted, recordedAt);
+                    operation.Size, operation.SourceModifiedAt, FileChangeKind.Deleted, recordedAt,
+                    operation.QuickHash, operation.QuickHashScheme);
                 repository.RecordFileVersion(
                     snapshotId, operation.RelativePath, operation.PreviousRelativePath, operation.KnownContentHash!,
-                    operation.Size, operation.SourceModifiedAt, FileChangeKind.Moved, recordedAt);
+                    operation.Size, operation.SourceModifiedAt, FileChangeKind.Moved, recordedAt,
+                    operation.QuickHash, operation.QuickHashScheme);
                 counts.Moved++;
             }
             else
@@ -65,7 +68,8 @@ public sealed class BackupExecutor(IContentStore contentStore, ISnapshotReposito
                 contentStore.RemoveFromMirror(operation.RelativePath);
                 repository.RecordFileVersion(
                     snapshotId, operation.RelativePath, null, operation.KnownContentHash!,
-                    operation.Size, operation.SourceModifiedAt, FileChangeKind.Deleted, recordedAt);
+                    operation.Size, operation.SourceModifiedAt, FileChangeKind.Deleted, recordedAt,
+                    operation.QuickHash, operation.QuickHashScheme);
                 counts.Deleted++;
             }
         }
@@ -92,13 +96,19 @@ public sealed class BackupExecutor(IContentStore contentStore, ISnapshotReposito
         {
             string hash;
             long size;
+            string quickHash;
 
             // The actual disk I/O - reading the source and streaming it into the
             // content store - happens outside the lock so it can run concurrently
-            // across threads.
+            // across threads. The quick hash is computed from the same bytes already
+            // being read here (see StreamingContentSignature), so recording it costs no
+            // extra I/O and lets a future run's move detection pre-filter against this
+            // file without a full-content read.
             using (var sourceStream = File.OpenRead(operation.SourceAbsolutePath!))
             {
-                (hash, size) = contentStore.StoreFromStream(sourceStream);
+                var signature = new StreamingContentSignature(sourceStream, hasher);
+                quickHash = signature.ComputeQuickHash();
+                (hash, size) = contentStore.StoreFromStream(signature.ReplayFromStart());
             }
 
             contentStore.PlaceAtMirrorPath(hash, operation.RelativePath);
@@ -106,7 +116,9 @@ public sealed class BackupExecutor(IContentStore contentStore, ISnapshotReposito
             lock (reportLock)
             {
                 var changeKind = operation.Kind == PlannedOperationKind.Add ? FileChangeKind.Added : FileChangeKind.Changed;
-                repository.RecordFileVersion(snapshotId, operation.RelativePath, null, hash, size, operation.SourceModifiedAt, changeKind, recordedAt);
+                repository.RecordFileVersion(
+                    snapshotId, operation.RelativePath, null, hash, size, operation.SourceModifiedAt, changeKind, recordedAt,
+                    quickHash, QuickHashPolicy.CurrentScheme);
 
                 counts.BytesTransferred += size;
                 if (changeKind == FileChangeKind.Added) counts.Added++; else counts.Changed++;

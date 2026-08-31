@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using Vara.Core.Abstractions;
+using Vara.Core.Hashing;
 using Vara.Core.Snapshots;
 
 namespace Vara.Application.Backup;
@@ -8,9 +10,21 @@ namespace Vara.Application.Backup;
 /// (a newly-added path whose content hash matches a deleted path's known hash) so the
 /// plan's total byte count reflects only genuine content transfers, known entirely
 /// before execution begins.
+///
+/// Move-detection hashing runs in two phases: a concurrent signature-computation pass
+/// (mirroring <see cref="BackupExecutor"/>'s transfer-stage parallelism) followed by
+/// the same serial matching/consumption logic as before, now reading precomputed
+/// signatures instead of hashing inline. Per candidate, a bounded-prefix "quick hash"
+/// pre-filter (backup-execution spec's "Move detection avoids unbounded reads for
+/// non-matching candidates" requirement) rules out a size-matched candidate from a
+/// small bounded read whenever every still-possible candidate has a usable recorded
+/// quick hash and none of them match; only then does a full-content read happen, and
+/// only ever to confirm (never to declare) a match - see design.md.
 /// </summary>
-public sealed class BackupPlanner(IHasher hasher)
+public sealed class BackupPlanner(IHasher hasher, int maxDegreeOfParallelism = 0)
 {
+    private readonly int _maxDegreeOfParallelism = maxDegreeOfParallelism > 0 ? maxDegreeOfParallelism : Environment.ProcessorCount;
+
     public BackupPlan Plan(DiffResult diff, IReadOnlyDictionary<string, CurrentFileState> currentState)
     {
         var operations = new List<PlannedOperation>();
@@ -25,15 +39,19 @@ public sealed class BackupPlanner(IHasher hasher)
             .Select(path => currentState[path])
             .GroupBy(state => state.Size)
             .ToDictionary(g => g.Key, g => g.ToList());
+
+        var fullHashes = ComputeMoveCandidateFullHashes(diff.Pending, deletedCandidatesBySize);
         var consumedAsMoveSource = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var change in diff.Pending)
         {
             CurrentFileState? moveMatch = null;
             if (change.Kind == PendingChangeKind.Added &&
-                deletedCandidatesBySize.TryGetValue(change.Entry.Size, out var candidates))
+                deletedCandidatesBySize.TryGetValue(change.Entry.Size, out var candidates) &&
+                fullHashes.TryGetValue(change.Entry.RelativePath, out var entryHash) &&
+                entryHash is not null)
             {
-                moveMatch = TryFindMoveMatch(change.Entry, candidates, consumedAsMoveSource);
+                moveMatch = FindMatch(entryHash, candidates, consumedAsMoveSource);
             }
 
             if (moveMatch is not null)
@@ -46,7 +64,9 @@ public sealed class BackupPlanner(IHasher hasher)
                     change.Entry.AbsolutePath,
                     change.Entry.Size,
                     change.Entry.ModifiedAt,
-                    moveMatch.ContentHash));
+                    moveMatch.ContentHash,
+                    moveMatch.QuickHash,
+                    moveMatch.QuickHashScheme));
                 continue;
             }
 
@@ -64,51 +84,106 @@ public sealed class BackupPlanner(IHasher hasher)
             }
 
             operations.Add(new PlannedOperation(
-                PlannedOperationKind.Delete, path, null, null, state.Size, state.SourceModifiedAt, state.ContentHash));
+                PlannedOperationKind.Delete, path, null, null, state.Size, state.SourceModifiedAt, state.ContentHash,
+                state.QuickHash, state.QuickHashScheme));
         }
 
         return new BackupPlan(operations, totalBytes);
     }
 
-    private CurrentFileState? TryFindMoveMatch(ScannedEntry entry, List<CurrentFileState> candidates, HashSet<string> consumed)
+    /// <summary>
+    /// Computes, concurrently, the full content hash of every "Added" entry that
+    /// shares its size with at least one deleted candidate - or determines that none
+    /// of those candidates can match without needing a full read at all. Returns a map
+    /// from relative path to either the confirmed full hash (to be matched serially
+    /// against candidates, exactly as before) or <c>null</c> (no move is possible for
+    /// this entry, whether because a bounded read has ruled every candidate out, or
+    /// because the file could not be read at all).
+    /// </summary>
+    private ConcurrentDictionary<string, string?> ComputeMoveCandidateFullHashes(
+        IReadOnlyList<PendingChange> pending, Dictionary<long, List<CurrentFileState>> deletedCandidatesBySize)
     {
-        string? entryHash = null;
+        var results = new ConcurrentDictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        var sizeMatchedAdds = pending
+            .Where(change => change.Kind == PendingChangeKind.Added && deletedCandidatesBySize.ContainsKey(change.Entry.Size))
+            .ToList();
 
-        foreach (var candidate in candidates)
-        {
-            if (consumed.Contains(candidate.RelativePath))
+        Parallel.ForEach(
+            sizeMatchedAdds,
+            new ParallelOptions { MaxDegreeOfParallelism = _maxDegreeOfParallelism },
+            change =>
             {
-                continue;
+                var candidates = deletedCandidatesBySize[change.Entry.Size];
+                results[change.Entry.RelativePath] = ComputeFullHashIfCandidateMatchPossible(change.Entry, candidates);
+            });
+
+        return results;
+    }
+
+    /// <summary>
+    /// Reads <paramref name="entry"/>'s bounded-prefix quick hash first. If every
+    /// candidate has a usable recorded quick hash (matching <see cref="QuickHashPolicy.CurrentScheme"/>)
+    /// and none of them equals it, no candidate can possibly match - returns <c>null</c>
+    /// without reading the rest of the file. Otherwise (a quick hash matched, or some
+    /// candidate's signature is unusable and so cannot be cheaply ruled out) continues
+    /// reading to compute and return the exact full hash, to be compared against
+    /// candidates' full content hashes exactly as before.
+    /// </summary>
+    private string? ComputeFullHashIfCandidateMatchPossible(ScannedEntry entry, List<CurrentFileState> candidates)
+    {
+        try
+        {
+            using var stream = File.OpenRead(entry.AbsolutePath);
+            var signature = new StreamingContentSignature(stream, hasher);
+            var quickHash = signature.ComputeQuickHash();
+
+            var everyCandidateUsable = true;
+            var quickHashMatchesAny = false;
+            foreach (var candidate in candidates)
+            {
+                if (candidate.QuickHashScheme != QuickHashPolicy.CurrentScheme || candidate.QuickHash is null)
+                {
+                    // Recorded signature unavailable for this candidate - it cannot be
+                    // cheaply ruled out, so a full read is required regardless of what
+                    // the other candidates' quick hashes say.
+                    everyCandidateUsable = false;
+                    continue;
+                }
+
+                if (candidate.QuickHash == quickHash)
+                {
+                    quickHashMatchesAny = true;
+                }
             }
 
-            entryHash ??= TryHashFile(entry.AbsolutePath);
-            if (entryHash is null)
+            if (everyCandidateUsable && !quickHashMatchesAny)
             {
-                // Couldn't read the file during this pre-check (e.g. locked) - fall back
-                // to treating it as a normal add; the execute stage's own read attempt
-                // will surface and record the real failure.
+                // Every candidate had a usable signature and none matched - no candidate
+                // can possibly match; no further reading needed.
                 return null;
             }
 
-            if (entryHash == candidate.ContentHash)
+            return signature.ContinueToFullHash();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Couldn't read the file during this pre-check (e.g. locked) - fall back to
+            // treating it as a normal add; the execute stage's own read attempt will
+            // surface and record the real failure.
+            return null;
+        }
+    }
+
+    private static CurrentFileState? FindMatch(string entryHash, List<CurrentFileState> candidates, HashSet<string> consumed)
+    {
+        foreach (var candidate in candidates)
+        {
+            if (!consumed.Contains(candidate.RelativePath) && entryHash == candidate.ContentHash)
             {
                 return candidate;
             }
         }
 
         return null;
-    }
-
-    private string? TryHashFile(string path)
-    {
-        try
-        {
-            using var stream = File.OpenRead(path);
-            return hasher.ComputeHash(stream);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return null;
-        }
     }
 }

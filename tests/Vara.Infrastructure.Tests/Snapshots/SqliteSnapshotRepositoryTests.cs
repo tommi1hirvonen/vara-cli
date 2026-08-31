@@ -105,6 +105,34 @@ public class SqliteSnapshotRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void GetCurrentState_round_trips_a_recorded_quick_hash()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = Repository.BeginSnapshot(now);
+        Repository.RecordFileVersion(snapshot, "a.txt", null, "hash-v1", 10, now, FileChangeKind.Added, now, quickHash: "quick-v1", quickHashScheme: 1);
+        Repository.CompleteSnapshot(snapshot, now, SnapshotStats.Empty);
+
+        var state = Repository.GetCurrentState()["a.txt"];
+
+        Assert.Equal("quick-v1", state.QuickHash);
+        Assert.Equal(1, state.QuickHashScheme);
+    }
+
+    [Fact]
+    public void GetCurrentState_reports_no_quick_hash_when_none_was_recorded()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = Repository.BeginSnapshot(now);
+        Repository.RecordFileVersion(snapshot, "a.txt", null, "hash-v1", 10, now, FileChangeKind.Added, now);
+        Repository.CompleteSnapshot(snapshot, now, SnapshotStats.Empty);
+
+        var state = Repository.GetCurrentState()["a.txt"];
+
+        Assert.Null(state.QuickHash);
+        Assert.Null(state.QuickHashScheme);
+    }
+
+    [Fact]
     public void GetFileHistory_follows_a_move_chain_backward()
     {
         var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);

@@ -54,7 +54,7 @@ public sealed class BackupPipeline(
                 progress?.Report(new BackupProgress(0, plan.TotalBytesToTransfer));
 
                 var bytesSoFar = 0L;
-                var outcome = new BackupExecutor(contentStore, repository).Execute(snapshotId, startedAt, plan, transferred =>
+                var outcome = new BackupExecutor(contentStore, repository, hasher).Execute(snapshotId, startedAt, plan, transferred =>
                 {
                     bytesSoFar += transferred;
                     progress?.Report(new BackupProgress(bytesSoFar, plan.TotalBytesToTransfer));
