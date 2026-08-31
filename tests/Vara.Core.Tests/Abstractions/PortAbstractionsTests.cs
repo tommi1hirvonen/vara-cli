@@ -122,9 +122,9 @@ public class PortAbstractionsTests
     {
         public bool ProbeHardlinkSupport() => SupportsHardlinks = true;
         public bool SupportsHardlinks { get; private set; }
-        public (string Hash, long Size) StoreFromStream(Stream content) => ("fake-hash", content.Length);
+        public (string Hash, long Size) StoreFromStream(Stream content, Action<long>? onBytesWritten = null) => ("fake-hash", content.Length);
         public bool HasContent(string hash) => false;
-        public void PlaceAtMirrorPath(string hash, string mirrorRelativePath) { }
+        public void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null) { }
         public void MoveMirrorEntry(string fromRelativePath, string toRelativePath) { }
         public void RemoveFromMirror(string mirrorRelativePath) { }
         public void DeleteContent(string hash) { }

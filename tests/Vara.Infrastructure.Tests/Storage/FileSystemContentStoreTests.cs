@@ -22,6 +22,13 @@ public class FileSystemContentStoreTests : IDisposable
 
     private static Stream Content(string text) => new MemoryStream(Encoding.UTF8.GetBytes(text));
 
+    private static Stream LargeContent(int length)
+    {
+        var bytes = new byte[length];
+        Random.Shared.NextBytes(bytes);
+        return new MemoryStream(bytes);
+    }
+
     [Fact]
     public void ProbeHardlinkSupport_succeeds_on_an_NTFS_path()
     {
@@ -68,6 +75,35 @@ public class FileSystemContentStoreTests : IDisposable
     }
 
     [Fact]
+    public void StoreFromStream_reports_incremental_progress_for_a_large_file()
+    {
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        const int contentLength = 5 * 1024 * 1024;
+
+        var reports = new List<long>();
+        var (hash, size) = store.StoreFromStream(LargeContent(contentLength), bytes => reports.Add(bytes));
+
+        Assert.Equal(contentLength, size);
+        Assert.True(store.HasContent(hash));
+        Assert.True(reports.Count > 1, $"expected more than one progress report for a large file, observed {reports.Count}");
+        Assert.All(reports, bytes => Assert.True(bytes > 0));
+
+        var cumulativeTotals = new List<long>();
+        long running = 0;
+        foreach (var chunk in reports)
+        {
+            running += chunk;
+            cumulativeTotals.Add(running);
+        }
+
+        // Every reported chunk strictly grows the cumulative total, and the final total
+        // equals the file's full size - progress never regresses and never over/under-counts.
+        Assert.True(cumulativeTotals.SequenceEqual(cumulativeTotals.OrderBy(v => v)));
+        Assert.Equal(contentLength, cumulativeTotals[^1]);
+    }
+
+    [Fact]
     public void PlaceAtMirrorPath_with_hardlink_support_places_a_hardlink()
     {
         var store = CreateStore();
@@ -96,6 +132,22 @@ public class FileSystemContentStoreTests : IDisposable
     }
 
     [Fact]
+    public void PlaceAtMirrorPath_without_hardlink_support_reports_incremental_progress_for_a_large_file()
+    {
+        var store = CreateStore();
+        store.ForceHardlinkSupportForTesting(false);
+        const int contentLength = 5 * 1024 * 1024;
+        var (hash, _) = store.StoreFromStream(LargeContent(contentLength));
+
+        var reports = new List<long>();
+        store.PlaceAtMirrorPath(hash, "large.bin", bytes => reports.Add(bytes));
+
+        Assert.True(reports.Count > 1, $"expected more than one progress report for a large fallback copy, observed {reports.Count}");
+        Assert.Equal(contentLength, reports.Sum());
+        Assert.Equal(contentLength, new FileInfo(Path.Combine(_targetRoot, "large.bin")).Length);
+    }
+
+    [Fact]
     public void PlaceAtMirrorPath_falls_back_to_a_copy_when_a_single_hardlink_attempt_fails()
     {
         // Simulates NTFS's 1024-hard-link-per-file cap being hit for this specific blob:
@@ -110,6 +162,23 @@ public class FileSystemContentStoreTests : IDisposable
         var mirrorPath = Path.Combine(_targetRoot, "Documents", "report.txt");
         Assert.True(File.Exists(mirrorPath));
         Assert.Equal("over-linked content", File.ReadAllText(mirrorPath));
+    }
+
+    [Fact]
+    public void PlaceAtMirrorPath_falling_back_after_a_forced_hardlink_failure_reports_incremental_progress_for_a_large_file()
+    {
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        const int contentLength = 5 * 1024 * 1024;
+        var (hash, _) = store.StoreFromStream(LargeContent(contentLength));
+        store.ForceNextHardlinkFailureForTesting();
+
+        var reports = new List<long>();
+        store.PlaceAtMirrorPath(hash, "large.bin", bytes => reports.Add(bytes));
+
+        Assert.True(reports.Count > 1, $"expected more than one progress report for a large fallback copy, observed {reports.Count}");
+        Assert.Equal(contentLength, reports.Sum());
+        Assert.Equal(contentLength, new FileInfo(Path.Combine(_targetRoot, "large.bin")).Length);
     }
 
     [Fact]

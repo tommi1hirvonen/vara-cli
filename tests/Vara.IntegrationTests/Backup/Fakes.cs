@@ -31,18 +31,27 @@ internal sealed class FakeContentStore : IContentStore
     public bool SupportsHardlinks { get; private set; }
     public bool ProbeHardlinkSupport() => SupportsHardlinks = true;
 
-    public (string Hash, long Size) StoreFromStream(Stream content)
+    public (string Hash, long Size) StoreFromStream(Stream content, Action<long>? onBytesWritten = null)
     {
         using var buffer = new MemoryStream();
         content.CopyTo(buffer);
         var bytes = buffer.ToArray();
         var hash = _hasher.ComputeHash(new MemoryStream(bytes));
         _blobs.TryAdd(hash, bytes);
+        if (bytes.LongLength > 0)
+        {
+            onBytesWritten?.Invoke(bytes.LongLength);
+        }
+
         return (hash, bytes.LongLength);
     }
 
     public bool HasContent(string hash) => _blobs.ContainsKey(hash);
-    public void PlaceAtMirrorPath(string hash, string mirrorRelativePath) => Mirror[mirrorRelativePath] = hash;
+
+    public void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null)
+    {
+        Mirror[mirrorRelativePath] = hash;
+    }
 
     public void MoveMirrorEntry(string fromRelativePath, string toRelativePath)
     {

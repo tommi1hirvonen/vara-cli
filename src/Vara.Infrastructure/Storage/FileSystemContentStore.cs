@@ -1,4 +1,5 @@
 using Vara.Core.Abstractions;
+using Vara.Core.IO;
 using Vara.Infrastructure.Interop;
 
 namespace Vara.Infrastructure.Storage;
@@ -12,6 +13,12 @@ namespace Vara.Infrastructure.Storage;
 /// </summary>
 public sealed class FileSystemContentStore : IContentStore
 {
+    // Applied to both sides of a streamed copy (see StoreFromStream and the manual copy in
+    // PlaceAtMirrorPath) so that progress-reporting chunk sizes requested by a reader (e.g. the
+    // hasher's own internal read loop) don't shrink the actual disk read/write size below what
+    // Stream.CopyTo's own default buffer achieved before this change.
+    private const int StreamBufferSize = 1024 * 1024;
+
     private readonly string _mirrorRoot;
     private readonly string _versionsRoot;
     private readonly string _tempRoot;
@@ -62,25 +69,26 @@ public sealed class FileSystemContentStore : IContentStore
         return _supportsHardlinks.Value;
     }
 
-    public (string Hash, long Size) StoreFromStream(Stream content)
+    public (string Hash, long Size) StoreFromStream(Stream content, Action<long>? onBytesWritten = null)
     {
         var tempPath = Path.Combine(_tempRoot, Guid.NewGuid().ToString("N"));
+        string hash;
         long size;
 
+        // Single forward pass: as the hasher reads from the tee, each chunk is simultaneously
+        // written to the temp file and reported via onBytesWritten, replacing the previous
+        // "CopyTo temp file, then reopen it to hash it" two-pass approach
+        // (stream-large-file-transfer-progress change's design.md). `content` is not owned by
+        // this method (matching the previous CopyTo-based implementation, which never disposed
+        // it either), so it's wrapped for buffered reads without disposing the wrapper -
+        // BufferedStream.Dispose would otherwise cascade into disposing the caller's stream.
+        var bufferedSource = new BufferedStream(content, StreamBufferSize);
         using (var tempFile = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write))
+        using (var bufferedSink = new BufferedStream(tempFile, StreamBufferSize))
+        using (var tee = new TeeStream(bufferedSource, bufferedSink, onBytesWritten))
         {
-            content.CopyTo(tempFile);
-            size = tempFile.Length;
-        }
-
-        // Re-reading the just-written temp file to hash it is a deliberate simplification:
-        // it keeps IHasher's simple "hash a stream" contract, at the cost of a second local
-        // (page-cache-warm) read rather than a single combined copy+hash pass. Purely an
-        // internal performance detail; can be optimized later without any interface change.
-        string hash;
-        using (var readBack = File.OpenRead(tempPath))
-        {
-            hash = _hasher.ComputeHash(readBack);
+            hash = _hasher.ComputeHash(tee);
+            size = tee.TotalBytesCopied;
         }
 
         var blobPath = BlobPath(hash);
@@ -109,7 +117,7 @@ public sealed class FileSystemContentStore : IContentStore
 
     public bool HasContent(string hash) => File.Exists(BlobPath(hash));
 
-    public void PlaceAtMirrorPath(string hash, string mirrorRelativePath)
+    public void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null)
     {
         var blobPath = BlobPath(hash);
         if (!File.Exists(blobPath))
@@ -143,17 +151,33 @@ public sealed class FileSystemContentStore : IContentStore
                 // referenced by the maximum number of hard links, creating another one
                 // fails. Falling back to a real copy for just this placement keeps the run
                 // succeeding instead of permanently failing every mirror path beyond the cap.
-                File.Copy(blobPath, stagingPath);
+                CopyWithProgress(blobPath, stagingPath, onBytesCopied);
             }
         }
         else
         {
-            File.Copy(blobPath, stagingPath);
+            CopyWithProgress(blobPath, stagingPath, onBytesCopied);
         }
 
         // Atomic swap: rename the staged file into place, replacing any existing mirror
         // entry in one filesystem operation - never an in-place overwrite.
         File.Move(stagingPath, mirrorPath, overwrite: true);
+    }
+
+    /// <summary>
+    /// Streams <paramref name="sourcePath"/> to <paramref name="destinationPath"/>, reporting
+    /// each chunk's size via <paramref name="onBytesCopied"/> as it is copied - replaces a
+    /// plain <see cref="File.Copy(string, string)"/> so that a large fallback copy (no
+    /// hardlink support, or a blob's hard-link limit reached) reports incremental progress
+    /// instead of being invisible until it completes (stream-large-file-transfer-progress
+    /// change's design.md).
+    /// </summary>
+    private static void CopyWithProgress(string sourcePath, string destinationPath, Action<long>? onBytesCopied)
+    {
+        using var source = new BufferedStream(File.OpenRead(sourcePath), StreamBufferSize);
+        using var destination = new BufferedStream(new FileStream(destinationPath, FileMode.CreateNew, FileAccess.Write), StreamBufferSize);
+        using var tee = new TeeStream(source, destination, onBytesCopied);
+        tee.CopyTo(Stream.Null);
     }
 
     /// <summary>

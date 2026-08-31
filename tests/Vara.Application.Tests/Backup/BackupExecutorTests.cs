@@ -45,6 +45,24 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
+    public void A_single_large_file_transfer_reports_progress_incrementally_not_just_once_on_completion()
+    {
+        var content = new string('a', 500_000);
+        var path = WriteFile("large.txt", content);
+        var size = new FileInfo(path).Length;
+        var plan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Add, "large.txt", null, path, size, DateTimeOffset.UtcNow, null)], size);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        var reports = new List<long>();
+        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, reports.Add);
+
+        Assert.True(reports.Count > 1, $"expected more than one progress report for a large file, observed {reports.Count}");
+        Assert.Equal(size, reports.Sum());
+    }
+
+    [Fact]
     public void Executing_an_add_records_a_quick_hash_for_the_stored_content()
     {
         var path = WriteFile("new.txt", "hello world");

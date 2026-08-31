@@ -111,15 +111,21 @@ public sealed class BackupExecutor(IContentStore contentStore, ISnapshotReposito
             // across threads. The quick hash is computed from the same bytes already
             // being read here (see StreamingContentSignature), so recording it costs no
             // extra I/O and lets a future run's move detection pre-filter against this
-            // file without a full-content read.
+            // file without a full-content read. onBytesTransferred is forwarded directly
+            // into both StoreFromStream and PlaceAtMirrorPath as a chunk-level progress
+            // callback (stream-large-file-transfer-progress change), so progress advances
+            // continuously during a large file's transfer instead of jumping once it
+            // completes; the once-per-file summary counters below are unaffected, since
+            // they're driven by StoreFromStream's returned size, not by how many times
+            // the callback fires.
             using (var sourceStream = File.OpenRead(operation.SourceAbsolutePath!))
             {
                 var signature = new StreamingContentSignature(sourceStream, hasher);
                 quickHash = signature.ComputeQuickHash();
-                (hash, size) = contentStore.StoreFromStream(signature.ReplayFromStart());
+                (hash, size) = contentStore.StoreFromStream(signature.ReplayFromStart(), onBytesTransferred);
             }
 
-            contentStore.PlaceAtMirrorPath(hash, operation.RelativePath);
+            contentStore.PlaceAtMirrorPath(hash, operation.RelativePath, onBytesTransferred);
 
             lock (reportLock)
             {
@@ -130,7 +136,6 @@ public sealed class BackupExecutor(IContentStore contentStore, ISnapshotReposito
 
                 counts.BytesTransferred += size;
                 if (changeKind == FileChangeKind.Added) counts.Added++; else counts.Changed++;
-                onBytesTransferred?.Invoke(size);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

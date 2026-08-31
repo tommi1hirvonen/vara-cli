@@ -97,6 +97,65 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
+    public void Concurrent_chunk_level_progress_reports_never_lose_an_update_under_configured_concurrency()
+    {
+        var entries = WriteFiles(_root, count: 40);
+        var expectedTotal = entries.Sum(e => e.Size);
+        var hasher = new ConcurrencyObservingHasher();
+        var pipeline = new BackupPipeline(
+            new FakeFileSystemScanner(entries), hasher, new FakeContentStore(), new FakeSnapshotRepository(), new FakeRunLock());
+        var profile = SimpleProfile(_root, new ConcurrencySettings(scanConcurrency: null, transferConcurrency: 8));
+        var progress = new SyncProgress<BackupProgress>();
+
+        pipeline.Run(profile, progress);
+
+        // Every file's transfer reports chunk-level progress concurrently (transfer_concurrency
+        // 8); an unsynchronized bytesSoFar accumulation could silently drop updates under this
+        // level of concurrency. The highest reported cumulative total must still equal the sum
+        // of every file's size - no update lost.
+        var maxReported = progress.Reports.Max(r => r.BytesTransferred);
+        Assert.Equal(expectedTotal, maxReported);
+    }
+
+    [Fact]
+    public void Progress_never_exceeds_100_percent_when_the_target_has_no_hardlink_support()
+    {
+        var entries = WriteFiles(_root, count: 10);
+        var contentStore = new FakeContentStore();
+        contentStore.ForceHardlinkSupportForTesting(false);
+        var pipeline = new BackupPipeline(
+            new FakeFileSystemScanner(entries), new FakeHasher(), contentStore, new FakeSnapshotRepository(), new FakeRunLock());
+        var progress = new SyncProgress<BackupProgress>();
+
+        pipeline.Run(SimpleProfile(_root), progress);
+
+        // Every file's placement falls back to a real streamed copy (no hardlink support),
+        // so its bytes are reported twice (source read + mirror placement). The progress
+        // denominator must account for that upfront so the percentage stays bounded.
+        Assert.NotEmpty(progress.Reports);
+        Assert.All(progress.Reports, r => Assert.True(
+            r.BytesTransferred <= r.TotalBytes, $"progress {r.BytesTransferred}/{r.TotalBytes} exceeded 100%"));
+    }
+
+    /// <summary>Synchronous <see cref="IProgress{T}"/> - invokes the callback on the reporting
+    /// thread directly instead of <see cref="Progress{T}"/>'s SynchronizationContext-posted,
+    /// deferred delivery, so a test can assert against every report immediately after Run
+    /// returns. Thread-safe, since concurrent transfers report concurrently.</summary>
+    private sealed class SyncProgress<T> : IProgress<T>
+    {
+        private readonly object _sync = new();
+        public List<T> Reports { get; } = [];
+
+        public void Report(T value)
+        {
+            lock (_sync)
+            {
+                Reports.Add(value);
+            }
+        }
+    }
+
+    [Fact]
     public void A_scan_time_failure_is_recorded_but_does_not_abort_the_run()
     {
         var path = Path.Combine(_root, "a.txt");

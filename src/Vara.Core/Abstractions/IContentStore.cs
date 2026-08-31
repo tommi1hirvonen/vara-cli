@@ -21,9 +21,11 @@ public interface IContentStore
     /// <summary>
     /// Streams <paramref name="content"/> into the store, computing its content hash and
     /// storing it as the canonical blob for that hash if not already present (dedup).
-    /// Returns the computed hash and the byte count read.
+    /// Returns the computed hash and the byte count read. When <paramref name="onBytesWritten"/>
+    /// is given, it is invoked with each chunk's size as it is copied, so a caller can report
+    /// progress incrementally during a large file's transfer rather than only once it completes.
     /// </summary>
-    (string Hash, long Size) StoreFromStream(Stream content);
+    (string Hash, long Size) StoreFromStream(Stream content, Action<long>? onBytesWritten = null);
 
     /// <summary>
     /// Returns whether a blob for <paramref name="hash"/> already exists in the store.
@@ -36,9 +38,11 @@ public interface IContentStore
     /// If hardlinks are supported at the volume level but creating one for this specific blob
     /// fails (for example, because the blob already has the maximum number of hard links a
     /// single file can have on the target filesystem), falls back to a real copy for just this
-    /// placement rather than failing the operation.
+    /// placement rather than failing the operation. When a real copy is performed and
+    /// <paramref name="onBytesCopied"/> is given, it is invoked with each chunk's size as it is
+    /// copied, so a caller can report progress incrementally during a large fallback copy.
     /// </summary>
-    void PlaceAtMirrorPath(string hash, string mirrorRelativePath);
+    void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null);
 
     /// <summary>
     /// Relocates an existing mirror entry from one relative path to another (a rename),

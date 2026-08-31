@@ -51,13 +51,33 @@ public sealed class BackupPipeline(
                 var diff = new BackupDiffer().Diff(scanResult.Entries, currentState);
                 var plan = new BackupPlanner(hasher, profile.Concurrency?.ScanConcurrency ?? 0).Plan(diff, currentState);
 
-                progress?.Report(new BackupProgress(0, plan.TotalBytesToTransfer));
+                // The live progress denominator can differ from plan.TotalBytesToTransfer
+                // (which keeps its plain "total changed source bytes" meaning everywhere
+                // else): when the target doesn't support hardlinks at all, every Add/Change
+                // operation's PlaceAtMirrorPath call is known upfront to re-stream its
+                // content as a fallback copy in addition to the source-read pass, so the
+                // denominator is doubled to keep the reported percentage from exceeding
+                // 100% over the course of the run (stream-large-file-transfer-progress
+                // change's design.md - "Avoiding double-counting when a mirror placement
+                // also streams"). The rare remaining case - hardlinks supported at the
+                // volume level but a specific blob's own link limit reached - isn't knowable
+                // upfront and can still cause a small, transient overshoot; accepted as a
+                // bounded edge case.
+                var progressTotalBytes = contentStore.SupportsHardlinks ? plan.TotalBytesToTransfer : plan.TotalBytesToTransfer * 2;
 
+                progress?.Report(new BackupProgress(0, progressTotalBytes));
+
+                // bytesSoFar is updated from chunk-level callbacks that may arrive
+                // concurrently across multiple in-flight file transfers once
+                // transfer_concurrency is configured above its default of 1 - Interlocked
+                // keeps it correct without taking BackupExecutor's own per-file reportLock
+                // (which continues to serialize only the once-per-file manifest write and
+                // summary counter, independent of this live-progress counter).
                 var bytesSoFar = 0L;
                 var outcome = new BackupExecutor(contentStore, repository, hasher, profile.Concurrency?.TransferConcurrency ?? 0).Execute(snapshotId, startedAt, plan, transferred =>
                 {
-                    bytesSoFar += transferred;
-                    progress?.Report(new BackupProgress(bytesSoFar, plan.TotalBytesToTransfer));
+                    var total = Interlocked.Add(ref bytesSoFar, transferred);
+                    progress?.Report(new BackupProgress(total, progressTotalBytes));
                 });
 
                 // BackupDiffer.Diff above fully enumerates scanResult.Entries, so

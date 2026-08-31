@@ -63,10 +63,16 @@ internal sealed class ConcurrencyObservingHasher : IHasher
 /// <summary>Fully in-memory content store standing in for <see cref="Vara.Infrastructure.Storage.FileSystemContentStore"/>. Thread-safe, since production execution parallelizes Add/Change operations.</summary>
 internal sealed class FakeContentStore : IContentStore
 {
+    // Mirrors FileSystemContentStore's own chunked reads closely enough to exercise
+    // "many small progress reports for one large file" in tests, without needing real
+    // disk I/O or the production TeeStream plumbing.
+    private const int SimulatedChunkSize = 8192;
+
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> _blobs = new();
     public readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> Mirror = new(StringComparer.OrdinalIgnoreCase);
     private readonly FakeHasher _hasher = new();
     private readonly HashSet<string> _existingTargets = new(StringComparer.OrdinalIgnoreCase);
+    private bool? _forcedSupportsHardlinks;
 
     /// <summary>Test seam: when set, <see cref="MoveMirrorEntry"/> throws this instead of performing the move.</summary>
     public Exception? ThrowOnMove { get; set; }
@@ -80,21 +86,60 @@ internal sealed class FakeContentStore : IContentStore
     /// <summary>Test seam: marks <paramref name="absolutePath"/> as already existing, so <see cref="TargetExists"/> reports it.</summary>
     public void SeedExistingTarget(string absolutePath) => _existingTargets.Add(absolutePath);
 
-    public bool SupportsHardlinks { get; private set; }
-    public bool ProbeHardlinkSupport() => SupportsHardlinks = true;
+    /// <summary>
+    /// Test seam: simulates a target filesystem without hardlink support, so
+    /// <see cref="PlaceAtMirrorPath"/> re-streams every placed blob's bytes (with
+    /// progress) instead of being a free no-op - mirroring FileSystemContentStore's real
+    /// fallback-copy behavior. Overrides whatever <see cref="ProbeHardlinkSupport"/>
+    /// would otherwise report, including when called after it (e.g. by a pipeline run).
+    /// </summary>
+    public void ForceHardlinkSupportForTesting(bool supported) => SupportsHardlinks = (_forcedSupportsHardlinks = supported).Value;
 
-    public (string Hash, long Size) StoreFromStream(Stream content)
+    // Defaults to true (matching this fake's original always-true behavior) so tests that
+    // exercise BackupExecutor directly - never calling ProbeHardlinkSupport, which only
+    // BackupPipeline.Run does - don't accidentally take the fallback-copy simulation path.
+    public bool SupportsHardlinks { get; private set; } = true;
+    public bool ProbeHardlinkSupport() => SupportsHardlinks = _forcedSupportsHardlinks ?? true;
+
+    public (string Hash, long Size) StoreFromStream(Stream content, Action<long>? onBytesWritten = null)
     {
         using var buffer = new MemoryStream();
         content.CopyTo(buffer);
         var bytes = buffer.ToArray();
         var hash = _hasher.ComputeHash(new MemoryStream(bytes));
         _blobs.TryAdd(hash, bytes);
+        ReportInChunks(bytes.LongLength, onBytesWritten);
         return (hash, bytes.LongLength);
     }
 
     public bool HasContent(string hash) => _blobs.ContainsKey(hash);
-    public void PlaceAtMirrorPath(string hash, string mirrorRelativePath) => Mirror[mirrorRelativePath] = hash;
+
+    public void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null)
+    {
+        Mirror[mirrorRelativePath] = hash;
+        if (!SupportsHardlinks && _blobs.TryGetValue(hash, out var bytes))
+        {
+            // Every placement falls back to a streamed copy on a target without
+            // hardlink support, just like the real FileSystemContentStore.
+            ReportInChunks(bytes.LongLength, onBytesCopied);
+        }
+    }
+
+    private static void ReportInChunks(long totalBytes, Action<long>? onBytesReported)
+    {
+        if (onBytesReported is null)
+        {
+            return;
+        }
+
+        var remaining = totalBytes;
+        while (remaining > 0)
+        {
+            var chunk = Math.Min(SimulatedChunkSize, remaining);
+            onBytesReported(chunk);
+            remaining -= chunk;
+        }
+    }
 
     public void MoveMirrorEntry(string fromRelativePath, string toRelativePath)
     {
