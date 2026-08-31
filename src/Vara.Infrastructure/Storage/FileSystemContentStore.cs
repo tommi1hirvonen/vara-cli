@@ -17,6 +17,7 @@ public sealed class FileSystemContentStore : IContentStore
     private readonly string _tempRoot;
     private readonly IHasher _hasher;
     private bool? _supportsHardlinks;
+    private bool _forceNextHardlinkFailureForTesting;
 
     public FileSystemContentStore(string targetRoot, IHasher hasher)
     {
@@ -122,7 +123,28 @@ public sealed class FileSystemContentStore : IContentStore
         var stagingPath = Path.Combine(_tempRoot, Guid.NewGuid().ToString("N"));
         if (SupportsHardlinks)
         {
-            Kernel32.CreateHardLink(stagingPath, blobPath);
+            // The hardlink attempt is retried-then-fallback per placement rather than
+            // memoized per blob: a blob's link count isn't a stable fact like volume-level
+            // hardlink support is, since other mirror paths referencing it can later be
+            // removed (moves, deletes, pruning), letting a future attempt succeed again.
+            try
+            {
+                if (_forceNextHardlinkFailureForTesting)
+                {
+                    _forceNextHardlinkFailureForTesting = false;
+                    throw new IOException("Simulated hardlink failure for testing.");
+                }
+
+                Kernel32.CreateHardLink(stagingPath, blobPath);
+            }
+            catch (IOException)
+            {
+                // Most notably NTFS's 1024-hard-link-per-file cap: once a blob is already
+                // referenced by the maximum number of hard links, creating another one
+                // fails. Falling back to a real copy for just this placement keeps the run
+                // succeeding instead of permanently failing every mirror path beyond the cap.
+                File.Copy(blobPath, stagingPath);
+            }
         }
         else
         {
@@ -227,6 +249,15 @@ public sealed class FileSystemContentStore : IContentStore
     /// can be exercised deterministically without needing a non-hardlink-capable volume.
     /// </summary>
     internal void ForceHardlinkSupportForTesting(bool supported) => _supportsHardlinks = supported;
+
+    /// <summary>
+    /// Test-only seam: causes the single next hardlink attempt inside
+    /// <see cref="PlaceAtMirrorPath"/> to fail as if the volume rejected it (e.g. NTFS's
+    /// per-file hard-link limit), so the per-placement copy-fallback path can be exercised
+    /// deterministically without actually creating enough real hardlinks to exhaust a blob's
+    /// link count. Resets itself after triggering exactly one failure.
+    /// </summary>
+    internal void ForceNextHardlinkFailureForTesting() => _forceNextHardlinkFailureForTesting = true;
 
     private static void TryDelete(string path)
     {

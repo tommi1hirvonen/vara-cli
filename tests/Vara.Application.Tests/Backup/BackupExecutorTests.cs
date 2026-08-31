@@ -44,6 +44,29 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
+    public void A_placement_that_succeeds_via_a_per_blob_copy_fallback_is_recorded_like_any_other_success()
+    {
+        // BackupExecutor only ever sees IContentStore.PlaceAtMirrorPath succeed or throw - it
+        // has no knowledge of whether the real FileSystemContentStore placed the blob via a
+        // hardlink or fell back to a real copy because that blob's hard-link limit was reached
+        // (fix-hardlink-limit-fallback). FakeContentStore.PlaceAtMirrorPath never throws, which
+        // stands in for that successful-outcome case regardless of mechanism: confirms the
+        // executor records the file normally and does not treat it as failed.
+        var path = WriteFile("over-linked.txt", "content whose blob hit the hard-link cap");
+        var plan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Add, "over-linked.txt", null, path, 41, DateTimeOffset.UtcNow, null)], 41);
+        var executor = new BackupExecutor(_contentStore, _repository);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+
+        Assert.Equal(1, outcome.FilesAdded);
+        Assert.Empty(outcome.FailedPaths);
+        Assert.True(_contentStore.Mirror.ContainsKey("over-linked.txt"));
+        Assert.Single(_repository.GetFileHistory("over-linked.txt"));
+    }
+
+    [Fact]
     public void A_locked_source_file_is_recorded_as_failed_without_aborting_the_run()
     {
         var lockedPath = WriteFile("locked.txt", "cannot read me");

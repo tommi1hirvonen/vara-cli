@@ -33,6 +33,10 @@ public interface IContentStore
     /// <summary>
     /// Atomically places the blob for <paramref name="hash"/> at <paramref name="mirrorRelativePath"/>,
     /// replacing any existing entry there. Uses a hardlink when supported, otherwise a real copy.
+    /// If hardlinks are supported at the volume level but creating one for this specific blob
+    /// fails (for example, because the blob already has the maximum number of hard links a
+    /// single file can have on the target filesystem), falls back to a real copy for just this
+    /// placement rather than failing the operation.
     /// </summary>
     void PlaceAtMirrorPath(string hash, string mirrorRelativePath);
 

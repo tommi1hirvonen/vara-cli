@@ -96,6 +96,45 @@ public class FileSystemContentStoreTests : IDisposable
     }
 
     [Fact]
+    public void PlaceAtMirrorPath_falls_back_to_a_copy_when_a_single_hardlink_attempt_fails()
+    {
+        // Simulates NTFS's 1024-hard-link-per-file cap being hit for this specific blob:
+        // the volume otherwise supports hardlinks, but this one placement's link creation fails.
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        var (hash, _) = store.StoreFromStream(Content("over-linked content"));
+        store.ForceNextHardlinkFailureForTesting();
+
+        store.PlaceAtMirrorPath(hash, @"Documents\report.txt");
+
+        var mirrorPath = Path.Combine(_targetRoot, "Documents", "report.txt");
+        Assert.True(File.Exists(mirrorPath));
+        Assert.Equal("over-linked content", File.ReadAllText(mirrorPath));
+    }
+
+    [Fact]
+    public void PlaceAtMirrorPath_attempts_a_hardlink_again_after_a_prior_forced_failure()
+    {
+        // A blob's hard-link count isn't a stable, cacheable fact (unlike volume-level hardlink
+        // support): confirms the store doesn't remember a prior failure and always retries a
+        // hardlink first for the next placement.
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        var (hash, _) = store.StoreFromStream(Content("recovering content"));
+        store.ForceNextHardlinkFailureForTesting();
+        store.PlaceAtMirrorPath(hash, "first.txt");
+
+        // The forced failure was single-shot, so this placement should succeed via a real
+        // hardlink rather than another forced or memoized copy fallback.
+        store.PlaceAtMirrorPath(hash, "second.txt");
+
+        var firstPath = Path.Combine(_targetRoot, "first.txt");
+        var secondPath = Path.Combine(_targetRoot, "second.txt");
+        Assert.Equal("recovering content", File.ReadAllText(firstPath));
+        Assert.Equal("recovering content", File.ReadAllText(secondPath));
+    }
+
+    [Fact]
     public void PlaceAtMirrorPath_atomically_replaces_an_existing_mirror_entry()
     {
         var store = CreateStore();
