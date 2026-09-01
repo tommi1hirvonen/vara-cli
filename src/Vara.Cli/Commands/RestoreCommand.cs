@@ -38,7 +38,7 @@ public static class RestoreCommand
 
             if (at is null && version is null)
             {
-                Console.Error.WriteLine("Error: specify either --at <date> or --version <id>.");
+                OutcomeStyle.WriteLineError(StandardError.Console, "Error: specify either --at <date> or --version <id>.");
                 return 1;
             }
 
@@ -66,7 +66,7 @@ public static class RestoreCommand
                 try
                 {
                     RunRestore(force);
-                    Console.WriteLine($"Restored '{path}' to '{outPath}'.");
+                    OutcomeStyle.WriteLineSuccess(AnsiConsole.Console, $"Restored '{path}' to '{outPath}'.");
                 }
                 catch (DestinationExistsException) when (!force && !Console.IsInputRedirected)
                 {
@@ -80,7 +80,7 @@ public static class RestoreCommand
                     if (overwrite)
                     {
                         RunRestore(overwrite: true);
-                        Console.WriteLine($"Restored '{path}' to '{outPath}'.");
+                        OutcomeStyle.WriteLineSuccess(AnsiConsole.Console, $"Restored '{path}' to '{outPath}'.");
                     }
                     else
                     {
@@ -91,7 +91,7 @@ public static class RestoreCommand
 
             if (cancelled)
             {
-                Console.WriteLine("Restore cancelled: destination not overwritten.");
+                OutcomeStyle.WriteLineNeutral(AnsiConsole.Console, "Restore cancelled: destination not overwritten.");
                 return 0;
             }
 

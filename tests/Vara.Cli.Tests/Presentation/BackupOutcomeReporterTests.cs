@@ -20,12 +20,12 @@ public class BackupOutcomeReporterTests
     {
         var console = new TestConsole { EmitAnsiSequences = true };
         console.Profile.Capabilities.Ansi = true;
-        console.Profile.Capabilities.ColorSystem = Spectre.Console.ColorSystem.Standard;
+        console.Profile.Capabilities.ColorSystem = Spectre.Console.ColorSystem.EightBit;
 
         BackupOutcomeReporter.Report(console, MakeResult([]));
 
         Assert.Contains("Snapshot #1 completed", console.Output);
-        Assert.Contains("\u001b[1;32m", console.Output); // bold green
+        Assert.Contains("\u001b[1;38;5;121m", console.Output); // bold PaleGreen1
     }
 
     [Fact]
@@ -33,12 +33,29 @@ public class BackupOutcomeReporterTests
     {
         var console = new TestConsole { EmitAnsiSequences = true };
         console.Profile.Capabilities.Ansi = true;
-        console.Profile.Capabilities.ColorSystem = Spectre.Console.ColorSystem.Standard;
+        console.Profile.Capabilities.ColorSystem = Spectre.Console.ColorSystem.EightBit;
 
         BackupOutcomeReporter.Report(console, MakeResult(["C:\\file.txt"]));
 
         Assert.Contains("Snapshot #1 completed", console.Output);
-        Assert.Contains("\u001b[1;93m", console.Output); // bold amber/yellow
-        Assert.DoesNotContain("\u001b[1;32m", console.Output);
+        Assert.Contains("\u001b[1;38;5;186m", console.Output); // bold LightGoldenrod2
+        Assert.DoesNotContain("\u001b[1;38;5;121m", console.Output);
+    }
+
+    [Fact]
+    public void Only_the_headline_carries_the_severity_style_the_detail_lines_are_plain()
+    {
+        var console = new TestConsole { EmitAnsiSequences = true };
+        console.Profile.Capabilities.Ansi = true;
+        console.Profile.Capabilities.ColorSystem = Spectre.Console.ColorSystem.EightBit;
+
+        BackupOutcomeReporter.Report(console, MakeResult(["C:\\file.txt"]));
+
+        var lines = console.Output.Split('\n');
+        var headlineLine = lines.First(l => l.Contains("Snapshot #1 completed"));
+        var detailLine = lines.First(l => l.Contains("Added:"));
+
+        Assert.Contains("\u001b[1;38;5;186m", headlineLine); // bold LightGoldenrod2 on the headline
+        Assert.DoesNotContain("\u001b[", detailLine); // detail lines render in the default, unstyled text
     }
 }

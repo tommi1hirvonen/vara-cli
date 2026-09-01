@@ -12,7 +12,7 @@ public class ErrorReportingTests
     {
         var console = new TestConsole { EmitAnsiSequences = true };
         console.Profile.Capabilities.Ansi = true;
-        console.Profile.Capabilities.ColorSystem = Spectre.Console.ColorSystem.Standard;
+        console.Profile.Capabilities.ColorSystem = Spectre.Console.ColorSystem.EightBit;
 
         var exitCode = ErrorReporting.Run(
             () => throw new ProfileConfigNotFoundException("C:\\missing\\profiles.yml"),
@@ -20,7 +20,7 @@ public class ErrorReportingTests
 
         Assert.Equal(1, exitCode);
         Assert.Contains("Error: Profile configuration file not found at 'C:\\missing\\profiles.yml'.", console.Output);
-        Assert.Contains("\u001b[1;91m", console.Output); // bold red
+        Assert.Contains("\u001b[1;38;5;131m", console.Output); // bold IndianRed
     }
 
     [Fact]
@@ -35,11 +35,32 @@ public class ErrorReportingTests
     }
 
     [Fact]
-    public void Unrecognized_exception_propagates_rather_than_being_reported()
+    public void Unrecognized_exception_is_rendered_via_WriteException_with_exit_code_1()
     {
-        var console = new TestConsole();
+        var console = new TestConsole { EmitAnsiSequences = true };
+        console.Profile.Capabilities.Ansi = true;
+        console.Profile.Capabilities.ColorSystem = Spectre.Console.ColorSystem.EightBit;
 
-        Assert.Throws<InvalidOperationException>(() =>
-            ErrorReporting.Run(() => throw new InvalidOperationException("boom"), console));
+        var exitCode = ErrorReporting.Run(() => throw new InvalidOperationException("boom"), console);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("boom", console.Output);
+        Assert.Contains("InvalidOperationException", console.Output);
+    }
+
+    [Fact]
+    public void Recognized_exception_still_takes_the_friendly_message_path_unchanged()
+    {
+        var console = new TestConsole { EmitAnsiSequences = true };
+        console.Profile.Capabilities.Ansi = true;
+        console.Profile.Capabilities.ColorSystem = Spectre.Console.ColorSystem.EightBit;
+
+        var exitCode = ErrorReporting.Run(
+            () => throw new ProfileConfigNotFoundException("C:\\missing\\profiles.yml"),
+            console);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Error: Profile configuration file not found at 'C:\\missing\\profiles.yml'.", console.Output);
+        Assert.DoesNotContain("ProfileConfigNotFoundException", console.Output); // no stack trace/type name
     }
 }

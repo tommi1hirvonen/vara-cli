@@ -11,12 +11,6 @@ namespace Vara.Cli.Commands;
 
 public static class BackupCommand
 {
-    // The heartbeat's redraw cadence: comfortably larger than ProgressDisplayGate's own
-    // 100ms rate-limit interval, so a heartbeat tick reliably passes the gate's interval
-    // check when due, rather than frequently landing inside an already-rate-limited
-    // window (add-progress-heartbeat change's design.md).
-    private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromMilliseconds(500);
-
     public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory, IFileSystemScanner scanner, IHasher hasher)
     {
         var profileArgument = new Argument<string>("profile") { Description = "The profile to back up." };
@@ -48,34 +42,60 @@ public static class BackupCommand
         return command;
     }
 
-    // Interactive path: a two-row Live display (bar on its own line, stats below it),
-    // per the progress-reporting delta's "Progress bar occupies a dedicated,
-    // width-sized line" requirement.
+    // Interactive path: a native Progress() run hosting three synthetic tasks (scan
+    // spinner, then bar, then stats), all rendered by one BackupProgressColumn, per
+    // design.md's "one unified column" decision. Progress()'s own AutoRefresh (unlike
+    // Live, which has none) is what keeps throughput/ETA advancing during a stall - no
+    // manual heartbeat timer is needed any more.
     private static BackupRunResult RunWithLiveDisplay(BackupPipeline pipeline, Vara.Core.Configuration.Profile profile, IAnsiConsole console)
     {
         var calculator = new BackupProgressCalculator();
         var displayGate = new ProgressDisplayGate();
-        var panel = new BackupProgressPanel(calculator);
+        var column = new BackupProgressColumn(calculator);
 
         BackupRunResult result = null!;
-        console.Live(panel).Start(ctx =>
-        {
-            void Render(BackupProgress admitted)
+        console.Progress()
+            .Columns(column)
+            .Start(ctx =>
             {
-                panel.Update(admitted);
-                ctx.Refresh();
-            }
+                var scanTask = ctx.AddTask("Scanning", autoStart: true);
+                scanTask.IsIndeterminate = true;
+                scanTask.State.Update(BackupProgressColumn.RoleKey, (BackupProgressRole _) => BackupProgressRole.Scan);
 
-            var progress = new Progress<BackupProgress>(p => displayGate.Report(p, Render));
+                ProgressTask? barTask = null;
+                ProgressTask? statsTask = null;
 
-            // A minimal heartbeat: LiveDisplay has no built-in auto-refresh of its own
-            // (confirmed by spike - see design.md), so this timer is what keeps
-            // throughput/ETA advancing during a stall. Unlike the old ProgressHeartbeat,
-            // it does not need to remember or replay a snapshot value - BackupProgressPanel
-            // already recomputes elapsed-time-based values fresh on every Render() call.
-            using var heartbeatTimer = new Timer(_ => ctx.Refresh(), null, HeartbeatInterval, HeartbeatInterval);
-            result = pipeline.Run(profile, progress);
-        });
+                void Render(BackupProgress admitted)
+                {
+                    if (barTask is null)
+                    {
+                        // First admitted progress event: the scan/plan phase has
+                        // finished and transfer is about to begin - replace the scan
+                        // spinner with the bar/stats rows, per the progress-reporting
+                        // delta's "Indicator replaced once transfer begins" scenario.
+                        ctx.RemoveTask(scanTask);
+                        barTask = ctx.AddTask("Transfer", autoStart: true, maxValue: 100);
+                        barTask.State.Update(BackupProgressColumn.RoleKey, (BackupProgressRole _) => BackupProgressRole.Bar);
+                        statsTask = ctx.AddTask("Stats", autoStart: true, maxValue: admitted.TotalBytes);
+                        statsTask.State.Update(BackupProgressColumn.RoleKey, (BackupProgressRole _) => BackupProgressRole.Stats);
+                    }
+
+                    // BackupProgressColumn.RenderBar drives the bar task's own
+                    // Value/MaxValue itself (from this same state, via
+                    // BackupProgressCalculator's percent) - it does not read raw
+                    // bytes/total directly, so both tasks just get the raw admitted
+                    // state stashed here.
+                    var state = new BackupProgressState(admitted.BytesTransferred, admitted.TotalBytes);
+                    barTask.State.Update(BackupProgressColumn.ProgressKey, (BackupProgressState _) => state);
+                    statsTask!.Value = admitted.BytesTransferred;
+                    statsTask.State.Update(BackupProgressColumn.ProgressKey, (BackupProgressState _) => state);
+
+                    ctx.Refresh();
+                }
+
+                var progress = new Progress<BackupProgress>(p => displayGate.Report(p, Render));
+                result = pipeline.Run(profile, progress);
+            });
 
         return result;
     }

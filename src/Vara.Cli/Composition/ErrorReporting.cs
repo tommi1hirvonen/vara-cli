@@ -34,6 +34,27 @@ public static class ErrorReporting
             OutcomeStyle.WriteLineError(errorConsole ?? StandardError.Console, $"Error: {message}");
             return 1;
         }
+        catch (Exception ex)
+        {
+            // A catch-all for any exception not already recognized as a known,
+            // friendly-message error condition, per the cli-presentation delta's
+            // "Unclassified exceptions are rendered in the hard-error style"
+            // requirement - previously this propagated unhandled and produced a raw,
+            // unstyled .NET stack trace. Hand-formatted (type name + message in the
+            // hard-error style, stack trace in a dim style below) rather than using
+            // Spectre's AnsiConsole.WriteException: that API is explicitly documented
+            // as unsupported under Native AOT (RequiresDynamicCode, "ExceptionFormatter
+            // is currently not supported for AOT") and this project publishes with
+            // PublishAot enabled - see design.md's "Unhandled exceptions" decision.
+            var console = errorConsole ?? StandardError.Console;
+            OutcomeStyle.WriteLineError(console, $"Unhandled exception: {ex.GetType().Name}: {ex.Message}");
+            if (!string.IsNullOrEmpty(ex.StackTrace))
+            {
+                console.WriteLine(ex.StackTrace, new Style(Color.Grey));
+            }
+
+            return 1;
+        }
     }
 
     private static bool TryGetFriendlyMessage(Exception ex, out string message)

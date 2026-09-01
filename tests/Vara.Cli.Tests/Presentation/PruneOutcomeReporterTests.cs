@@ -12,11 +12,11 @@ public class PruneOutcomeReporterTests
     {
         var console = new TestConsole { EmitAnsiSequences = true };
         console.Profile.Capabilities.Ansi = true;
-        console.Profile.Capabilities.ColorSystem = Spectre.Console.ColorSystem.Standard;
+        console.Profile.Capabilities.ColorSystem = Spectre.Console.ColorSystem.EightBit;
 
         PruneOutcomeReporter.Report(console, new PruneResult(2, 5));
 
         Assert.Contains("Removed 2 snapshot(s) and 5 unreferenced content blob(s).", console.Output);
-        Assert.Contains("\u001b[1;32m", console.Output); // bold green
+        Assert.Contains("\u001b[1;38;5;121m", console.Output); // bold PaleGreen1
     }
 }
