@@ -5,6 +5,7 @@
   <Project Path="src/Vara.Infrastructure/Vara.Infrastructure.csproj" />
   <Project Path="tests/Vara.Core.Tests/Vara.Core.Tests.csproj" />
   <Project Path="tests/Vara.Application.Tests/Vara.Application.Tests.csproj" />
+  <Project Path="tests/Vara.Cli.Tests/Vara.Cli.Tests.csproj" />
   <Project Path="tests/Vara.Infrastructure.Tests/Vara.Infrastructure.Tests.csproj" />
   <Project Path="tests/Vara.IntegrationTests/Vara.IntegrationTests.csproj" />
 </Solution>

@@ -1,7 +1,9 @@
 using System.CommandLine;
+using Spectre.Console;
 using Vara.Application.Profiles;
 using Vara.Application.Retention;
 using Vara.Cli.Composition;
+using Vara.Cli.Presentation;
 
 namespace Vara.Cli.Commands;
 
@@ -25,7 +27,7 @@ public static class PruneCommand
                 var pruneService = new PruneService(services.Repository, services.ContentStore, services.RunLock);
 
                 var result = pruneService.Prune(profile);
-                Console.WriteLine($"Removed {result.SnapshotsRemoved} snapshot(s) and {result.BlobsRemoved} unreferenced content blob(s).");
+                PruneOutcomeReporter.Report(AnsiConsole.Console, result);
             });
         });
 

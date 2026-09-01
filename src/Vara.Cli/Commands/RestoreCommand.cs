@@ -1,8 +1,10 @@
 using System.CommandLine;
 using System.Globalization;
+using Spectre.Console;
 using Vara.Application.History;
 using Vara.Application.Profiles;
 using Vara.Cli.Composition;
+using Vara.Cli.Presentation;
 using Vara.Core.Snapshots;
 
 namespace Vara.Cli.Commands;
@@ -73,10 +75,9 @@ public static class RestoreCommand
                     // sessions (stdin redirected) fall through and let the exception propagate to
                     // ErrorReporting, which reports it as a normal error (exit 1) directing the
                     // user to --force.
-                    Console.Error.Write($"File '{outPath}' already exists. Overwrite? [y/N]: ");
-                    var answer = Console.ReadLine();
-                    if (string.Equals(answer, "y", StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(answer, "yes", StringComparison.OrdinalIgnoreCase))
+                    var overwrite = StandardError.Console.Confirm(
+                        $"File '{Markup.Escape(outPath)}' already exists. Overwrite?", defaultValue: false);
+                    if (overwrite)
                     {
                         RunRestore(overwrite: true);
                         Console.WriteLine($"Restored '{path}' to '{outPath}'.");

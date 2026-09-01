@@ -1,8 +1,9 @@
 using System.CommandLine;
+using Spectre.Console;
 using Vara.Application.History;
 using Vara.Application.Profiles;
-using Vara.Application.Reporting;
 using Vara.Cli.Composition;
+using Vara.Cli.Presentation;
 
 namespace Vara.Cli.Commands;
 
@@ -26,19 +27,7 @@ public static class SnapshotsCommand
                 var history = new SnapshotHistoryService(services.Repository, services.ContentStore);
 
                 var snapshots = history.ListSnapshots();
-                if (snapshots.Count == 0)
-                {
-                    Console.WriteLine("No snapshots recorded yet.");
-                    return;
-                }
-
-                foreach (var snapshot in snapshots)
-                {
-                    Console.WriteLine(
-                        $"#{snapshot.Id,-6} {snapshot.StartedAt:yyyy-MM-dd HH:mm:ss zzz} [{snapshot.Status}] " +
-                        $"+{snapshot.Stats.FilesAdded} ~{snapshot.Stats.FilesChanged} ->{snapshot.Stats.FilesMoved} -{snapshot.Stats.FilesDeleted} " +
-                        $"{BackupRunSummaryFormatter.FormatBytes(snapshot.Stats.BytesTransferred)}");
-                }
+                SnapshotsTablePresenter.Render(AnsiConsole.Console, snapshots);
             });
         });
 

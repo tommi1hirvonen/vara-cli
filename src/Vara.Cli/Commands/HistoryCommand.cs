@@ -1,9 +1,9 @@
 using System.CommandLine;
+using Spectre.Console;
 using Vara.Application.History;
 using Vara.Application.Profiles;
-using Vara.Application.Reporting;
 using Vara.Cli.Composition;
-using Vara.Core.Snapshots;
+using Vara.Cli.Presentation;
 
 namespace Vara.Cli.Commands;
 
@@ -28,12 +28,8 @@ public static class HistoryCommand
                 using var services = serviceFactory.CreateFor(profile);
                 var history = new SnapshotHistoryService(services.Repository, services.ContentStore);
 
-                foreach (var version in history.GetFileHistory(path))
-                {
-                    var note = version.ChangeKind == FileChangeKind.Deleted ? " (deleted)" : string.Empty;
-                    Console.WriteLine(
-                        $"#{version.Id,-6} {version.RecordedAt:yyyy-MM-dd HH:mm:ss zzz} [{version.ChangeKind}]{note} {BackupRunSummaryFormatter.FormatBytes(version.Size)}");
-                }
+                var versions = history.GetFileHistory(path);
+                HistoryTablePresenter.Render(AnsiConsole.Console, versions);
             });
         });
 

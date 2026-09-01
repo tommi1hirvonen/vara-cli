@@ -24,6 +24,6 @@ Backup progress today is a single, uncolored `\r`-overwritten line that jitters 
 
 - `Vara.Cli` project: new `Spectre.Console` package reference; rendering code in `BackupCommand`, `SnapshotsCommand`, `HistoryCommand`, `PruneCommand`, `RestoreCommand`, and `ErrorReporting`.
 - `Vara.Application.Reporting`: `BackupProgressCalculator`'s percent/throughput/ETA math is unaffected; `ProgressDisplayGate`'s rate-limiting and `ProgressHeartbeat`'s timer-driven redraw are revisited in design, since Spectre's own live-refresh loop may absorb part of that responsibility.
-- Published native binary size increases by roughly 2 MB (measured against an AOT-published minimal Spectre.Console sample; the real increase will be confirmed once integrated).
+- Published native binary size increases by **1.16 MB** (6.80 MB → 7.96 MB, measured with the real `Vara.Cli` project AOT-published and `Spectre.Console` actually in use throughout - less than the ~2 MB estimated from an isolated minimal sample, since AOT trimming removes the Spectre features this codebase doesn't use).
 - No changes to persisted data, manifest schema, or command arguments - presentation only.
 - No existing automated test coverage for `Vara.Cli`'s `Commands/` today, so this change carries no test-breakage risk from touched rendering code, but new tests should still be considered where practical (e.g. capability-detection fallback logic).

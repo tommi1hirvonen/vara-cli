@@ -1,3 +1,5 @@
+using Spectre.Console;
+using Vara.Cli.Presentation;
 using Vara.Core.Backup;
 using Vara.Core.Configuration;
 using Vara.Core.Snapshots;
@@ -11,7 +13,12 @@ namespace Vara.Cli.Composition;
 /// </summary>
 public static class ErrorReporting
 {
-    public static int Run(Action action)
+    /// <param name="errorConsole">
+    /// The console an error message is written to; defaults to <see cref="StandardError.Console"/>
+    /// (real standard error). Overridable so tests can assert against a
+    /// <c>TestConsole</c> instead of the real process's standard error stream.
+    /// </param>
+    public static int Run(Action action, IAnsiConsole? errorConsole = null)
     {
         try
         {
@@ -20,7 +27,11 @@ public static class ErrorReporting
         }
         catch (Exception ex) when (TryGetFriendlyMessage(ex, out var message))
         {
-            Console.Error.WriteLine($"Error: {message}");
+            // Styled per the cli-presentation delta's "Outcome severity is visually
+            // distinct" requirement, applying uniformly regardless of which command
+            // raised the error. Written to standard error by default, so it stays
+            // visible even when standard output is redirected.
+            OutcomeStyle.WriteLineError(errorConsole ?? StandardError.Console, $"Error: {message}");
             return 1;
         }
     }
