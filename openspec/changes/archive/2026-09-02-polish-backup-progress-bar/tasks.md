@@ -23,6 +23,6 @@
 
 ## 5. Manual verification
 
-- [ ] 5.1 Run a real backup against a profile with no failures in an interactive terminal (conhost and/or Windows Terminal) and verify: scan phase shows a full-width pastel-blue pulsing bar; transfer phase shows a full-width pastel-amber bar; on completion the bar turns entirely pastel green
-- [ ] 5.2 Run a real backup against a profile with at least one unreadable/locked file and verify the bar turns entirely pastel amber (not green) on completion, consistent with the printed partial-failure summary below it
-- [ ] 5.3 Force a hard error partway through a run (for example, an inaccessible target path) and verify the bar most recently displayed turns entirely pastel red before the error message is printed, and the process still exits with the same non-zero exit code as before this change
+- [x] 5.1 Run a real backup against a profile with no failures in an interactive terminal (conhost and/or Windows Terminal) and verify: scan phase shows a full-width pastel-blue pulsing bar; transfer phase shows a full-width pastel-amber bar; on completion the bar turns entirely pastel green
+- [x] 5.2 Run a real backup against a profile with at least one unreadable/locked file and verify the bar turns entirely pastel amber (not green) on completion, consistent with the printed partial-failure summary below it
+- [x] 5.3 Force a hard error partway through a run (for example, an inaccessible target path) and verify the bar most recently displayed turns entirely pastel red before the error message is printed, and the process still exits with the same non-zero exit code as before this change
