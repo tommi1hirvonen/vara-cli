@@ -40,6 +40,9 @@ public class DirectoryFileSystemScannerTests : IDisposable
 
     private string Path_(params string[] segments) => Path.Combine([_root, .. segments]);
 
+    /// <summary>Expected <see cref="ScannedEntry.RelativePath"/> for an entry at <see cref="Path_"/>, per the mirror-absolute-source-paths change: derived from the entry's full absolute path with the drive letter's colon stripped.</summary>
+    private string MirrorPath_(params string[] segments) => AbsolutePathMirrorMapper.ToMirrorPath(Path_(segments));
+
     private static void WriteFile(string path, string content)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -55,8 +58,8 @@ public class DirectoryFileSystemScannerTests : IDisposable
         var entries = _scanner.Scan([new Source(_root)]).Entries.ToList();
 
         Assert.Equal(2, entries.Count);
-        Assert.Contains(entries, e => e.RelativePath == "a.txt");
-        Assert.Contains(entries, e => e.RelativePath == Path.Combine("sub", "b.txt"));
+        Assert.Contains(entries, e => e.RelativePath == MirrorPath_("a.txt"));
+        Assert.Contains(entries, e => e.RelativePath == MirrorPath_("sub", "b.txt"));
     }
 
     [Fact]
@@ -68,7 +71,7 @@ public class DirectoryFileSystemScannerTests : IDisposable
         var entries = _scanner.Scan([new Source(_root, recursive: false)]).Entries.ToList();
 
         var entry = Assert.Single(entries);
-        Assert.Equal("a.txt", entry.RelativePath);
+        Assert.Equal(MirrorPath_("a.txt"), entry.RelativePath);
     }
 
     [Fact]
@@ -80,7 +83,7 @@ public class DirectoryFileSystemScannerTests : IDisposable
         var entries = _scanner.Scan([new Source(_root, excludes: ["excluded"])]).Entries.ToList();
 
         var entry = Assert.Single(entries);
-        Assert.Equal("keep.txt", entry.RelativePath);
+        Assert.Equal(MirrorPath_("keep.txt"), entry.RelativePath);
     }
 
     [Fact]
@@ -92,7 +95,7 @@ public class DirectoryFileSystemScannerTests : IDisposable
         var entries = _scanner.Scan([new Source(_root, excludes: ["sub/excluded"])]).Entries.ToList();
 
         var entry = Assert.Single(entries);
-        Assert.Equal("keep.txt", entry.RelativePath);
+        Assert.Equal(MirrorPath_("keep.txt"), entry.RelativePath);
     }
 
     [Fact]
@@ -104,7 +107,7 @@ public class DirectoryFileSystemScannerTests : IDisposable
         var entries = _scanner.Scan([new Source(_root, excludes: ["sub\\excluded"])]).Entries.ToList();
 
         var entry = Assert.Single(entries);
-        Assert.Equal("keep.txt", entry.RelativePath);
+        Assert.Equal(MirrorPath_("keep.txt"), entry.RelativePath);
     }
 
     [Fact]
@@ -116,7 +119,7 @@ public class DirectoryFileSystemScannerTests : IDisposable
         var entries = _scanner.Scan([new Source(filePath)]).Entries.ToList();
 
         var entry = Assert.Single(entries);
-        Assert.Equal("standalone.db", entry.RelativePath);
+        Assert.Equal(AbsolutePathMirrorMapper.ToMirrorPath(filePath), entry.RelativePath);
         Assert.False(entry.IsLink);
     }
 
@@ -140,7 +143,7 @@ public class DirectoryFileSystemScannerTests : IDisposable
         var entries = _scanner.Scan([new Source(_root)]).Entries.ToList();
 
         // The junction itself is reported as a link entry ...
-        Assert.Contains(entries, e => e.RelativePath == "linked-dir" && e.IsLink);
+        Assert.Contains(entries, e => e.RelativePath == MirrorPath_("linked-dir") && e.IsLink);
         // ... but nothing behind it is traversed or reported.
         Assert.DoesNotContain(entries, e => e.RelativePath.Contains("hidden-behind-link.txt"));
     }
@@ -171,7 +174,7 @@ public class DirectoryFileSystemScannerTests : IDisposable
             // Nothing from inside the denied subtree is returned ...
             Assert.DoesNotContain(entries, e => e.RelativePath.Contains("hidden.txt"));
             // ... but a sibling outside the subtree still scans normally.
-            Assert.Contains(entries, e => e.RelativePath == "keep.txt");
+            Assert.Contains(entries, e => e.RelativePath == MirrorPath_("keep.txt"));
 
             // Exactly one failure for the subtree root, not one per file that would
             // have been inside it.

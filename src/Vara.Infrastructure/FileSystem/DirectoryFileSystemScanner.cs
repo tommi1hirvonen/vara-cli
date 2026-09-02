@@ -42,7 +42,8 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
         {
             // The profile schema also allows a source to point directly at a single file.
             var fileName = Path.GetFileName(source.Path);
-            var entry = ToEntry(source.Path, fileName, failures);
+            var mirrorPath = AbsolutePathMirrorMapper.ToMirrorPath(source.Path);
+            var entry = ToEntry(source.Path, fileName, mirrorPath, failures);
             if (entry is not null)
             {
                 yield return entry;
@@ -68,7 +69,8 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
                 continue;
             }
 
-            var entry = ToEntry(path, relativePath, failures);
+            var mirrorPath = AbsolutePathMirrorMapper.ToMirrorPath(path);
+            var entry = ToEntry(path, relativePath, mirrorPath, failures);
             if (entry is not null)
             {
                 yield return entry;
@@ -136,7 +138,13 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
         }
     }
 
-    private static ScannedEntry? ToEntry(string absolutePath, string relativePath, List<ScanFailure> failures)
+    /// <summary>
+    /// <paramref name="relativePath"/> (source-relative) is used only for
+    /// <see cref="ScanFailure"/> reporting; <paramref name="mirrorPath"/> (derived from
+    /// the entry's full absolute path) becomes the resulting <see cref="ScannedEntry"/>'s
+    /// <see cref="ScannedEntry.RelativePath"/>.
+    /// </summary>
+    private static ScannedEntry? ToEntry(string absolutePath, string relativePath, string mirrorPath, List<ScanFailure> failures)
     {
         FileAttributes attributes;
         try
@@ -151,13 +159,13 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
 
         if (attributes.HasFlag(FileAttributes.ReparsePoint))
         {
-            return new ScannedEntry(relativePath, absolutePath, 0, DateTimeOffset.MinValue, IsLink: true, TryGetLinkTarget(absolutePath));
+            return new ScannedEntry(mirrorPath, absolutePath, 0, DateTimeOffset.MinValue, IsLink: true, TryGetLinkTarget(absolutePath));
         }
 
         try
         {
             var info = new FileInfo(absolutePath);
-            return new ScannedEntry(relativePath, absolutePath, info.Length, info.LastWriteTimeUtc, IsLink: false, LinkTarget: null);
+            return new ScannedEntry(mirrorPath, absolutePath, info.Length, info.LastWriteTimeUtc, IsLink: false, LinkTarget: null);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
