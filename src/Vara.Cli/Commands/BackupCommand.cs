@@ -94,11 +94,46 @@ public static class BackupCommand
                 }
 
                 var progress = new Progress<BackupProgress>(p => displayGate.Report(p, Render));
-                result = pipeline.Run(profile, progress);
+
+                // The bar's final color reflects the run's actual outcome, not the
+                // byte-based percentage BackupProgressColumn happened to reach - stamped
+                // once here, after the run either returns or throws, per design.md's
+                // "BackupCommand.RunWithLiveDisplay resolves and stamps the outcome
+                // itself" decision. barTask is guaranteed non-null on a normal return
+                // (onTransferPhaseStarting always fires before Run returns, even for a
+                // zero-byte run); scanTask is still the active task if an exception is
+                // thrown before transfer begins (e.g. during scanning/diffing/planning).
+                try
+                {
+                    result = pipeline.Run(profile, progress);
+
+                    var outcome = ResolveOutcome(result);
+                    (barTask ?? scanTask).State.Update(BackupProgressColumn.OutcomeKey, (BackupProgressOutcome _) => outcome);
+                    ctx.Refresh();
+                }
+                catch
+                {
+                    (barTask ?? scanTask).State.Update(BackupProgressColumn.OutcomeKey, (BackupProgressOutcome _) => BackupProgressOutcome.Error);
+                    ctx.Refresh();
+                    throw;
+                }
             });
 
         return result;
     }
+
+    /// <summary>
+    /// Maps a completed run's result to the outcome the live progress bar's final
+    /// color should reflect - a clean success (bar turns green) or a success with
+    /// partial failures (bar turns/stays amber), per the progress-reporting delta's
+    /// "Progress bar reflects run outcome severity" requirement. A hard error (the run
+    /// throwing before completing) is handled separately, in <see cref="RunWithLiveDisplay"/>'s
+    /// catch block, since no <see cref="BackupRunResult"/> exists in that case.
+    /// Internal and pure so it can be unit tested directly, without needing a real
+    /// <see cref="BackupPipeline"/>/<see cref="Progress"/> run.
+    /// </summary>
+    internal static BackupProgressOutcome ResolveOutcome(BackupRunResult result) =>
+        result.FailedPaths.Count == 0 ? BackupProgressOutcome.Success : BackupProgressOutcome.PartialFailure;
 
     // Non-interactive/redirected path: plain, uncolored, appended lines with no
     // in-place redraw, per the cli-presentation delta's "Non-interactive or

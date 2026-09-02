@@ -19,6 +19,26 @@ public enum BackupProgressRole
 }
 
 /// <summary>
+/// A bar-role or scan-role task's outcome, for coloring purposes only - stashed in that
+/// task's <see cref="ProgressTask.State"/> under <see cref="BackupProgressColumn.OutcomeKey"/>.
+/// <see cref="Running"/> is deliberately the enum's default (0) value, since a task's
+/// <see cref="ProgressTaskState"/> returns a key's default when it was never stamped - a
+/// task that hasn't had its outcome explicitly set is still running. Per design.md's
+/// "one outcome enum ... read by both scan and bar rendering" decision: the byte-based
+/// percentage no longer determines the bar's final color (a failure doesn't always move
+/// the percentage to 100, and a Move/Delete-only failure never touches it at all), so the
+/// caller (<see cref="Commands.BackupCommand"/>) stamps the actual run outcome once it is
+/// known, instead.
+/// </summary>
+public enum BackupProgressOutcome
+{
+    Running,
+    Success,
+    PartialFailure,
+    Error,
+}
+
+/// <summary>
 /// A value-type snapshot of the raw byte counts a task's row should render, stashed in
 /// that task's <see cref="ProgressTask.State"/> under
 /// <see cref="BackupProgressColumn.ProgressKey"/>. <see cref="ProgressTaskState"/> only
@@ -49,18 +69,21 @@ public sealed class BackupProgressColumn(BackupProgressCalculator calculator) : 
 {
     public const string RoleKey = "BackupProgressRole";
     public const string ProgressKey = "BackupProgressState";
+    public const string OutcomeKey = "BackupProgressOutcome";
 
-    private readonly SpinnerColumn _spinner = new() { Style = new Style(Color.LightSkyBlue1) };
+    private const string ScanLabel = " Scanning files...";
 
-    // Composition, not inheritance - ProgressBarColumn is sealed. CompletedStyle
-    // covers the fill while the task is in progress; FinishedStyle is what
-    // ProgressBarColumn switches to once the task reaches 100% (Spectre defaults this
-    // to a plain Color.Green independent of CompletedStyle, so it must be set
-    // explicitly too or a completed bar would revert to the non-pastel default green).
+    // Composition, not inheritance - ProgressBarColumn is sealed. Reused for both the
+    // scan role (indeterminate pulse) and the bar role (byte-based fill) per design.md's
+    // "reuse _bar via a Grid, not Columns, dropping SpinnerColumn entirely" decision -
+    // a spinner glyph is a couple of characters wide regardless of color, and only a
+    // full-width bar gives the scan phase the same visual weight as the transfer phase
+    // that follows it. CompletedStyle/FinishedStyle/IndeterminateStyle are all
+    // recomputed per render call from the task's stamped BackupProgressOutcome (see
+    // ApplyOutcomeStyle) rather than fixed here, since the bar's color is no longer
+    // purely a function of Value/MaxValue.
     private readonly ProgressBarColumn _bar = new()
     {
-        CompletedStyle = new Style(Color.PaleGreen1),
-        FinishedStyle = new Style(Color.PaleGreen1),
         RemainingStyle = new Style(Color.Grey),
     };
 
@@ -73,46 +96,89 @@ public sealed class BackupProgressColumn(BackupProgressCalculator calculator) : 
             _ => new Text(string.Empty),
         };
 
-    // Delegates the spinner glyph itself to Spectre's own SpinnerColumn (composition,
-    // not inheritance - SpinnerColumn is sealed) so its frame-advancing and Unicode
-    // capability fallback are reused rather than reimplemented, per the
-    // progress-reporting delta's "Scan-phase progress indication" requirement.
-    private IRenderable RenderScan(RenderOptions options, ProgressTask task, TimeSpan deltaTime) =>
-        new Columns(_spinner.Render(options, task, deltaTime), new Text(" Scanning files...", new Style(Color.LightSkyBlue1))).Collapse();
+    // Renders the scan phase's indeterminate indicator using the same shared _bar as
+    // the transfer phase (IsIndeterminate is already set on the scan task by
+    // BackupCommand), recolored to the neutral pastel color while running - or to the
+    // matching outcome color if a hard error is stamped onto this task before it's
+    // replaced by the bar/stats tasks, per the progress-reporting delta's "Progress bar
+    // reflects run outcome severity" requirement.
+    private IRenderable RenderScan(RenderOptions options, ProgressTask task, TimeSpan deltaTime)
+    {
+        ApplyOutcomeStyle(task);
+        return RenderBarRow(options, task, deltaTime, ScanLabel);
+    }
 
     // Delegates the bar's fill segments to Spectre's own ProgressBarColumn (composition,
     // not inheritance - ProgressBarColumn is sealed), reusing its native Unicode bar
     // glyph and fill/remaining rendering rather than hand-drawing ASCII characters.
-    // The task's Value/MaxValue are driven here (not from raw admitted bytes) by
-    // BackupProgressCalculator's already-100%-on-zero-total percent - ProgressBarColumn's
-    // own fill ratio does not special-case a zero MaxValue the way ProgressTask.Percentage
-    // does (verified empirically: it renders fully unfilled at 0/0, which would
-    // visually contradict the percent text otherwise correctly showing 100%) - so
-    // driving both the fill and the percent text from the same 0-100 percent value
-    // keeps them always consistent. Combined with the percent text via a two-column
-    // Grid rather than Columns: Columns stacks a "greedy" full-width child (like the
-    // bar) and a second child onto separate rows instead of the same line (verified
-    // empirically), whereas Grid's explicit fixed column widths place them side by
-    // side on one line, per the progress-reporting delta's "dedicated, width-sized
-    // line" requirement.
+    // While the run is still Running, the task's Value/MaxValue are driven from
+    // BackupProgressCalculator's already-100%-on-zero-total percent, exactly as before.
+    // Once a final outcome is stamped, the percent is forced to 100 instead - the bar's
+    // final color reflects the run's actual outcome, not the byte-based percentage
+    // reached at that moment (design.md's "Progress bar reflects run outcome severity"
+    // decision - a failure doesn't always move the percentage to 100, and a
+    // Move/Delete-only failure never touches it at all).
     private IRenderable RenderBar(RenderOptions options, ProgressTask task, TimeSpan deltaTime)
     {
-        var snapshot = calculator.Calculate(task.State.Get<BackupProgressState>(ProgressKey).ToProgress());
-        var percent = Math.Clamp(snapshot.PercentComplete, 0, 100);
-        var percentText = $" {percent,5:0.0}%";
+        var outcome = ApplyOutcomeStyle(task);
+
+        var percent = outcome == BackupProgressOutcome.Running
+            ? Math.Clamp(calculator.Calculate(task.State.Get<BackupProgressState>(ProgressKey).ToProgress()).PercentComplete, 0, 100)
+            : 100;
 
         task.MaxValue = 100;
         task.Value = percent;
 
+        var percentText = $" {percent,5:0.0}%";
+        return RenderBarRow(options, task, deltaTime, percentText);
+    }
+
+    // Combined with the trailing text via a two-column Grid rather than Columns:
+    // Columns stacks a "greedy" full-width child (like the bar) and a second child onto
+    // separate rows instead of the same line (verified empirically), whereas Grid's
+    // explicit fixed column widths place them side by side on one line, per the
+    // progress-reporting delta's "dedicated, width-sized line" requirement. Shared by
+    // both RenderScan (trailing = the scan label) and RenderBar (trailing = the percent
+    // text), since both roles now render the same shared _bar.
+    private IRenderable RenderBarRow(RenderOptions options, ProgressTask task, TimeSpan deltaTime, string trailingText)
+    {
         var availableWidth = options.ConsoleSize.Width;
-        var barWidth = Math.Max(1, availableWidth - percentText.Length);
+        var barWidth = Math.Max(1, availableWidth - trailingText.Length);
         _bar.Width = barWidth;
 
         var grid = new Grid()
             .AddColumn(new GridColumn { Width = barWidth, NoWrap = true, Padding = new Padding(0) })
-            .AddColumn(new GridColumn { Width = percentText.Length, NoWrap = true, Padding = new Padding(0) });
-        grid.AddRow(_bar.Render(options, task, deltaTime), new Text(percentText));
+            .AddColumn(new GridColumn { Width = trailingText.Length, NoWrap = true, Padding = new Padding(0) });
+        grid.AddRow(_bar.Render(options, task, deltaTime), new Text(trailingText));
         return grid;
+    }
+
+    // Sets _bar's fill/pulse styles for the task's stamped BackupProgressOutcome
+    // (defaulting to Running when unset), per design.md's "one outcome enum ... read by
+    // both scan and bar rendering" decision. Reuses OutcomeStyle's existing Color
+    // fields rather than re-declaring the same pastel constants, so this and the
+    // completion-report coloring can never drift apart. Returns the resolved outcome so
+    // RenderBar (which also needs it for the percent-vs-fixed-100 choice) doesn't have
+    // to read task.State a second time.
+    private BackupProgressOutcome ApplyOutcomeStyle(ProgressTask task)
+    {
+        var outcome = task.State.Get<BackupProgressOutcome>(OutcomeKey);
+        var color = outcome switch
+        {
+            BackupProgressOutcome.Success => OutcomeStyle.Success.Foreground,
+            BackupProgressOutcome.PartialFailure => OutcomeStyle.PartialFailure.Foreground,
+            BackupProgressOutcome.Error => OutcomeStyle.Error.Foreground,
+            _ => OutcomeStyle.PartialFailure.Foreground, // Running: amber, distinct from every final outcome color.
+        };
+
+        var style = new Style(color);
+        _bar.CompletedStyle = style;
+        _bar.FinishedStyle = style;
+        _bar.IndeterminateStyle = outcome == BackupProgressOutcome.Running
+            ? new Style(OutcomeStyle.Neutral.Foreground)
+            : style;
+
+        return outcome;
     }
 
     private Grid RenderStats(ProgressTask task)

@@ -13,13 +13,18 @@ public class BackupProgressColumnTests
     private static RenderOptions CreateOptions(TestConsole console) =>
         new(console.Profile.Capabilities, new Size(console.Profile.Width, console.Profile.Height));
 
-    private static ProgressTask CreateTask(BackupProgressRole role, BackupProgressState? state = null)
+    private static ProgressTask CreateTask(BackupProgressRole role, BackupProgressState? state = null, BackupProgressOutcome? outcome = null)
     {
         var task = new ProgressTask(1, "task", 100);
         task.State.Update(BackupProgressColumn.RoleKey, (BackupProgressRole _) => role);
         if (state is { } value)
         {
             task.State.Update(BackupProgressColumn.ProgressKey, (BackupProgressState _) => value);
+        }
+
+        if (outcome is { } resolvedOutcome)
+        {
+            task.State.Update(BackupProgressColumn.OutcomeKey, (BackupProgressOutcome _) => resolvedOutcome);
         }
 
         return task;
@@ -43,8 +48,11 @@ public class BackupProgressColumnTests
     }
 
     [Fact]
-    public void Bar_role_fills_with_the_pastel_green_color()
+    public void Bar_role_fills_with_the_pastel_amber_color_while_running()
     {
+        // No outcome stamped - defaults to BackupProgressOutcome.Running (enum value 0),
+        // per design.md's "Running: ... pastel amber (transfer)" decision: an in-progress
+        // bar is amber, distinct from any of the three final-outcome colors.
         var console = new TestConsole { EmitAnsiSequences = true };
         console.Profile.Width = 60;
         console.Profile.Capabilities.Ansi = true;
@@ -56,17 +64,19 @@ public class BackupProgressColumnTests
 
         console.Write(column.Render(CreateOptions(console), task, TimeSpan.Zero));
 
-        Assert.Contains("\u001b[38;5;121m", console.Output); // PaleGreen1 fill
+        Assert.Contains("\u001b[38;5;186m", console.Output); // LightGoldenrod2 (amber), OutcomeStyle.PartialFailure's color
+        Assert.DoesNotContain("\u001b[38;5;121m", console.Output); // not PaleGreen1 - not colored as success while still running
     }
 
     [Fact]
-    public void Bar_role_fills_completely_in_the_pastel_green_color_when_there_is_nothing_to_transfer()
+    public void Bar_role_fills_entirely_in_the_success_color_once_a_success_outcome_is_stamped()
     {
-        // A run with nothing to transfer (TotalBytes == 0) is immediately 100%
-        // complete per BackupProgressCalculator - the bar's fill must agree with that,
-        // not render as empty/grey (ProgressBarColumn's own fill ratio does not
-        // special-case a zero MaxValue the way ProgressTask.Percentage does, so the
-        // bar is driven from the calculator's percent rather than raw bytes/total).
+        // A run with nothing to transfer (TotalBytes == 0) is immediately 100% complete
+        // per BackupProgressCalculator, but the bar's final color is no longer derived
+        // from that percentage - BackupCommand stamps the actual run outcome once known
+        // (design.md's "Progress bar reflects run outcome severity" decision), so this
+        // asserts against an explicitly stamped Success outcome rather than relying on
+        // Value >= MaxValue alone.
         var console = new TestConsole { EmitAnsiSequences = true };
         console.Profile.Width = 60;
         console.Profile.Capabilities.Ansi = true;
@@ -74,21 +84,23 @@ public class BackupProgressColumnTests
 
         var calculator = new BackupProgressCalculator(() => DateTimeOffset.UtcNow.AddSeconds(1));
         var column = new BackupProgressColumn(calculator);
-        var task = CreateTask(BackupProgressRole.Bar, new BackupProgressState(0, 0));
+        var task = CreateTask(BackupProgressRole.Bar, new BackupProgressState(0, 0), BackupProgressOutcome.Success);
 
         console.Write(column.Render(CreateOptions(console), task, TimeSpan.Zero));
 
-        Assert.Contains("\u001b[38;5;121m", console.Output); // filled, not the grey remaining style
+        Assert.Contains("\u001b[38;5;121m", console.Output); // PaleGreen1 fill, entirely filled (not the grey remaining style)
         Assert.DoesNotContain("\u001b[38;5;8m", console.Output); // no grey "remaining" segment
+        Assert.Equal(100, task.Value);
     }
 
     [Fact]
-    public void Bar_role_uses_the_pastel_green_finished_style_once_complete()
+    public void Bar_role_fills_entirely_in_the_partial_failure_color_when_stamped_even_short_of_100_percent()
     {
-        // ProgressBarColumn switches from CompletedStyle to a separate FinishedStyle
-        // once the task reaches 100% (Spectre defaults FinishedStyle to a plain
-        // Color.Green independent of CompletedStyle) - both must be the same pastel
-        // green or a just-completed bar would flash to the non-pastel default.
+        // A partial failure doesn't always move the byte total to 100% (a failed file's
+        // bytes are simply never counted) - the bar must still render entirely in the
+        // partial-failure color once that outcome is stamped, regardless of the
+        // underlying percentage (progress-reporting delta's "Run completes with one or
+        // more failed files" scenario).
         var console = new TestConsole { EmitAnsiSequences = true };
         console.Profile.Width = 60;
         console.Profile.Capabilities.Ansi = true;
@@ -96,16 +108,53 @@ public class BackupProgressColumnTests
 
         var calculator = new BackupProgressCalculator(() => DateTimeOffset.UtcNow.AddSeconds(1));
         var column = new BackupProgressColumn(calculator);
-        var task = CreateTask(BackupProgressRole.Bar, new BackupProgressState(100, 100));
+        var task = CreateTask(BackupProgressRole.Bar, new BackupProgressState(60, 100), BackupProgressOutcome.PartialFailure);
 
         console.Write(column.Render(CreateOptions(console), task, TimeSpan.Zero));
 
-        Assert.Contains("\u001b[38;5;121m", console.Output); // PaleGreen1, not the default Color.Green (index 2)
-        Assert.DoesNotContain("\u001b[38;5;2m", console.Output);
+        Assert.Contains("\u001b[38;5;186m", console.Output); // LightGoldenrod2, entirely filled
+        Assert.DoesNotContain("\u001b[38;5;8m", console.Output); // no grey "remaining" segment despite being short of 100%
+        Assert.Equal(100, task.Value);
     }
 
     [Fact]
-    public void Scan_role_renders_a_spinner_with_a_scanning_description()
+    public void Bar_role_fills_entirely_in_the_error_color_when_a_hard_error_outcome_is_stamped()
+    {
+        var console = new TestConsole { EmitAnsiSequences = true };
+        console.Profile.Width = 60;
+        console.Profile.Capabilities.Ansi = true;
+        console.Profile.Capabilities.ColorSystem = ColorSystem.EightBit;
+
+        var calculator = new BackupProgressCalculator(() => DateTimeOffset.UtcNow.AddSeconds(1));
+        var column = new BackupProgressColumn(calculator);
+        var task = CreateTask(BackupProgressRole.Bar, new BackupProgressState(10, 100), BackupProgressOutcome.Error);
+
+        console.Write(column.Render(CreateOptions(console), task, TimeSpan.Zero));
+
+        Assert.Contains("\u001b[38;5;131m", console.Output); // IndianRed, entirely filled
+        Assert.Equal(100, task.Value);
+    }
+
+    [Fact]
+    public void Scan_role_reaches_the_full_configured_width_with_a_scanning_description()
+    {
+        var console = new TestConsole();
+        console.Profile.Width = 60;
+
+        var calculator = new BackupProgressCalculator();
+        var column = new BackupProgressColumn(calculator);
+        var task = CreateTask(BackupProgressRole.Scan);
+        task.IsIndeterminate = true;
+
+        console.Write(column.Render(CreateOptions(console), task, TimeSpan.Zero));
+
+        Assert.Contains("Scanning files...", console.Output);
+        Assert.Single(console.Lines);
+        Assert.Equal(60, console.Lines[0].Length);
+    }
+
+    [Fact]
+    public void Scan_role_pulses_in_the_neutral_pastel_blue_color_while_running()
     {
         var console = new TestConsole { EmitAnsiSequences = true };
         console.Profile.Width = 60;
@@ -115,11 +164,33 @@ public class BackupProgressColumnTests
         var calculator = new BackupProgressCalculator();
         var column = new BackupProgressColumn(calculator);
         var task = CreateTask(BackupProgressRole.Scan);
+        task.IsIndeterminate = true;
 
-        var renderable = column.Render(CreateOptions(console), task, TimeSpan.Zero);
-        console.Write(renderable);
+        console.Write(column.Render(CreateOptions(console), task, TimeSpan.Zero));
 
-        Assert.Contains("Scanning files...", console.Output);
+        Assert.Contains("\u001b[38;5;153m", console.Output); // LightSkyBlue1 pulse, OutcomeStyle.Neutral's color
+    }
+
+    [Fact]
+    public void Scan_role_pulses_in_the_error_color_when_a_hard_error_outcome_is_stamped_before_replacement()
+    {
+        // Covers a hard error raised before transfer begins (e.g. during scanning/
+        // diffing/planning), while the scan task is still the one on screen -
+        // BackupCommand stamps Error directly onto it in that case.
+        var console = new TestConsole { EmitAnsiSequences = true };
+        console.Profile.Width = 60;
+        console.Profile.Capabilities.Ansi = true;
+        console.Profile.Capabilities.ColorSystem = ColorSystem.EightBit;
+
+        var calculator = new BackupProgressCalculator();
+        var column = new BackupProgressColumn(calculator);
+        var task = CreateTask(BackupProgressRole.Scan, outcome: BackupProgressOutcome.Error);
+        task.IsIndeterminate = true;
+
+        console.Write(column.Render(CreateOptions(console), task, TimeSpan.Zero));
+
+        Assert.Contains("\u001b[38;5;131m", console.Output); // IndianRed, not the neutral blue pulse
+        Assert.DoesNotContain("\u001b[38;5;153m", console.Output);
     }
 
     [Fact]
@@ -178,6 +249,7 @@ public class BackupProgressColumnTests
         console.Progress().Columns(column).Start(ctx =>
         {
             var scanTask = ctx.AddTask("scan");
+            scanTask.IsIndeterminate = true;
             scanTask.State.Update(BackupProgressColumn.RoleKey, (BackupProgressRole _) => BackupProgressRole.Scan);
             ctx.Refresh();
 
