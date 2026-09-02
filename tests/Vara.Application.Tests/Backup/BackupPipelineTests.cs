@@ -137,6 +137,78 @@ public class BackupPipelineTests : IDisposable
             r.BytesTransferred <= r.TotalBytes, $"progress {r.BytesTransferred}/{r.TotalBytes} exceeded 100%"));
     }
 
+    [Fact]
+    public void The_first_progress_report_is_deferred_until_after_move_delete_operations_complete()
+    {
+        var content = "identical content, relocated";
+        var oldPath = Path.Combine(_root, "old-location.txt");
+        File.WriteAllText(oldPath, content);
+        var oldEntry = new ScannedEntry("old.txt", oldPath, new FileInfo(oldPath).Length, File.GetLastWriteTimeUtc(oldPath), false, null);
+
+        var repository = new FakeSnapshotRepository();
+        var contentStore = new FakeContentStore();
+        new BackupPipeline(new FakeFileSystemScanner([oldEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .Run(SimpleProfile(_root));
+
+        // Second run: the same content is now scanned under a different relative path,
+        // and the old path is no longer scanned - BackupPlanner detects this as a Move
+        // (matching content hash) rather than an Add/Delete pair, producing a plan with
+        // a Move operation and zero byte-transferring operations.
+        var newPath = Path.Combine(_root, "new-location.txt");
+        File.WriteAllText(newPath, content);
+        var newEntry = new ScannedEntry("new.txt", newPath, new FileInfo(newPath).Length, File.GetLastWriteTimeUtc(newPath), false, null);
+
+        var reportObserved = false;
+        var moveAlreadyAppliedWhenReportArrived = false;
+        var progress = new CallbackProgress<BackupProgress>(_ =>
+        {
+            reportObserved = true;
+            moveAlreadyAppliedWhenReportArrived =
+                contentStore.Mirror.ContainsKey("new.txt") && !contentStore.Mirror.ContainsKey("old.txt");
+        });
+
+        var secondRun = new BackupPipeline(new FakeFileSystemScanner([newEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .Run(SimpleProfile(_root), progress);
+
+        Assert.Equal(1, secondRun.Stats.FilesMoved);
+        Assert.True(reportObserved, "expected at least one progress report");
+        Assert.True(
+            moveAlreadyAppliedWhenReportArrived,
+            "expected the move to already be reflected in the mirror by the time the first progress report arrived");
+    }
+
+    [Fact]
+    public void A_run_with_nothing_to_transfer_still_reports_zero_over_zero_progress()
+    {
+        var path = Path.Combine(_root, "a.txt");
+        File.WriteAllText(path, "hello");
+        var entry = new ScannedEntry("a.txt", path, 5, File.GetLastWriteTimeUtc(path), false, null);
+
+        var repository = new FakeSnapshotRepository();
+        var contentStore = new FakeContentStore();
+        var scanner = new FakeFileSystemScanner([entry]);
+
+        new BackupPipeline(scanner, new FakeHasher(), contentStore, repository, new FakeRunLock()).Run(SimpleProfile(_root));
+
+        // Second run: same file, unchanged - an empty plan (no Move/Delete, no Add/Change).
+        var progress = new SyncProgress<BackupProgress>();
+        var secondRun = new BackupPipeline(scanner, new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .Run(SimpleProfile(_root), progress);
+
+        Assert.Equal(0, secondRun.Stats.BytesTransferred);
+        var report = Assert.Single(progress.Reports);
+        Assert.Equal(0, report.BytesTransferred);
+        Assert.Equal(0, report.TotalBytes);
+    }
+
+    /// <summary>Synchronous <see cref="IProgress{T}"/> invoking an arbitrary callback on the
+    /// reporting thread directly, so a test can observe side effects (e.g. content-store
+    /// state) exactly as they stand at the moment a given report arrives.</summary>
+    private sealed class CallbackProgress<T>(Action<T> callback) : IProgress<T>
+    {
+        public void Report(T value) => callback(value);
+    }
+
     /// <summary>Synchronous <see cref="IProgress{T}"/> - invokes the callback on the reporting
     /// thread directly instead of <see cref="Progress{T}"/>'s SynchronizationContext-posted,
     /// deferred delivery, so a test can assert against every report immediately after Run

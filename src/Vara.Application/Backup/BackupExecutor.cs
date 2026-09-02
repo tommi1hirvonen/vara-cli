@@ -33,7 +33,12 @@ public sealed class BackupExecutor(IContentStore contentStore, ISnapshotReposito
 
     private readonly int _maxDegreeOfParallelism = maxDegreeOfParallelism > 0 ? maxDegreeOfParallelism : DefaultTransferConcurrency;
 
-    public ExecutionOutcome Execute(long snapshotId, DateTimeOffset recordedAt, BackupPlan plan, Action<long>? onBytesTransferred = null)
+    public ExecutionOutcome Execute(
+        long snapshotId,
+        DateTimeOffset recordedAt,
+        BackupPlan plan,
+        Action<long>? onBytesTransferred = null,
+        Action? onTransferPhaseStarting = null)
     {
         var counts = new Counts();
         var failedPaths = new List<string>();
@@ -43,6 +48,13 @@ public sealed class BackupExecutor(IContentStore contentStore, ISnapshotReposito
         {
             ExecuteMoveOrDelete(operation, snapshotId, recordedAt, counts, failedPaths, reportLock);
         }
+
+        // Fired exactly once here, unconditionally - even when there are no Move/Delete
+        // operations to run above, or no Add/Change operations to run below - so the
+        // caller's throughput/ETA clock (BackupProgressCalculator) starts only once byte
+        // transfer is about to begin, excluding the Move/Delete pass's own wall-clock
+        // time (fix-transfer-clock-start change's design.md).
+        onTransferPhaseStarting?.Invoke();
 
         var transferOperations = plan.Operations.Where(o => o.Kind is PlannedOperationKind.Add or PlannedOperationKind.Change).ToList();
 

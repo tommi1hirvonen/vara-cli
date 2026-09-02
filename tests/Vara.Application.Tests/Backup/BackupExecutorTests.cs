@@ -208,6 +208,105 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
+    public void The_transfer_phase_starting_callback_fires_once_after_moves_deletes_and_before_any_transfer()
+    {
+        // A move and a delete both precede the add in the plan's operation list, but
+        // Execute always runs every Move/Delete before any Add/Change regardless of
+        // list order (fix-transfer-clock-start change), so the callback fired between
+        // those two passes should observe both the move and the delete already applied,
+        // and the add's content not yet stored.
+        _contentStore.PlaceAtMirrorPath("hash-1", @"Downloads\report.pdf");
+        _contentStore.PlaceAtMirrorPath("hash-2", "gone.txt");
+        var addPath = WriteFile("new.txt", "hello world");
+        var plan = new BackupPlan(
+            [
+                new PlannedOperation(PlannedOperationKind.Move, @"Documents\report.pdf", @"Downloads\report.pdf", null, 100, DateTimeOffset.UtcNow, "hash-1"),
+                new PlannedOperation(PlannedOperationKind.Delete, "gone.txt", null, null, 10, DateTimeOffset.UtcNow, "hash-2"),
+                new PlannedOperation(PlannedOperationKind.Add, "new.txt", null, addPath, 11, DateTimeOffset.UtcNow, null),
+            ],
+            11);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        var callCount = 0;
+        var moveAlreadyAppliedWhenCallbackFired = false;
+        var deleteAlreadyAppliedWhenCallbackFired = false;
+        var addNotYetStoredWhenCallbackFired = false;
+
+        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, onTransferPhaseStarting: () =>
+        {
+            callCount++;
+            moveAlreadyAppliedWhenCallbackFired = _contentStore.Mirror.ContainsKey(@"Documents\report.pdf");
+            deleteAlreadyAppliedWhenCallbackFired = !_contentStore.Mirror.ContainsKey("gone.txt");
+            addNotYetStoredWhenCallbackFired = !_contentStore.Mirror.ContainsKey("new.txt");
+        });
+
+        Assert.Equal(1, callCount);
+        Assert.True(moveAlreadyAppliedWhenCallbackFired, "expected the move to already be applied when the callback fired");
+        Assert.True(deleteAlreadyAppliedWhenCallbackFired, "expected the delete to already be applied when the callback fired");
+        Assert.True(addNotYetStoredWhenCallbackFired, "expected the add's transfer to not have started yet when the callback fired");
+    }
+
+    [Fact]
+    public void The_transfer_phase_starting_callback_fires_even_with_no_move_delete_operations()
+    {
+        var addPath = WriteFile("new.txt", "hello world");
+        var plan = new BackupPlan([new PlannedOperation(PlannedOperationKind.Add, "new.txt", null, addPath, 11, DateTimeOffset.UtcNow, null)], 11);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        var callCount = 0;
+        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, onTransferPhaseStarting: () => callCount++);
+
+        Assert.Equal(1, callCount);
+    }
+
+    [Fact]
+    public void The_transfer_phase_starting_callback_fires_even_with_no_add_change_operations()
+    {
+        _contentStore.PlaceAtMirrorPath("hash-1", "gone.txt");
+        var plan = new BackupPlan([new PlannedOperation(PlannedOperationKind.Delete, "gone.txt", null, null, 10, DateTimeOffset.UtcNow, "hash-1")], 0);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        var callCount = 0;
+        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, onTransferPhaseStarting: () => callCount++);
+
+        Assert.Equal(1, callCount);
+    }
+
+    [Fact]
+    public void The_transfer_phase_starting_callback_fires_even_when_the_plan_is_entirely_empty()
+    {
+        var plan = new BackupPlan([], 0);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        var callCount = 0;
+        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, onTransferPhaseStarting: () => callCount++);
+
+        Assert.Equal(1, callCount);
+    }
+
+    [Fact]
+    public void The_transfer_phase_starting_callback_still_fires_after_a_move_operation_fails()
+    {
+        _contentStore.PlaceAtMirrorPath("hash-1", @"Downloads\report.pdf");
+        _contentStore.ThrowOnMove = new IOException("locked");
+        var plan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Move, @"Documents\report.pdf", @"Downloads\report.pdf", null, 100, DateTimeOffset.UtcNow, "hash-1")],
+            0);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        var callCount = 0;
+        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, onTransferPhaseStarting: () => callCount++);
+
+        Assert.Equal(1, callCount);
+        Assert.Equal(1, outcome.FilesFailed);
+    }
+
+    [Fact]
     public void A_locked_mirror_entry_during_move_is_recorded_as_failed_without_aborting_the_run()
     {
         _contentStore.PlaceAtMirrorPath("hash-1", @"Downloads\report.pdf");

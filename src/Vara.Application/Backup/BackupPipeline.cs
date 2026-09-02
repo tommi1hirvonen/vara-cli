@@ -65,8 +65,6 @@ public sealed class BackupPipeline(
                 // bounded edge case.
                 var progressTotalBytes = contentStore.SupportsHardlinks ? plan.TotalBytesToTransfer : plan.TotalBytesToTransfer * 2;
 
-                progress?.Report(new BackupProgress(0, progressTotalBytes));
-
                 // bytesSoFar is updated from chunk-level callbacks that may arrive
                 // concurrently across multiple in-flight file transfers once
                 // transfer_concurrency is configured above its default of 1 - Interlocked
@@ -74,11 +72,26 @@ public sealed class BackupPipeline(
                 // (which continues to serialize only the once-per-file manifest write and
                 // summary counter, independent of this live-progress counter).
                 var bytesSoFar = 0L;
-                var outcome = new BackupExecutor(contentStore, repository, hasher, profile.Concurrency?.TransferConcurrency ?? 0).Execute(snapshotId, startedAt, plan, transferred =>
-                {
-                    var total = Interlocked.Add(ref bytesSoFar, transferred);
-                    progress?.Report(new BackupProgress(total, progressTotalBytes));
-                });
+
+                // The first progress report - which seeds the live display's
+                // throughput/ETA clock (BackupProgressCalculator lazily starts its own
+                // elapsed-time clock on its first Calculate() call, itself driven by this
+                // first report) - is deliberately deferred until Execute's Move/Delete pass
+                // has finished, rather than emitted up front. Otherwise, that pass's own
+                // wall-clock time (mirror renames/removals, manifest writes - reporting
+                // zero bytes) would be folded into the throughput denominator as if it
+                // were part of the byte-transfer phase, permanently skewing the run's
+                // reported throughput and ETA (fix-transfer-clock-start change's design.md).
+                var outcome = new BackupExecutor(contentStore, repository, hasher, profile.Concurrency?.TransferConcurrency ?? 0).Execute(
+                    snapshotId,
+                    startedAt,
+                    plan,
+                    transferred =>
+                    {
+                        var total = Interlocked.Add(ref bytesSoFar, transferred);
+                        progress?.Report(new BackupProgress(total, progressTotalBytes));
+                    },
+                    onTransferPhaseStarting: () => progress?.Report(new BackupProgress(0, progressTotalBytes)));
 
                 // BackupDiffer.Diff above fully enumerates scanResult.Entries, so
                 // scanResult.Failures is guaranteed complete by this point. Scan-time
