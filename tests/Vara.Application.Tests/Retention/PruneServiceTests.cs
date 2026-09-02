@@ -141,4 +141,66 @@ public class PruneServiceTests
 
         Assert.Throws<PruneAlreadyRunningException>(() => service.Prune(ProfileWithRetention(new RetentionPolicy(1, 0, 0, 0))));
     }
+
+    [Fact]
+    public void CountEligibleForRemoval_without_a_configured_retention_policy_throws()
+    {
+        var repository = new FakeSnapshotRepository();
+        var service = new PruneService(repository, new FakeContentStore(), new FakeRunLock());
+
+        var ex = Assert.Throws<RetentionPolicyNotConfiguredException>(() => service.CountEligibleForRemoval(ProfileWithRetention(null)));
+        Assert.Equal("files", ex.ProfileName);
+    }
+
+    [Fact]
+    public void CountEligibleForRemoval_returns_zero_when_nothing_is_eligible()
+    {
+        var repository = new FakeSnapshotRepository();
+        var day1 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+        var onlySnapshot = repository.BeginSnapshot(day1);
+        repository.RecordFileVersion(onlySnapshot, "current.txt", null, "hash-1", 10, day1, FileChangeKind.Added, day1);
+        repository.CompleteSnapshot(onlySnapshot, day1, SnapshotStats.Empty);
+
+        // The single most recent completed snapshot is always retained, so with only
+        // one snapshot recorded, nothing is ever eligible for removal.
+        var policy = new RetentionPolicy(keepDaily: 1, keepWeekly: 0, keepMonthly: 0, keepYearly: 0);
+        var service = new PruneService(repository, new FakeContentStore(), new FakeRunLock());
+
+        Assert.Equal(0, service.CountEligibleForRemoval(ProfileWithRetention(policy)));
+    }
+
+    [Fact]
+    public void CountEligibleForRemoval_returns_the_number_of_snapshots_eligible_for_removal()
+    {
+        var repository = new FakeSnapshotRepository();
+        var day1 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var day2 = day1.AddDays(1);
+        var day3 = day1.AddDays(2);
+
+        var oldSnapshot = repository.BeginSnapshot(day1);
+        repository.RecordFileVersion(oldSnapshot, "current.txt", null, "hash-1", 10, day1, FileChangeKind.Added, day1);
+        repository.CompleteSnapshot(oldSnapshot, day1, SnapshotStats.Empty);
+
+        var middleSnapshot = repository.BeginSnapshot(day2);
+        repository.RecordFileVersion(middleSnapshot, "current.txt", null, "hash-2", 10, day2, FileChangeKind.Changed, day2);
+        repository.CompleteSnapshot(middleSnapshot, day2, SnapshotStats.Empty);
+
+        var newestSnapshot = repository.BeginSnapshot(day3);
+        repository.RecordFileVersion(newestSnapshot, "current.txt", null, "hash-3", 10, day3, FileChangeKind.Changed, day3);
+        repository.CompleteSnapshot(newestSnapshot, day3, SnapshotStats.Empty);
+
+        // Retain only the newest daily snapshot - both older snapshots are eligible.
+        var policy = new RetentionPolicy(keepDaily: 1, keepWeekly: 0, keepMonthly: 0, keepYearly: 0);
+        var service = new PruneService(repository, new FakeContentStore(), new FakeRunLock());
+
+        Assert.Equal(2, service.CountEligibleForRemoval(ProfileWithRetention(policy)));
+
+        // A read-only preview: no snapshot records or stored content are affected by
+        // calling it, and a subsequent real Prune still sees (and removes) the same
+        // snapshots the preview counted.
+        Assert.Equal(3, repository.ListSnapshots().Count);
+        var result = service.Prune(ProfileWithRetention(policy));
+        Assert.Equal(2, result.SnapshotsRemoved);
+    }
 }

@@ -64,6 +64,7 @@ public static class ErrorReporting
             case ProfileConfigException
                 or BackupAlreadyRunningException
                 or PruneAlreadyRunningException
+                or PruneConfirmationRequiredException
                 or NoHistoryForPathException
                 or NoMatchingVersionException
                 or RestoreDestinationInMirrorException

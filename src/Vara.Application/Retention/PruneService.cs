@@ -16,6 +16,27 @@ public sealed class PruneService(ISnapshotRepository repository, IContentStore c
 {
     private readonly RetentionEvaluator _evaluator = new();
 
+    /// <summary>
+    /// Read-only preview of how many snapshots <see cref="Prune"/> would remove, without
+    /// acquiring the run lock or deleting anything. Meant to be called before <see cref="Prune"/>
+    /// so a caller (the CLI) can decide whether to prompt for confirmation. Because no lock is
+    /// held between this call and a subsequent <see cref="Prune"/> call, the count can be stale
+    /// by the time <see cref="Prune"/> actually runs - for example if a concurrent backup adds a
+    /// new snapshot in between. See design.md's "Preview/execute race" risk in the
+    /// <c>confirm-prune</c> change.
+    /// </summary>
+    /// <exception cref="RetentionPolicyNotConfiguredException">The profile has no retention policy configured.</exception>
+    public int CountEligibleForRemoval(Profile profile)
+    {
+        if (profile.Retention is null)
+        {
+            throw new RetentionPolicyNotConfiguredException(profile.Name);
+        }
+
+        var snapshots = repository.ListSnapshots();
+        return _evaluator.DetermineEligibleForRemoval(snapshots, profile.Retention).Count;
+    }
+
     /// <exception cref="RetentionPolicyNotConfiguredException">The profile has no retention policy configured.</exception>
     /// <exception cref="PruneAlreadyRunningException">Another run (backup or prune) is already in progress for this profile.</exception>
     public PruneResult Prune(Profile profile)
