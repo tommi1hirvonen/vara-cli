@@ -71,8 +71,11 @@ public interface IContentStore
     /// Copies the blob for <paramref name="hash"/> to an arbitrary destination path
     /// (not necessarily within the mirror) - used by the snapshot-history capability's
     /// restore command to extract a historical version without touching the live mirror.
+    /// Replaces any existing file already at <paramref name="destinationAbsolutePath"/>.
+    /// When <paramref name="onBytesCopied"/> is given, it is invoked with each chunk's size
+    /// as it is copied, so a caller can report progress incrementally during a large restore.
     /// </summary>
-    void ExtractTo(string hash, string destinationAbsolutePath);
+    void ExtractTo(string hash, string destinationAbsolutePath, Action<long>? onBytesCopied = null);
 
     /// <summary>
     /// Whether <paramref name="absolutePath"/> resolves to a location inside this store's

@@ -157,6 +157,42 @@ public class SnapshotHistoryServiceTests
     }
 
     [Fact]
+    public void RestoreAsOf_invokes_onBytesCopied_incrementally_and_onSizeResolved_with_the_matched_versions_size()
+    {
+        var contentStore = new FakeContentStore();
+        var largeContent = new byte[64 * 1024];
+        Random.Shared.NextBytes(largeContent);
+        var (hash, size) = contentStore.StoreFromStream(new MemoryStream(largeContent));
+        var repository = new FakeSnapshotRepository();
+        var t0 = DateTimeOffset.UtcNow;
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, "a.txt", null, hash, size, t0, FileChangeKind.Added, t0);
+        var service = new SnapshotHistoryService(repository, contentStore);
+        var destination = Path.Combine(Path.GetTempPath(), $"vara-restore-{Guid.NewGuid():N}.txt");
+
+        try
+        {
+            var chunkReports = new List<long>();
+            long? resolvedSize = null;
+
+            service.RestoreAsOf(
+                "a.txt",
+                t0.AddDays(1),
+                destination,
+                onBytesCopied: bytes => chunkReports.Add(bytes),
+                onSizeResolved: resolved => resolvedSize = resolved);
+
+            Assert.True(chunkReports.Count > 1, $"expected more than one progress report for a multi-chunk file, observed {chunkReports.Count}");
+            Assert.Equal(size, chunkReports.Sum());
+            Assert.Equal(size, resolvedSize);
+        }
+        finally
+        {
+            File.Delete(destination);
+        }
+    }
+
+    [Fact]
     public void RestoreVersion_with_an_unknown_id_throws_NoMatchingVersion()
     {
         var repository = new FakeSnapshotRepository();

@@ -235,7 +235,7 @@ public sealed class FileSystemContentStore : IContentStore
         }
     }
 
-    public void ExtractTo(string hash, string destinationAbsolutePath)
+    public void ExtractTo(string hash, string destinationAbsolutePath, Action<long>? onBytesCopied = null)
     {
         var blobPath = BlobPath(hash);
         if (!File.Exists(blobPath))
@@ -249,7 +249,17 @@ public sealed class FileSystemContentStore : IContentStore
             Directory.CreateDirectory(directory);
         }
 
-        File.Copy(blobPath, destinationAbsolutePath, overwrite: true);
+        // CopyWithProgress opens its destination with FileMode.CreateNew, so an existing
+        // destination file is deleted first to preserve this method's previous
+        // File.Copy(overwrite: true) semantics (already gated by SnapshotHistoryService's
+        // GuardDestination, which only lets execution reach here for an existing destination
+        // when the caller explicitly authorized overwriting it).
+        if (File.Exists(destinationAbsolutePath))
+        {
+            File.Delete(destinationAbsolutePath);
+        }
+
+        CopyWithProgress(blobPath, destinationAbsolutePath, onBytesCopied);
     }
 
     public bool IsWithinMirror(string absolutePath)

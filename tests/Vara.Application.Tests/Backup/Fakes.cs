@@ -179,7 +179,7 @@ internal sealed class FakeContentStore : IContentStore
     public void CleanupOrphanedTemp() { }
     public IReadOnlySet<string> ListAllStoredHashes() => _blobs.Keys.ToHashSet();
 
-    public void ExtractTo(string hash, string destinationAbsolutePath)
+    public void ExtractTo(string hash, string destinationAbsolutePath, Action<long>? onBytesCopied = null)
     {
         if (!_blobs.TryGetValue(hash, out var bytes))
         {
@@ -192,7 +192,16 @@ internal sealed class FakeContentStore : IContentStore
             Directory.CreateDirectory(directory);
         }
 
-        File.WriteAllBytes(destinationAbsolutePath, bytes);
+        // Copies in fixed-size chunks (rather than one File.WriteAllBytes call) so tests
+        // can exercise onBytesCopied's incremental-progress behavior against a fake store.
+        const int chunkSize = 8192;
+        using var destination = new FileStream(destinationAbsolutePath, FileMode.Create, FileAccess.Write);
+        for (var offset = 0; offset < bytes.Length; offset += chunkSize)
+        {
+            var length = Math.Min(chunkSize, bytes.Length - offset);
+            destination.Write(bytes, offset, length);
+            onBytesCopied?.Invoke(length);
+        }
     }
 
     public bool IsWithinMirror(string absolutePath) => MirrorPaths.Contains(absolutePath);

@@ -39,11 +39,27 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
     /// causes <see cref="DestinationExistsException"/> rather than being overwritten. Has no
     /// effect on the mirror-containment guard, which is never overridable.
     /// </param>
+    /// <param name="onBytesCopied">
+    /// When given, invoked with each chunk's size as the matched version's content is copied,
+    /// forwarded straight to <see cref="IContentStore.ExtractTo"/>, so a caller can report
+    /// progress incrementally during a large restore rather than only once it completes.
+    /// </param>
+    /// <param name="onSizeResolved">
+    /// When given, invoked once with the matched version's total byte count after the version
+    /// has been resolved but before its content is copied, so a caller can size a progress
+    /// indicator (for example a progress bar's maximum value) before extraction begins.
+    /// </param>
     /// <exception cref="NoHistoryForPathException">The path was never part of any recorded snapshot.</exception>
     /// <exception cref="NoMatchingVersionException">No version of the path existed as of that date.</exception>
     /// <exception cref="RestoreDestinationInMirrorException">The destination resolves inside the profile's live mirror.</exception>
     /// <exception cref="DestinationExistsException">The destination already exists and <paramref name="overwrite"/> is <c>false</c>.</exception>
-    public void RestoreAsOf(string relativePath, DateTimeOffset asOf, string destinationPath, bool overwrite = false)
+    public void RestoreAsOf(
+        string relativePath,
+        DateTimeOffset asOf,
+        string destinationPath,
+        bool overwrite = false,
+        Action<long>? onBytesCopied = null,
+        Action<long>? onSizeResolved = null)
     {
         EnsureHasHistory(relativePath);
 
@@ -51,7 +67,8 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
             ?? throw new NoMatchingVersionException(relativePath, asOf);
 
         GuardDestination(destinationPath, overwrite);
-        contentStore.ExtractTo(match.ContentHash, destinationPath);
+        onSizeResolved?.Invoke(match.Size);
+        contentStore.ExtractTo(match.ContentHash, destinationPath, onBytesCopied);
     }
 
     /// <summary>
@@ -63,11 +80,27 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
     /// causes <see cref="DestinationExistsException"/> rather than being overwritten. Has no
     /// effect on the mirror-containment guard, which is never overridable.
     /// </param>
+    /// <param name="onBytesCopied">
+    /// When given, invoked with each chunk's size as the matched version's content is copied,
+    /// forwarded straight to <see cref="IContentStore.ExtractTo"/>, so a caller can report
+    /// progress incrementally during a large restore rather than only once it completes.
+    /// </param>
+    /// <param name="onSizeResolved">
+    /// When given, invoked once with the matched version's total byte count after the version
+    /// has been resolved but before its content is copied, so a caller can size a progress
+    /// indicator (for example a progress bar's maximum value) before extraction begins.
+    /// </param>
     /// <exception cref="NoHistoryForPathException">The path was never part of any recorded snapshot.</exception>
     /// <exception cref="NoMatchingVersionException">No such version id exists for the path.</exception>
     /// <exception cref="RestoreDestinationInMirrorException">The destination resolves inside the profile's live mirror.</exception>
     /// <exception cref="DestinationExistsException">The destination already exists and <paramref name="overwrite"/> is <c>false</c>.</exception>
-    public void RestoreVersion(string relativePath, long versionId, string destinationPath, bool overwrite = false)
+    public void RestoreVersion(
+        string relativePath,
+        long versionId,
+        string destinationPath,
+        bool overwrite = false,
+        Action<long>? onBytesCopied = null,
+        Action<long>? onSizeResolved = null)
     {
         var history = repository.GetFileHistory(relativePath);
         if (history.Count == 0)
@@ -79,7 +112,8 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
             ?? throw new NoMatchingVersionException(relativePath, versionId);
 
         GuardDestination(destinationPath, overwrite);
-        contentStore.ExtractTo(match.ContentHash, destinationPath);
+        onSizeResolved?.Invoke(match.Size);
+        contentStore.ExtractTo(match.ContentHash, destinationPath, onBytesCopied);
     }
 
     private void EnsureHasHistory(string relativePath)

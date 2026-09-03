@@ -220,6 +220,71 @@ public class FileSystemContentStoreTests : IDisposable
     }
 
     [Fact]
+    public void ExtractTo_writes_the_blobs_content_to_a_fresh_destination()
+    {
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        var (hash, _) = store.StoreFromStream(Content("extracted content"));
+        var destination = Path.Combine(Path.GetTempPath(), $"vara-extract-{Guid.NewGuid():N}.txt");
+
+        try
+        {
+            store.ExtractTo(hash, destination);
+
+            Assert.Equal("extracted content", File.ReadAllText(destination));
+        }
+        finally
+        {
+            File.Delete(destination);
+        }
+    }
+
+    [Fact]
+    public void ExtractTo_overwrites_an_existing_destination_file()
+    {
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        var (hash, _) = store.StoreFromStream(Content("new extracted content"));
+        var destination = Path.Combine(Path.GetTempPath(), $"vara-extract-{Guid.NewGuid():N}.txt");
+        File.WriteAllText(destination, "stale content that must be replaced");
+
+        try
+        {
+            store.ExtractTo(hash, destination);
+
+            Assert.Equal("new extracted content", File.ReadAllText(destination));
+        }
+        finally
+        {
+            File.Delete(destination);
+        }
+    }
+
+    [Fact]
+    public void ExtractTo_reports_incremental_progress_for_a_large_file()
+    {
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        const int contentLength = 5 * 1024 * 1024;
+        var (hash, _) = store.StoreFromStream(LargeContent(contentLength));
+        var destination = Path.Combine(Path.GetTempPath(), $"vara-extract-{Guid.NewGuid():N}.txt");
+
+        try
+        {
+            var reports = new List<long>();
+            store.ExtractTo(hash, destination, bytes => reports.Add(bytes));
+
+            Assert.True(reports.Count > 1, $"expected more than one progress report for a large file, observed {reports.Count}");
+            Assert.Equal(contentLength, reports.Sum());
+            Assert.Equal(contentLength, new FileInfo(destination).Length);
+        }
+        finally
+        {
+            File.Delete(destination);
+        }
+    }
+
+    [Fact]
     public void MoveMirrorEntry_relocates_the_file_without_touching_its_content()
     {
         var store = CreateStore();

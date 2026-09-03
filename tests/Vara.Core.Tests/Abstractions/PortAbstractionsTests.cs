@@ -130,7 +130,7 @@ public class PortAbstractionsTests
         public void DeleteContent(string hash) { }
         public void CleanupOrphanedTemp() { }
         public IReadOnlySet<string> ListAllStoredHashes() => new HashSet<string>();
-        public void ExtractTo(string hash, string destinationAbsolutePath) { }
+        public void ExtractTo(string hash, string destinationAbsolutePath, Action<long>? onBytesCopied = null) { }
         public bool IsWithinMirror(string absolutePath) => false;
         public bool TargetExists(string absolutePath) => false;
     }
