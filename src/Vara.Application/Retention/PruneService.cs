@@ -8,6 +8,14 @@ namespace Vara.Application.Retention;
 public sealed record PruneResult(int SnapshotsRemoved, int BlobsRemoved);
 
 /// <summary>
+/// Reports progress of <see cref="PruneService.Prune"/>'s blob-deletion (garbage
+/// collection) phase only - the earlier DB/diff steps report nothing, since their
+/// duration isn't practically predictable upfront. See the progress-reporting and
+/// retention-pruning specs in the add-prune-progress-reporting change.
+/// </summary>
+public sealed record PruneProgress(int BlobsDeleted, int TotalBlobs);
+
+/// <summary>
 /// Applies a profile's tiered retention policy (removing expired snapshot records)
 /// and then garbage-collects version-store content no longer referenced by any
 /// remaining snapshot or the live mirror. See the retention-pruning spec.
@@ -39,7 +47,7 @@ public sealed class PruneService(ISnapshotRepository repository, IContentStore c
 
     /// <exception cref="RetentionPolicyNotConfiguredException">The profile has no retention policy configured.</exception>
     /// <exception cref="PruneAlreadyRunningException">Another run (backup or prune) is already in progress for this profile.</exception>
-    public PruneResult Prune(Profile profile)
+    public PruneResult Prune(Profile profile, IProgress<PruneProgress>? progress = null)
     {
         if (profile.Retention is null)
         {
@@ -66,9 +74,15 @@ public sealed class PruneService(ISnapshotRepository repository, IContentStore c
             var referencedHashes = repository.GetAllReferencedContentHashes();
             var unreferencedHashes = contentStore.ListAllStoredHashes().Except(referencedHashes).ToList();
 
-            foreach (var hash in unreferencedHashes)
+            if (unreferencedHashes.Count > 0)
             {
-                contentStore.DeleteContent(hash);
+                progress?.Report(new PruneProgress(0, unreferencedHashes.Count));
+            }
+
+            for (var i = 0; i < unreferencedHashes.Count; i++)
+            {
+                contentStore.DeleteContent(unreferencedHashes[i]);
+                progress?.Report(new PruneProgress(i + 1, unreferencedHashes.Count));
             }
 
             return new PruneResult(snapshotsRemoved, unreferencedHashes.Count);

@@ -135,6 +135,60 @@ public class PruneServiceTests
     }
 
     [Fact]
+    public void Prune_reports_progress_once_before_and_once_after_each_blob_deletion()
+    {
+        var contentStore = new FakeContentStore();
+        var (keepHash, _) = contentStore.StoreFromStream(new MemoryStream("kept content"u8.ToArray()));
+        var (goneHash1, _) = contentStore.StoreFromStream(new MemoryStream("expired content 1"u8.ToArray()));
+        var (goneHash2, _) = contentStore.StoreFromStream(new MemoryStream("expired content 2"u8.ToArray()));
+        contentStore.PlaceAtMirrorPath(keepHash, "current.txt");
+
+        var repository = new FakeSnapshotRepository();
+        var day1 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+        var currentSnapshot = repository.BeginSnapshot(day1);
+        repository.RecordFileVersion(currentSnapshot, "current.txt", null, keepHash, 10, day1, FileChangeKind.Added, day1);
+        repository.CompleteSnapshot(currentSnapshot, day1, SnapshotStats.Empty);
+
+        var service = new PruneService(repository, contentStore, new FakeRunLock());
+        var reports = new List<PruneProgress>();
+        var progress = new CallbackProgress<PruneProgress>(reports.Add);
+
+        var result = service.Prune(ProfileWithRetention(new RetentionPolicy(1, 0, 0, 0)), progress);
+
+        Assert.Equal(2, result.BlobsRemoved);
+        Assert.Equal(
+            [
+                new PruneProgress(0, 2),
+                new PruneProgress(1, 2),
+                new PruneProgress(2, 2),
+            ],
+            reports);
+    }
+
+    [Fact]
+    public void Prune_sends_no_progress_report_when_there_are_zero_unreferenced_blobs_to_delete()
+    {
+        var repository = new FakeSnapshotRepository();
+        var day1 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+        var onlySnapshot = repository.BeginSnapshot(day1);
+        repository.RecordFileVersion(onlySnapshot, "current.txt", null, "hash-1", 10, day1, FileChangeKind.Added, day1);
+        repository.CompleteSnapshot(onlySnapshot, day1, SnapshotStats.Empty);
+
+        // The single most recent completed snapshot is always retained and its content
+        // is the only content in the store, so nothing is eligible for GC.
+        var service = new PruneService(repository, new FakeContentStore(), new FakeRunLock());
+        var reports = new List<PruneProgress>();
+        var progress = new CallbackProgress<PruneProgress>(reports.Add);
+
+        var result = service.Prune(ProfileWithRetention(new RetentionPolicy(1, 0, 0, 0)), progress);
+
+        Assert.Equal(0, result.BlobsRemoved);
+        Assert.Empty(reports);
+    }
+
+    [Fact]
     public void Prune_throws_when_another_operation_already_holds_the_lock()
     {
         var service = new PruneService(new FakeSnapshotRepository(), new FakeContentStore(), new FakeRunLock(acquirable: false));
@@ -202,5 +256,14 @@ public class PruneServiceTests
         Assert.Equal(3, repository.ListSnapshots().Count);
         var result = service.Prune(ProfileWithRetention(policy));
         Assert.Equal(2, result.SnapshotsRemoved);
+    }
+
+    /// <summary>Synchronous <see cref="IProgress{T}"/> invoking an arbitrary callback on the
+    /// reporting thread directly, mirroring BackupPipelineTests's CallbackProgress - Prune's
+    /// deletion loop is single-threaded and strictly sequential, so no synchronization is
+    /// needed here.</summary>
+    private sealed class CallbackProgress<T>(Action<T> callback) : IProgress<T>
+    {
+        public void Report(T value) => callback(value);
     }
 }

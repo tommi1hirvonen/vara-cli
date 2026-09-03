@@ -33,8 +33,11 @@ public static class PruneCommand
 
                 void RunPrune()
                 {
-                    var result = pruneService.Prune(profile);
-                    PruneOutcomeReporter.Report(AnsiConsole.Console, result);
+                    var console = AnsiConsole.Console;
+                    var result = OutputMode.IsLiveCapable(console)
+                        ? RunWithLiveDisplay(pruneService, profile, console)
+                        : RunWithPlainOutput(pruneService, profile, console);
+                    PruneOutcomeReporter.Report(console, result);
                 }
 
                 var eligibleCount = pruneService.CountEligibleForRemoval(profile);
@@ -79,5 +82,62 @@ public static class PruneCommand
         });
 
         return command;
+    }
+
+    // Interactive path: an indeterminate spinner covers the DB/diff steps (listing
+    // snapshots, evaluating retention, computing unreferenced blobs), whose duration
+    // isn't practically predictable upfront; the first PruneProgress report - which
+    // only ever arrives once the blob-deletion loop is about to start - swaps it for a
+    // count-based bar, per design.md's "replace the indeterminate indicator on the
+    // first admitted event" pattern (the same one BackupCommand uses for its own
+    // scan-to-transfer transition). No ProgressDisplayGate is needed here: prune's
+    // callback only updates an in-memory ProgressTask.Value on every iteration and
+    // never forces its own redraw, so Spectre's own AutoRefresh already bounds the
+    // display's redraw rate.
+    private static PruneResult RunWithLiveDisplay(PruneService pruneService, Vara.Core.Configuration.Profile profile, IAnsiConsole console)
+    {
+        PruneResult result = null!;
+        console.Progress()
+            .Columns(new TaskDescriptionColumn(), new ProgressBarColumn())
+            .Start(ctx =>
+            {
+                var task = ctx.AddTask("Evaluating...", autoStart: true);
+                task.IsIndeterminate = true;
+
+                void Render(PruneProgress p)
+                {
+                    if (task.IsIndeterminate)
+                    {
+                        task.IsIndeterminate = false;
+                        task.MaxValue = p.TotalBlobs;
+                    }
+
+                    task.Value = p.BlobsDeleted;
+                    task.Description = $"Deleting blobs {p.BlobsDeleted} / {p.TotalBlobs}";
+                }
+
+                var progress = new Progress<PruneProgress>(Render);
+                result = pruneService.Prune(profile, progress);
+
+                // Ensures the final count is shown immediately rather than waiting for
+                // the next AutoRefresh timer tick, per design.md's "single explicit
+                // Refresh() after the deletion loop completes" decision.
+                ctx.Refresh();
+            });
+
+        return result;
+    }
+
+    // Non-interactive/redirected path: plain, appended lines with no in-place redraw,
+    // per the cli-presentation delta's "Non-interactive or color-incapable output
+    // falls back to plain text" requirement.
+    private static PruneResult RunWithPlainOutput(PruneService pruneService, Vara.Core.Configuration.Profile profile, IAnsiConsole console)
+    {
+        console.WriteLine("Evaluating...");
+
+        var progress = new Progress<PruneProgress>(p =>
+            console.WriteLine($"Removed {p.BlobsDeleted} of {p.TotalBlobs} blobs."));
+
+        return pruneService.Prune(profile, progress);
     }
 }
