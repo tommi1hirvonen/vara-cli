@@ -1,3 +1,4 @@
+using System.Linq;
 using Spectre.Console;
 using Spectre.Console.Rendering;
 using Spectre.Console.Testing;
@@ -151,6 +152,77 @@ public class BackupProgressColumnTests
         Assert.Contains("Scanning files...", console.Output);
         Assert.Single(console.Lines);
         Assert.Equal(60, console.Lines[0].Length);
+    }
+
+    [Fact]
+    public void Scan_role_renders_its_label_to_the_left_of_the_bar_and_a_blank_placeholder_to_the_right()
+    {
+        var console = new TestConsole();
+        console.Profile.Width = 60;
+
+        var calculator = new BackupProgressCalculator();
+        var column = new BackupProgressColumn(calculator);
+        var task = CreateTask(BackupProgressRole.Scan);
+        task.IsIndeterminate = true;
+
+        console.Write(column.Render(CreateOptions(console), task, TimeSpan.Zero));
+
+        var line = console.Lines[0];
+        Assert.True(line.IndexOf("Scanning files...", StringComparison.Ordinal) < BackupProgressColumn.LabelWidth);
+        // No percentage-like content anywhere - the scan phase's trailing column is a
+        // blank placeholder, not synthetic percentage text, per design.md's decision.
+        Assert.DoesNotContain('%', line);
+        var trailing = line[^BackupProgressColumn.TrailingWidth..];
+        Assert.True(trailing.All(char.IsWhiteSpace));
+    }
+
+    [Fact]
+    public void Bar_role_renders_its_label_to_the_left_of_the_bar_and_the_percentage_to_the_right()
+    {
+        var console = new TestConsole();
+        console.Profile.Width = 60;
+
+        var calculator = new BackupProgressCalculator(() => DateTimeOffset.UtcNow.AddSeconds(1));
+        var column = new BackupProgressColumn(calculator);
+        var task = CreateTask(BackupProgressRole.Bar, new BackupProgressState(50, 100));
+
+        console.Write(column.Render(CreateOptions(console), task, TimeSpan.Zero));
+
+        var line = console.Lines[0];
+        Assert.True(line.IndexOf("Backing up...", StringComparison.Ordinal) < BackupProgressColumn.LabelWidth);
+        var trailing = line[^BackupProgressColumn.TrailingWidth..];
+        Assert.Contains('%', trailing);
+    }
+
+    [Fact]
+    public void Bar_width_is_identical_between_scan_role_and_bar_role_at_the_same_console_width()
+    {
+        const int width = 80;
+
+        var scanConsole = new TestConsole();
+        scanConsole.Profile.Width = width;
+        var scanColumn = new BackupProgressColumn(new BackupProgressCalculator());
+        var scanTask = CreateTask(BackupProgressRole.Scan);
+        scanTask.IsIndeterminate = true;
+        scanConsole.Write(scanColumn.Render(CreateOptions(scanConsole), scanTask, TimeSpan.Zero));
+
+        var barConsole = new TestConsole();
+        barConsole.Profile.Width = width;
+        var barColumn = new BackupProgressColumn(new BackupProgressCalculator(() => DateTimeOffset.UtcNow.AddSeconds(1)));
+        var barTask = CreateTask(BackupProgressRole.Bar, new BackupProgressState(50, 100));
+        barConsole.Write(barColumn.Render(CreateOptions(barConsole), barTask, TimeSpan.Zero));
+
+        Assert.Equal(width, scanConsole.Lines[0].Length);
+        Assert.Equal(width, barConsole.Lines[0].Length);
+
+        // The bar itself is whatever remains of the line once the fixed label and
+        // trailing columns are excluded - identical widths here is what actually
+        // guarantees the bar renders at the same length in both phases.
+        var scanBarWidth = scanConsole.Lines[0].Length - BackupProgressColumn.LabelWidth - BackupProgressColumn.TrailingWidth;
+        var barBarWidth = barConsole.Lines[0].Length - BackupProgressColumn.LabelWidth - BackupProgressColumn.TrailingWidth;
+
+        Assert.True(scanBarWidth > 0);
+        Assert.Equal(scanBarWidth, barBarWidth);
     }
 
     [Fact]

@@ -72,6 +72,21 @@ public sealed class BackupProgressColumn(BackupProgressCalculator calculator) : 
     public const string OutcomeKey = "BackupProgressOutcome";
 
     private const string ScanLabel = " Scanning files...";
+    private const string TransferLabel = " Backing up...";
+
+    // Width of the fixed leading label column, sized to the longer of the two phases'
+    // label text (per design.md's "both the label column and the trailing column use
+    // fixed widths, sized to the longer of the two phases' content" decision) - shared
+    // by both roles so the label column's width never depends on which phase is
+    // currently rendering, which would otherwise leave the bar's own width dependent on
+    // the label text's length even with a right-side placeholder alone.
+    internal static readonly int LabelWidth = Math.Max(ScanLabel.Length, TransferLabel.Length);
+
+    // Width of the fixed trailing column, matching the byte-based percent text's width -
+    // constant regardless of the actual percentage, since FormatPercentText's numeric
+    // field is itself fixed-width. Reused for the scan phase's blank placeholder so the
+    // bar renders at the same length in both phases.
+    internal static readonly int TrailingWidth = FormatPercentText(0).Length;
 
     // Composition, not inheritance - ProgressBarColumn is sealed. Reused for both the
     // scan role (indeterminate pulse) and the bar role (byte-based fill) per design.md's
@@ -101,11 +116,14 @@ public sealed class BackupProgressColumn(BackupProgressCalculator calculator) : 
     // BackupCommand), recolored to the neutral pastel color while running - or to the
     // matching outcome color if a hard error is stamped onto this task before it's
     // replaced by the bar/stats tasks, per the progress-reporting delta's "Progress bar
-    // reflects run outcome severity" requirement.
+    // reflects run outcome severity" requirement. The trailing column renders blank
+    // (not synthetic percentage-like text), since the scan phase has no percentage to
+    // show - per design.md's "scan-phase placeholder is blank space, not synthetic
+    // content" decision.
     private IRenderable RenderScan(RenderOptions options, ProgressTask task, TimeSpan deltaTime)
     {
         ApplyOutcomeStyle(task);
-        return RenderBarRow(options, task, deltaTime, ScanLabel);
+        return RenderBarRow(options, task, deltaTime, ScanLabel, new string(' ', TrailingWidth));
     }
 
     // Delegates the bar's fill segments to Spectre's own ProgressBarColumn (composition,
@@ -129,27 +147,37 @@ public sealed class BackupProgressColumn(BackupProgressCalculator calculator) : 
         task.MaxValue = 100;
         task.Value = percent;
 
-        var percentText = $" {percent,5:0.0}%";
-        return RenderBarRow(options, task, deltaTime, percentText);
+        return RenderBarRow(options, task, deltaTime, TransferLabel, FormatPercentText(percent));
     }
 
-    // Combined with the trailing text via a two-column Grid rather than Columns:
-    // Columns stacks a "greedy" full-width child (like the bar) and a second child onto
-    // separate rows instead of the same line (verified empirically), whereas Grid's
-    // explicit fixed column widths place them side by side on one line, per the
+    // The percent text's numeric field is fixed-width (5 characters via "{0,5:0.0}"),
+    // so this always returns the same length regardless of the value passed in - relied
+    // upon by TrailingWidth to size the trailing column once, and by RenderScan's blank
+    // placeholder to match that same width.
+    private static string FormatPercentText(double percent) => $" {percent,5:0.0}%";
+
+    // Combined with the label and trailing text via a three-column Grid rather than
+    // Columns: Columns stacks a "greedy" full-width child (like the bar) and a second
+    // child onto separate rows instead of the same line (verified empirically), whereas
+    // Grid's explicit fixed column widths place them side by side on one line, per the
     // progress-reporting delta's "dedicated, width-sized line" requirement. Shared by
-    // both RenderScan (trailing = the scan label) and RenderBar (trailing = the percent
-    // text), since both roles now render the same shared _bar.
-    private IRenderable RenderBarRow(RenderOptions options, ProgressTask task, TimeSpan deltaTime, string trailingText)
+    // both RenderScan (label = the scan label, trailing = a blank placeholder) and
+    // RenderBar (label = the transfer label, trailing = the percent text), since both
+    // roles now render the same shared _bar. LabelWidth and TrailingWidth are both
+    // fixed constants shared across roles (not sized to whichever text this particular
+    // call passes in), which is what actually guarantees the bar itself renders at the
+    // same width in both phases.
+    private IRenderable RenderBarRow(RenderOptions options, ProgressTask task, TimeSpan deltaTime, string labelText, string trailingText)
     {
         var availableWidth = options.ConsoleSize.Width;
-        var barWidth = Math.Max(1, availableWidth - trailingText.Length);
+        var barWidth = Math.Max(1, availableWidth - LabelWidth - TrailingWidth);
         _bar.Width = barWidth;
 
         var grid = new Grid()
+            .AddColumn(new GridColumn { Width = LabelWidth, NoWrap = true, Padding = new Padding(0) })
             .AddColumn(new GridColumn { Width = barWidth, NoWrap = true, Padding = new Padding(0) })
-            .AddColumn(new GridColumn { Width = trailingText.Length, NoWrap = true, Padding = new Padding(0) });
-        grid.AddRow(_bar.Render(options, task, deltaTime), new Text(trailingText));
+            .AddColumn(new GridColumn { Width = TrailingWidth, NoWrap = true, Padding = new Padding(0) });
+        grid.AddRow(new Text(labelText.PadRight(LabelWidth)), _bar.Render(options, task, deltaTime), new Text(trailingText.PadRight(TrailingWidth)));
         return grid;
     }
 
