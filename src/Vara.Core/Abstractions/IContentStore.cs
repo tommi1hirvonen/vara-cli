@@ -78,6 +78,14 @@ public interface IContentStore
     void ExtractTo(string hash, string destinationAbsolutePath, Action<long>? onBytesCopied = null);
 
     /// <summary>
+    /// Opens a readable stream over the blob for <paramref name="hash"/>, for callers that
+    /// need to read a version's content directly (e.g. streaming it to standard output, or
+    /// diffing two versions) rather than copying it to a destination file via
+    /// <see cref="ExtractTo"/>. The caller owns and disposes the returned stream.
+    /// </summary>
+    Stream OpenRead(string hash);
+
+    /// <summary>
     /// Whether <paramref name="absolutePath"/> resolves to a location inside this store's
     /// mirror root. Used by the snapshot-history capability's restore command to refuse
     /// restoring into the live mirror, which would corrupt it.

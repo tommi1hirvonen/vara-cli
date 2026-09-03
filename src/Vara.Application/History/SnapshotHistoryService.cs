@@ -61,10 +61,7 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
         Action<long>? onBytesCopied = null,
         Action<long>? onSizeResolved = null)
     {
-        EnsureHasHistory(relativePath);
-
-        var match = repository.FindVersionAsOf(relativePath, asOf)
-            ?? throw new NoMatchingVersionException(relativePath, asOf);
+        var match = ResolveVersion(relativePath, versionId: null, asOf);
 
         GuardDestination(destinationPath, overwrite);
         onSizeResolved?.Invoke(match.Size);
@@ -102,26 +99,234 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
         Action<long>? onBytesCopied = null,
         Action<long>? onSizeResolved = null)
     {
-        var history = repository.GetFileHistory(relativePath);
-        if (history.Count == 0)
-        {
-            throw new NoHistoryForPathException(relativePath);
-        }
-
-        var match = history.FirstOrDefault(r => r.Id == versionId && r.ChangeKind != FileChangeKind.Deleted)
-            ?? throw new NoMatchingVersionException(relativePath, versionId);
+        var match = ResolveVersion(relativePath, versionId, asOf: null);
 
         GuardDestination(destinationPath, overwrite);
         onSizeResolved?.Invoke(match.Size);
         contentStore.ExtractTo(match.ContentHash, destinationPath, onBytesCopied);
     }
 
-    private void EnsureHasHistory(string relativePath)
+    /// <summary>
+    /// Streams a path's content - resolved by <paramref name="versionId"/> or
+    /// <paramref name="asOf"/>, exactly as <see cref="RestoreVersion"/>/<see cref="RestoreAsOf"/>
+    /// resolve theirs - directly to <paramref name="destination"/>, without writing anything to
+    /// disk. Exactly one of <paramref name="versionId"/>/<paramref name="asOf"/> must be given.
+    /// </summary>
+    /// <exception cref="NoHistoryForPathException">The path was never part of any recorded snapshot.</exception>
+    /// <exception cref="NoMatchingVersionException">No such version id/date exists for the path.</exception>
+    public void ShowVersion(string relativePath, long? versionId, DateTimeOffset? asOf, Stream destination)
     {
-        if (repository.GetFileHistory(relativePath).Count == 0)
+        var match = ResolveVersion(relativePath, versionId, asOf);
+        using var source = contentStore.OpenRead(match.ContentHash);
+        source.CopyTo(destination);
+    }
+
+    /// <summary>
+    /// Opens two versions of the same path - each resolved by its own version id or "as of"
+    /// date, independently, exactly as <see cref="RestoreVersion"/>/<see cref="RestoreAsOf"/>
+    /// resolve theirs - for a caller to diff. The caller owns and disposes both streams.
+    /// </summary>
+    /// <exception cref="NoHistoryForPathException">The path was never part of any recorded snapshot.</exception>
+    /// <exception cref="NoMatchingVersionException">No such version id/date exists for either side.</exception>
+    public (Stream Left, Stream Right) OpenVersionsForDiff(
+        string relativePath,
+        long? leftVersionId,
+        DateTimeOffset? leftAsOf,
+        long? rightVersionId,
+        DateTimeOffset? rightAsOf)
+    {
+        var left = ResolveVersion(relativePath, leftVersionId, leftAsOf);
+        var right = ResolveVersion(relativePath, rightVersionId, rightAsOf);
+        return (contentStore.OpenRead(left.ContentHash), contentStore.OpenRead(right.ContentHash));
+    }
+
+    /// <summary>
+    /// Lists the immediate (one-level) contents of <paramref name="directoryPath"/> within the
+    /// profile's mirror, per the backup-browsing capability's directory-listing requirements.
+    /// Reflects the current state when <paramref name="asOf"/> is <c>null</c>, or the state as
+    /// of that date otherwise. When <paramref name="includeDeleted"/> is <c>true</c>, deleted
+    /// entries (and wholly-deleted subdirectories) are interleaved among the live ones, each
+    /// marked <see cref="DirectoryEntryStatus.Deleted"/> or, if the entry was moved elsewhere
+    /// rather than deleted outright, <see cref="DirectoryEntryStatus.Moved"/>.
+    /// </summary>
+    /// <exception cref="NoSuchDirectoryException">
+    /// No tracked path, at any point in history, falls under <paramref name="directoryPath"/> -
+    /// regardless of <paramref name="includeDeleted"/>, since a directory that currently has only
+    /// deleted content is still a directory that was tracked.
+    /// </exception>
+    public IReadOnlyList<DirectoryEntry> ListDirectory(string directoryPath, DateTimeOffset? asOf, bool includeDeleted)
+    {
+        var prefix = NormalizeDirectoryPrefix(directoryPath);
+        var live = asOf is null ? repository.GetCurrentState() : repository.GetStateAsOf(asOf.Value);
+        var tombstones = repository.GetTombstones(asOf);
+        var moveOrigins = repository.GetMoveOrigins();
+
+        var entries = new Dictionary<string, DirectoryEntry>(StringComparer.OrdinalIgnoreCase);
+        var anyTracked = false;
+
+        foreach (var (path, state) in live)
+        {
+            if (!TryGetImmediateChild(path, prefix, out var name, out var isLeaf))
+            {
+                continue;
+            }
+
+            anyTracked = true;
+            if (isLeaf)
+            {
+                entries[name] = new DirectoryEntry(name, DirectoryEntryKind.File, DirectoryEntryStatus.Live, state.Size);
+            }
+            else if (!entries.TryGetValue(name, out var existingDir) || existingDir.Status != DirectoryEntryStatus.Live)
+            {
+                entries[name] = new DirectoryEntry(name, DirectoryEntryKind.Directory, DirectoryEntryStatus.Live, null);
+            }
+        }
+
+        foreach (var record in tombstones)
+        {
+            if (!TryGetImmediateChild(record.RelativePath, prefix, out var name, out var isLeaf))
+            {
+                continue;
+            }
+
+            anyTracked = true;
+            if (!includeDeleted)
+            {
+                continue;
+            }
+
+            if (isLeaf)
+            {
+                if (entries.ContainsKey(name))
+                {
+                    continue;
+                }
+
+                var moved = moveOrigins.TryGetValue(record.RelativePath, out var movedTo);
+                entries[name] = new DirectoryEntry(
+                    name,
+                    DirectoryEntryKind.File,
+                    moved ? DirectoryEntryStatus.Moved : DirectoryEntryStatus.Deleted,
+                    record.Size,
+                    moved ? movedTo : null);
+            }
+            else if (!entries.ContainsKey(name))
+            {
+                entries[name] = new DirectoryEntry(name, DirectoryEntryKind.Directory, DirectoryEntryStatus.Deleted, null);
+            }
+        }
+
+        if (!anyTracked)
+        {
+            throw new NoSuchDirectoryException(directoryPath);
+        }
+
+        return entries.Values.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>
+    /// Reports deleted files, most recently deleted first, optionally scoped to a subtree
+    /// (<paramref name="directoryPath"/>) and/or bounded to deletions recorded at or after
+    /// <paramref name="since"/>, per the backup-browsing capability's recently-deleted report.
+    /// </summary>
+    public IReadOnlyList<FileVersionRecord> ListDeleted(string? directoryPath, DateTimeOffset? since)
+    {
+        IEnumerable<FileVersionRecord> tombstones = repository.GetTombstones(asOf: null);
+
+        var prefix = NormalizeDirectoryPrefix(directoryPath ?? string.Empty);
+        if (prefix.Length > 0)
+        {
+            tombstones = tombstones.Where(r => r.RelativePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (since is not null)
+        {
+            tombstones = tombstones.Where(r => r.RecordedAt >= since.Value);
+        }
+
+        return tombstones.OrderByDescending(r => r.RecordedAt).ToList();
+    }
+
+    /// <summary>
+    /// Resolves the version a restore/show/diff operation should act on: by
+    /// <paramref name="versionId"/> if given, otherwise by <paramref name="asOf"/>. Exactly one
+    /// must be given (a defensive assumption both callers already guarantee at the CLI layer).
+    /// </summary>
+    /// <exception cref="NoHistoryForPathException">The path was never part of any recorded snapshot.</exception>
+    /// <exception cref="NoMatchingVersionException">No such version id/date exists for the path.</exception>
+    private FileVersionRecord ResolveVersion(string relativePath, long? versionId, DateTimeOffset? asOf)
+    {
+        var history = repository.GetFileHistory(relativePath);
+        if (history.Count == 0)
         {
             throw new NoHistoryForPathException(relativePath);
         }
+
+        if (versionId is not null)
+        {
+            return history.FirstOrDefault(r => r.Id == versionId.Value && r.ChangeKind != FileChangeKind.Deleted)
+                ?? throw new NoMatchingVersionException(relativePath, versionId.Value);
+        }
+
+        return history.FirstOrDefault(r => r.RecordedAt <= asOf!.Value) is { ChangeKind: not FileChangeKind.Deleted } match
+            ? match
+            : throw new NoMatchingVersionException(relativePath, asOf!.Value);
+    }
+
+    /// <summary>
+    /// Normalizes a user-supplied directory path to the trailing-separator-terminated prefix
+    /// used to match tracked paths against it - <c>""</c> for the mirror root (empty, <c>.</c>,
+    /// or whitespace-only input), otherwise the trimmed path with exactly one trailing
+    /// backslash appended, so prefix matching only ever matches whole path segments.
+    /// </summary>
+    private static string NormalizeDirectoryPrefix(string directoryPath)
+    {
+        var trimmed = directoryPath.Trim().Trim('\\', '/');
+        return trimmed.Length == 0 || trimmed == "." ? string.Empty : trimmed + "\\";
+    }
+
+    /// <summary>
+    /// Whether <paramref name="relativePath"/> falls under <paramref name="prefix"/> (as
+    /// produced by <see cref="NormalizeDirectoryPrefix"/>), and if so, its immediate child
+    /// segment's name and whether that segment is the path's final one (a file directly in
+    /// the listed directory) or an intermediate one (a subdirectory to synthesize).
+    /// </summary>
+    private static bool TryGetImmediateChild(string relativePath, string prefix, out string name, out bool isLeaf)
+    {
+        name = string.Empty;
+        isLeaf = false;
+
+        string remainder;
+        if (prefix.Length == 0)
+        {
+            remainder = relativePath;
+        }
+        else
+        {
+            if (!relativePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            remainder = relativePath[prefix.Length..];
+        }
+
+        if (remainder.Length == 0)
+        {
+            return false;
+        }
+
+        var separatorIndex = remainder.IndexOfAny(['\\', '/']);
+        if (separatorIndex < 0)
+        {
+            name = remainder;
+            isLeaf = true;
+            return true;
+        }
+
+        name = remainder[..separatorIndex];
+        isLeaf = false;
+        return name.Length > 0;
     }
 
     /// <summary>

@@ -11,6 +11,18 @@ public sealed class NoHistoryForPathException(string relativePath)
 }
 
 /// <summary>
+/// A directory-listing command (backup-browsing capability) was invoked for a directory
+/// path under which no tracked path, at any point in history, falls - regardless of
+/// whether deleted entries were requested, since a directory with only deleted content is
+/// still a directory that was tracked.
+/// </summary>
+public sealed class NoSuchDirectoryException(string directoryPath)
+    : Exception($"No such directory is recorded in the backup: '{directoryPath}'.")
+{
+    public string DirectoryPath { get; } = directoryPath;
+}
+
+/// <summary>
 /// A restore was requested for a date or version that does not correspond to any
 /// recorded content for the given path.
 /// </summary>

@@ -148,6 +148,129 @@ public class SqliteSnapshotRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void GetStateAsOf_excludes_a_path_added_after_the_given_date()
+    {
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = Repository.BeginSnapshot(t0);
+        Repository.RecordFileVersion(s1, "a.txt", null, "hash-v1", 10, t0, FileChangeKind.Added, t0);
+        Repository.CompleteSnapshot(s1, t0, SnapshotStats.Empty);
+
+        var asOf = t0.AddMinutes(-1);
+
+        Assert.Empty(Repository.GetStateAsOf(asOf));
+    }
+
+    [Fact]
+    public void GetStateAsOf_returns_the_version_current_at_that_date_for_a_path_changed_both_before_and_after()
+    {
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = Repository.BeginSnapshot(t0);
+        Repository.RecordFileVersion(s1, "a.txt", null, "hash-v1", 10, t0, FileChangeKind.Added, t0);
+        Repository.CompleteSnapshot(s1, t0, SnapshotStats.Empty);
+
+        var t1 = t0.AddDays(1);
+        var s2 = Repository.BeginSnapshot(t1);
+        Repository.RecordFileVersion(s2, "a.txt", null, "hash-v2", 20, t1, FileChangeKind.Changed, t1);
+        Repository.CompleteSnapshot(s2, t1, SnapshotStats.Empty);
+
+        var asOf = t0.AddHours(12);
+
+        var state = Repository.GetStateAsOf(asOf)["a.txt"];
+        Assert.Equal("hash-v1", state.ContentHash);
+    }
+
+    [Fact]
+    public void GetStateAsOf_excludes_a_path_deleted_before_the_given_date()
+    {
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = Repository.BeginSnapshot(t0);
+        Repository.RecordFileVersion(s1, "a.txt", null, "hash-v1", 10, t0, FileChangeKind.Added, t0);
+        Repository.CompleteSnapshot(s1, t0, SnapshotStats.Empty);
+
+        var t1 = t0.AddDays(1);
+        var s2 = Repository.BeginSnapshot(t1);
+        Repository.RecordFileVersion(s2, "a.txt", null, "hash-v1", 10, t1, FileChangeKind.Deleted, t1);
+        Repository.CompleteSnapshot(s2, t1, SnapshotStats.Empty);
+
+        var asOf = t1.AddDays(1);
+
+        Assert.Empty(Repository.GetStateAsOf(asOf));
+    }
+
+    [Fact]
+    public void GetTombstones_with_no_bound_returns_a_deleted_path()
+    {
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = Repository.BeginSnapshot(t0);
+        Repository.RecordFileVersion(s1, "a.txt", null, "hash-v1", 10, t0, FileChangeKind.Added, t0);
+        Repository.CompleteSnapshot(s1, t0, SnapshotStats.Empty);
+
+        var t1 = t0.AddDays(1);
+        var s2 = Repository.BeginSnapshot(t1);
+        Repository.RecordFileVersion(s2, "a.txt", null, "hash-v1", 10, t1, FileChangeKind.Deleted, t1);
+        Repository.CompleteSnapshot(s2, t1, SnapshotStats.Empty);
+
+        var tombstone = Assert.Single(Repository.GetTombstones(asOf: null));
+        Assert.Equal("a.txt", tombstone.RelativePath);
+    }
+
+    [Fact]
+    public void GetTombstones_excludes_a_path_deleted_after_the_given_date()
+    {
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = Repository.BeginSnapshot(t0);
+        Repository.RecordFileVersion(s1, "a.txt", null, "hash-v1", 10, t0, FileChangeKind.Added, t0);
+        Repository.CompleteSnapshot(s1, t0, SnapshotStats.Empty);
+
+        var t1 = t0.AddDays(1);
+        var s2 = Repository.BeginSnapshot(t1);
+        Repository.RecordFileVersion(s2, "a.txt", null, "hash-v1", 10, t1, FileChangeKind.Deleted, t1);
+        Repository.CompleteSnapshot(s2, t1, SnapshotStats.Empty);
+
+        Assert.Empty(Repository.GetTombstones(asOf: t0.AddHours(12)));
+    }
+
+    [Fact]
+    public void GetTombstones_excludes_a_path_that_is_live_again_after_being_re_added_post_deletion()
+    {
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = Repository.BeginSnapshot(t0);
+        Repository.RecordFileVersion(s1, "a.txt", null, "hash-v1", 10, t0, FileChangeKind.Added, t0);
+        Repository.CompleteSnapshot(s1, t0, SnapshotStats.Empty);
+
+        var t1 = t0.AddDays(1);
+        var s2 = Repository.BeginSnapshot(t1);
+        Repository.RecordFileVersion(s2, "a.txt", null, "hash-v1", 10, t1, FileChangeKind.Deleted, t1);
+        Repository.CompleteSnapshot(s2, t1, SnapshotStats.Empty);
+
+        var t2 = t1.AddDays(1);
+        var s3 = Repository.BeginSnapshot(t2);
+        Repository.RecordFileVersion(s3, "a.txt", null, "hash-v2", 12, t2, FileChangeKind.Added, t2);
+        Repository.CompleteSnapshot(s3, t2, SnapshotStats.Empty);
+
+        Assert.Empty(Repository.GetTombstones(asOf: null));
+    }
+
+    [Fact]
+    public void GetMoveOrigins_maps_a_moved_paths_origin_to_its_current_location()
+    {
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = Repository.BeginSnapshot(t0);
+        Repository.RecordFileVersion(s1, "old\\a.txt", null, "hash-v1", 10, t0, FileChangeKind.Added, t0);
+        Repository.CompleteSnapshot(s1, t0, SnapshotStats.Empty);
+
+        var t1 = t0.AddDays(1);
+        var s2 = Repository.BeginSnapshot(t1);
+        Repository.RecordFileVersion(s2, "new\\a.txt", "old\\a.txt", "hash-v1", 10, t1, FileChangeKind.Moved, t1);
+        Repository.CompleteSnapshot(s2, t1, SnapshotStats.Empty);
+
+        var origins = Repository.GetMoveOrigins();
+
+        Assert.Equal("new\\a.txt", origins["old\\a.txt"]);
+        Assert.True(Repository.GetCurrentState().ContainsKey("new\\a.txt"));
+    }
+
+    [Fact]
     public void GetFileHistory_follows_a_move_chain_backward()
     {
         var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);

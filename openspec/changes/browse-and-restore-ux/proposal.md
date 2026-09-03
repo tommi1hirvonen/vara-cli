@@ -15,6 +15,16 @@ be for the tool's primary purpose.
   path relative to the current working directory - resolved by one shared rule, trying an exact
   literal match against recorded history first (preserving today's behavior) before falling back
   to resolving the input against the working directory.
+- **BREAKING**: the profile name changes from a required positional argument to a `--profile`
+  option, consistently across every command (`backup`, `snapshots`, `history`, `restore`,
+  `prune`, and the new `browse`/`deleted`/`show`/`diff`). This was needed because
+  `System.CommandLine` cannot cleanly bind a single positional token to a later, still-required
+  positional argument when an earlier one becomes optional - see design.md's "CLI argument shape"
+  decision. Since this project has no external users yet, there is no migration concern.
+- `--profile` becomes optional specifically for the read-only/browsing commands (`snapshots`,
+  `history`, `restore`, `show`, `diff`, `browse`, `deleted`) when the current working directory
+  resolves to a profile's target root; it remains required for the mutating commands (`backup`,
+  `prune`).
 - The profile name argument becomes optional for these commands when the current working
   directory resolves to a profile's target root by walking upward for a `.vara\profile.db` (the
   same way `git` locates `.git`), without needing `~/.vara/profiles.yml` at all in that case.

@@ -64,3 +64,13 @@ public sealed class RetentionPolicyNotConfiguredException(string profileName)
 {
     public string ProfileName { get; } = profileName;
 }
+
+/// <summary>
+/// A browsing/restoring command was invoked with no profile name, and no <c>.vara\profile.db</c>
+/// was found by walking upward from the current working directory to the filesystem root -
+/// per the profile-config capability's "Profile selection by name" requirement, a profile name
+/// is required whenever the working directory does not resolve one on its own.
+/// </summary>
+public sealed class ProfileNameRequiredException()
+    : ProfileConfigException("No profile name was given, and the current directory is not inside a profile's target root. Specify a profile name.");
+

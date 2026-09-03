@@ -13,13 +13,13 @@ public static class BackupCommand
 {
     public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory, IFileSystemScanner scanner, IHasher hasher)
     {
-        var profileArgument = new Argument<string>("profile") { Description = "The profile to back up." };
+        var profileOption = new Option<string>("--profile") { Description = "The profile to back up.", Required = true };
         var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
-        var command = new Command("backup", "Run an incremental backup for a profile.") { profileArgument, configOption };
+        var command = new Command("backup", "Run an incremental backup for a profile.") { profileOption, configOption };
 
         command.SetAction(parseResult =>
         {
-            var profileName = parseResult.GetValue(profileArgument)!;
+            var profileName = parseResult.GetValue(profileOption)!;
             var configPath = parseResult.GetValue(configOption);
 
             return ErrorReporting.Run(() =>

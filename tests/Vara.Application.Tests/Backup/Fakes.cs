@@ -114,6 +114,16 @@ internal sealed class FakeContentStore : IContentStore
 
     public bool HasContent(string hash) => _blobs.ContainsKey(hash);
 
+    public Stream OpenRead(string hash)
+    {
+        if (!_blobs.TryGetValue(hash, out var bytes))
+        {
+            throw new FileNotFoundException($"No stored content for hash '{hash}'.");
+        }
+
+        return new MemoryStream(bytes, writable: false);
+    }
+
     public void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null)
     {
         Mirror[mirrorRelativePath] = hash;
@@ -370,6 +380,47 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
             {
                 result[latest.RelativePath] = new CurrentFileState(
                     latest.RelativePath, latest.ContentHash, latest.Size, latest.SourceModifiedAt, latest.QuickHash, latest.QuickHashScheme);
+            }
+        }
+
+        return result;
+    }
+
+    public IReadOnlyDictionary<string, CurrentFileState> GetStateAsOf(DateTimeOffset asOf)
+    {
+        var result = new Dictionary<string, CurrentFileState>(StringComparer.OrdinalIgnoreCase);
+        foreach (var group in _fileVersions.Where(r => r.RecordedAt <= asOf).GroupBy(r => r.RelativePath))
+        {
+            var latest = group.OrderByDescending(r => r.Id).First();
+            if (latest.ChangeKind != FileChangeKind.Deleted)
+            {
+                result[latest.RelativePath] = new CurrentFileState(
+                    latest.RelativePath, latest.ContentHash, latest.Size, latest.SourceModifiedAt, latest.QuickHash, latest.QuickHashScheme);
+            }
+        }
+
+        return result;
+    }
+
+    public IReadOnlyList<FileVersionRecord> GetTombstones(DateTimeOffset? asOf)
+    {
+        var source = asOf is null ? _fileVersions.AsEnumerable() : _fileVersions.Where(r => r.RecordedAt <= asOf.Value);
+        return source
+            .GroupBy(r => r.RelativePath)
+            .Select(g => g.OrderByDescending(r => r.Id).First())
+            .Where(latest => latest.ChangeKind == FileChangeKind.Deleted)
+            .ToList();
+    }
+
+    public IReadOnlyDictionary<string, string> GetMoveOrigins()
+    {
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var group in _fileVersions.GroupBy(r => r.RelativePath))
+        {
+            var latest = group.OrderByDescending(r => r.Id).First();
+            if (latest is { ChangeKind: FileChangeKind.Moved, PreviousRelativePath: { } previousPath })
+            {
+                result[previousPath] = latest.RelativePath;
             }
         }
 

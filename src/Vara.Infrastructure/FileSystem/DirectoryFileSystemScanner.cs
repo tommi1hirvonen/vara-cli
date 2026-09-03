@@ -1,6 +1,7 @@
 using Microsoft.Extensions.FileSystemGlobbing;
 using Vara.Core.Abstractions;
 using Vara.Core.Configuration;
+using Vara.Core.FileSystem;
 
 namespace Vara.Infrastructure.FileSystem;
 

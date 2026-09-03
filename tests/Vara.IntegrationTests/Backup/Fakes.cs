@@ -48,6 +48,16 @@ internal sealed class FakeContentStore : IContentStore
 
     public bool HasContent(string hash) => _blobs.ContainsKey(hash);
 
+    public Stream OpenRead(string hash)
+    {
+        if (!_blobs.TryGetValue(hash, out var bytes))
+        {
+            throw new FileNotFoundException($"No stored content for hash '{hash}'.");
+        }
+
+        return new MemoryStream(bytes, writable: false);
+    }
+
     public void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null)
     {
         Mirror[mirrorRelativePath] = hash;

@@ -127,6 +127,19 @@ in-time *shape*. Keeping them separate commands matches the existing one-command
 convention (`snapshots` vs `history` vs `restore`) rather than overloading `history`'s argument
 semantics.
 
+**CLI argument shape: profile moves from a positional argument to a `--profile` option, for
+every command.** Discovered during implementation: `System.CommandLine` 2.0.11 does not
+redistribute a single positional token to a later, still-required positional argument when an
+earlier one becomes optional (`[<profile>] <path>` with one token fails with "required argument
+missing" instead of binding the token to `<path>`), confirmed empirically against the real
+parser. Rather than work around this with a combined multi-arity positional argument and manual
+disambiguation (fragile - a typo'd profile name would silently be reinterpreted as a path lookup),
+the profile name becomes `--profile <name>` everywhere, consistently. It stays required for the
+mutating commands (`backup`, `prune`) and becomes optional (falling back to working-directory
+auto-detection) for every read-only/browsing command (`snapshots`, `history`, `restore`, `show`,
+`diff`, `browse`, `deleted`). Confirmed with the user as an acceptable breaking change, since this
+project has no external users yet.
+
 ## Risks / Trade-offs
 
 - [In-memory prefix filtering over `GetStateAsOf`/`GetTombstones`'s whole-profile result set could

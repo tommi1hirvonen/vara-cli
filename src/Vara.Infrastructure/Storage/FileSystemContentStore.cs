@@ -117,6 +117,17 @@ public sealed class FileSystemContentStore : IContentStore
 
     public bool HasContent(string hash) => File.Exists(BlobPath(hash));
 
+    public Stream OpenRead(string hash)
+    {
+        var blobPath = BlobPath(hash);
+        if (!File.Exists(blobPath))
+        {
+            throw new FileNotFoundException($"No stored content for hash '{hash}'.", blobPath);
+        }
+
+        return new FileStream(blobPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+    }
+
     public void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null)
     {
         var blobPath = BlobPath(hash);

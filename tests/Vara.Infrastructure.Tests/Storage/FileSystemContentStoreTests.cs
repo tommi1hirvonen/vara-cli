@@ -285,6 +285,28 @@ public class FileSystemContentStoreTests : IDisposable
     }
 
     [Fact]
+    public void OpenRead_returns_a_readable_stream_over_a_stored_hashs_content()
+    {
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        var (hash, _) = store.StoreFromStream(Content("readable content"));
+
+        using var stream = store.OpenRead(hash);
+        using var reader = new StreamReader(stream);
+
+        Assert.Equal("readable content", reader.ReadToEnd());
+    }
+
+    [Fact]
+    public void OpenRead_throws_for_a_hash_with_no_stored_content()
+    {
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+
+        Assert.Throws<FileNotFoundException>(() => store.OpenRead("nonexistent-hash"));
+    }
+
+    [Fact]
     public void MoveMirrorEntry_relocates_the_file_without_touching_its_content()
     {
         var store = CreateStore();

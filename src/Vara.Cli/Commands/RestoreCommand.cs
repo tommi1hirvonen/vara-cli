@@ -7,6 +7,7 @@ using Vara.Application.Profiles;
 using Vara.Application.Reporting;
 using Vara.Cli.Composition;
 using Vara.Cli.Presentation;
+using Vara.Core.FileSystem;
 using Vara.Core.Snapshots;
 
 namespace Vara.Cli.Commands;
@@ -15,30 +16,50 @@ public static class RestoreCommand
 {
     public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory)
     {
-        var profileArgument = new Argument<string>("profile") { Description = "The profile to restore from." };
-        var pathArgument = new Argument<string>("path") { Description = "The relative path within the profile's mirror to restore." };
-        var outOption = new Option<string>("--out") { Description = "Destination path to write the restored content to.", Required = true };
+        var profileOption = new Option<string?>("--profile") { Description = "The profile to restore from. Optional when the current directory is inside a profile's target root." };
+        var pathArgument = new Argument<string>("path") { Description = "The file to restore - a mirror-relative path, an absolute source path, or a path relative to the current directory." };
+        var outOption = new Option<string?>("--out") { Description = "Destination path to write the restored content to. Mutually exclusive with --in-place." };
+        var inPlaceOption = new Option<bool>("--in-place") { Description = "Restore back to the file's original source location instead of an explicit --out destination. Mutually exclusive with --out." };
         var atOption = new Option<string?>("--at") { Description = "Restore the version current as of this date/time." };
-        var versionOption = new Option<long?>("--version") { Description = "Restore this specific version id (see the 'history' command)." };
+        var versionOption = new Option<long?>("--version") { Description = "Restore this specific version id (see the 'history' command). If neither this nor --at is given in an interactive session, a version picker is shown instead." };
         var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
-        var forceOption = new Option<bool>("--force") { Description = "Overwrite an existing file at --out without prompting for confirmation." };
+        var forceOption = new Option<bool>("--force") { Description = "Overwrite an existing destination file without prompting for confirmation." };
 
-        var command = new Command("restore", "Restore a file's historical content to a new location, without touching the live mirror.")
+        var command = new Command("restore", "Restore a file's historical content, without touching the live mirror.")
         {
-            profileArgument, pathArgument, outOption, atOption, versionOption, configOption, forceOption,
+            pathArgument, profileOption, outOption, inPlaceOption, atOption, versionOption, configOption, forceOption,
         };
 
         command.SetAction(parseResult =>
         {
-            var profileName = parseResult.GetValue(profileArgument)!;
+            var profileName = parseResult.GetValue(profileOption);
             var path = parseResult.GetValue(pathArgument)!;
-            var outPath = parseResult.GetValue(outOption)!;
+            var outPath = parseResult.GetValue(outOption);
+            var inPlace = parseResult.GetValue(inPlaceOption);
             var at = parseResult.GetValue(atOption);
             var version = parseResult.GetValue(versionOption);
             var configPath = parseResult.GetValue(configOption);
             var force = parseResult.GetValue(forceOption);
 
-            if (at is null && version is null)
+            if (outPath is not null && inPlace)
+            {
+                OutcomeStyle.WriteLineError(StandardError.Console, "Error: --out and --in-place are mutually exclusive.");
+                return 1;
+            }
+
+            if (outPath is null && !inPlace)
+            {
+                OutcomeStyle.WriteLineError(StandardError.Console, "Error: specify either --out <path> or --in-place.");
+                return 1;
+            }
+
+            // Whether an interactive version picker can be shown when neither --at nor
+            // --version is given - requires both a real, non-redirected input stream (to read
+            // the user's selection) and a console capable of rendering the picker itself.
+            var console = AnsiConsole.Console;
+            var canPromptForVersion = !Console.IsInputRedirected && OutputMode.IsLiveCapable(console);
+
+            if (at is null && version is null && !canPromptForVersion)
             {
                 OutcomeStyle.WriteLineError(StandardError.Console, "Error: specify either --at <date> or --version <id>.");
                 return 1;
@@ -48,27 +69,61 @@ public static class RestoreCommand
 
             var exitCode = ErrorReporting.Run(() =>
             {
-                var profile = profileResolver.Resolve(profileName, configPath);
+                var profile = profileResolver.ResolveForBrowsing(profileName, configPath);
                 using var services = serviceFactory.CreateFor(profile);
                 var history = new SnapshotHistoryService(services.Repository, services.ContentStore);
-                var console = AnsiConsole.Console;
+
+                path = SnapshotPathResolver.TryResolve(
+                    profile.TargetRoot,
+                    path,
+                    candidate => services.Repository.GetFileHistory(candidate).Count > 0,
+                    out var resolvedPath)
+                    ? resolvedPath
+                    : path;
+
+                if (at is null && version is null)
+                {
+                    // Neither given, but canPromptForVersion is true (checked above) -
+                    // present the path's recorded versions as a selectable list per the
+                    // snapshot-history delta's "Interactive version selection when
+                    // restoring" requirement, reusing HistoryTablePresenter's per-row
+                    // formatting for the prompt's choice labels.
+                    var selectable = history.GetFileHistory(path)
+                        .Where(v => v.ChangeKind != FileChangeKind.Deleted)
+                        .ToList();
+
+                    if (selectable.Count == 0)
+                    {
+                        throw new NoHistoryForPathException(path);
+                    }
+
+                    var selected = StandardError.Console.Prompt(
+                        new SelectionPrompt<FileVersionRecord>()
+                            .Title("Select a version to restore:")
+                            .PageSize(10)
+                            .UseConverter(v => $"#{v.Id} - {v.RecordedAt:yyyy-MM-dd HH:mm:ss zzz} - {v.ChangeKind} - {BackupRunSummaryFormatter.FormatBytes(v.Size)}")
+                            .AddChoices(selectable));
+                    version = selected.Id;
+                }
+
+                var effectiveOutPath = inPlace ? AbsolutePathMirrorMapper.FromMirrorPath(path) : outPath!;
 
                 void RunRestore(bool overwrite)
                 {
                     if (OutputMode.IsLiveCapable(console))
                     {
-                        RunWithLiveDisplay(history, path, version, at, outPath, overwrite, console);
+                        RunWithLiveDisplay(history, path, version, at, effectiveOutPath, overwrite, console);
                     }
                     else
                     {
-                        RunWithPlainOutput(history, path, version, at, outPath, overwrite, console);
+                        RunWithPlainOutput(history, path, version, at, effectiveOutPath, overwrite, console);
                     }
                 }
 
                 try
                 {
                     RunRestore(force);
-                    OutcomeStyle.WriteLineSuccess(AnsiConsole.Console, $"Restored '{path}' to '{outPath}'.");
+                    OutcomeStyle.WriteLineSuccess(AnsiConsole.Console, $"Restored '{path}' to '{effectiveOutPath}'.");
                 }
                 catch (DestinationExistsException) when (!force && !Console.IsInputRedirected)
                 {
@@ -78,11 +133,11 @@ public static class RestoreCommand
                     // ErrorReporting, which reports it as a normal error (exit 1) directing the
                     // user to --force.
                     var overwrite = StandardError.Console.Confirm(
-                        $"File '{Markup.Escape(outPath)}' already exists. Overwrite?", defaultValue: false);
+                        $"File '{Markup.Escape(effectiveOutPath)}' already exists. Overwrite?", defaultValue: false);
                     if (overwrite)
                     {
                         RunRestore(overwrite: true);
-                        OutcomeStyle.WriteLineSuccess(AnsiConsole.Console, $"Restored '{path}' to '{outPath}'.");
+                        OutcomeStyle.WriteLineSuccess(AnsiConsole.Console, $"Restored '{path}' to '{effectiveOutPath}'.");
                     }
                     else
                     {

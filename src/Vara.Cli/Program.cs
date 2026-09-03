@@ -30,6 +30,10 @@ var rootCommand = new RootCommand("Vara - versioned, deduplicated backup tool")
     SnapshotsCommand.Create(profileResolver, serviceFactory),
     HistoryCommand.Create(profileResolver, serviceFactory),
     RestoreCommand.Create(profileResolver, serviceFactory),
+    BrowseCommand.Create(profileResolver, serviceFactory),
+    DeletedCommand.Create(profileResolver, serviceFactory),
+    ShowCommand.Create(profileResolver, serviceFactory),
+    DiffCommand.Create(profileResolver, serviceFactory),
     PruneCommand.Create(profileResolver, serviceFactory),
 };
 

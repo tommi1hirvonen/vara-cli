@@ -12,14 +12,14 @@ public static class PruneCommand
 {
     public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory)
     {
-        var profileArgument = new Argument<string>("profile") { Description = "The profile to prune." };
+        var profileOption = new Option<string>("--profile") { Description = "The profile to prune.", Required = true };
         var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
         var yesOption = new Option<bool>("--yes", "-y") { Description = "Confirm the run without prompting, even if snapshots are eligible for removal." };
-        var command = new Command("prune", "Apply a profile's retention policy: remove expired snapshots and unreferenced content.") { profileArgument, configOption, yesOption };
+        var command = new Command("prune", "Apply a profile's retention policy: remove expired snapshots and unreferenced content.") { profileOption, configOption, yesOption };
 
         command.SetAction(parseResult =>
         {
-            var profileName = parseResult.GetValue(profileArgument)!;
+            var profileName = parseResult.GetValue(profileOption)!;
             var configPath = parseResult.GetValue(configOption);
             var yes = parseResult.GetValue(yesOption);
 

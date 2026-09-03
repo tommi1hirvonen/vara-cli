@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Vara.Core.Abstractions;
 using Vara.Core.Configuration;
+using Vara.Core.FileSystem;
 using Vara.Infrastructure.FileSystem;
 using Xunit;
 

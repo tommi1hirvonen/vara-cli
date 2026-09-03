@@ -66,6 +66,30 @@ public interface ISnapshotRepository : IDisposable
     IReadOnlyDictionary<string, CurrentFileState> GetCurrentState();
 
     /// <summary>
+    /// The state of every tracked path as of <paramref name="asOf"/>, keyed by relative path -
+    /// the same shape as <see cref="GetCurrentState"/>, but bounded to whichever version of each
+    /// path was current at that date rather than the most recent one. A path not yet added, or
+    /// already deleted, by <paramref name="asOf"/> is absent. Used by the backup-browsing
+    /// capability's point-in-time directory listing.
+    /// </summary>
+    IReadOnlyDictionary<string, CurrentFileState> GetStateAsOf(DateTimeOffset asOf);
+
+    /// <summary>
+    /// Every path whose most recent record - as of <paramref name="asOf"/> if given, otherwise
+    /// as of now - is a deletion (<see cref="FileChangeKind.Deleted"/>). Used by the
+    /// backup-browsing capability's deleted-entry listings and recently-deleted report.
+    /// </summary>
+    IReadOnlyList<FileVersionRecord> GetTombstones(DateTimeOffset? asOf);
+
+    /// <summary>
+    /// Maps each path's most recent recorded move origin (its <c>previous_relative_path</c>)
+    /// to the path it currently lives at, for every currently-live path whose latest record is
+    /// <see cref="FileChangeKind.Moved"/>. Used by the backup-browsing capability to distinguish
+    /// an entry that was moved out of a listed directory from one that was deleted outright.
+    /// </summary>
+    IReadOnlyDictionary<string, string> GetMoveOrigins();
+
+    /// <summary>
     /// All recorded snapshots for this profile, most recent first.
     /// </summary>
     IReadOnlyList<Snapshot> ListSnapshots();

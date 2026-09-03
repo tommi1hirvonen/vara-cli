@@ -103,6 +103,9 @@ public class PortAbstractionsTests
         public void FailSnapshot(long snapshotId, DateTimeOffset failedAt, SnapshotStats stats) { }
         public IManifestBatch BeginManifestBatch() => new NoOpManifestBatch();
         public IReadOnlyDictionary<string, CurrentFileState> GetCurrentState() => new Dictionary<string, CurrentFileState>();
+        public IReadOnlyDictionary<string, CurrentFileState> GetStateAsOf(DateTimeOffset asOf) => new Dictionary<string, CurrentFileState>();
+        public IReadOnlyList<FileVersionRecord> GetTombstones(DateTimeOffset? asOf) => [];
+        public IReadOnlyDictionary<string, string> GetMoveOrigins() => new Dictionary<string, string>();
         public IReadOnlyList<Snapshot> ListSnapshots() => _snapshots;
         public Snapshot? GetLastCompletedSnapshot() => _snapshots.LastOrDefault(s => s.Status == SnapshotStatus.Complete);
         public IReadOnlyList<FileVersionRecord> GetFileHistory(string relativePath) => [];
@@ -124,6 +127,7 @@ public class PortAbstractionsTests
         public bool SupportsHardlinks { get; private set; }
         public (string Hash, long Size) StoreFromStream(Stream content, Action<long>? onBytesWritten = null) => ("fake-hash", content.Length);
         public bool HasContent(string hash) => false;
+        public Stream OpenRead(string hash) => throw new FileNotFoundException($"No stored content for hash '{hash}'.");
         public void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null) { }
         public void MoveMirrorEntry(string fromRelativePath, string toRelativePath) { }
         public void RemoveFromMirror(string mirrorRelativePath) { }

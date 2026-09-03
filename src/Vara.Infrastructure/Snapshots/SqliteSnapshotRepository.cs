@@ -289,6 +289,108 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
         return result;
     }
 
+    public IReadOnlyDictionary<string, CurrentFileState> GetStateAsOf(DateTimeOffset asOf)
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = """
+            SELECT fv.relative_path, fv.content_hash, fv.size, fv.source_modified_at, fv.quick_hash, fv.quick_hash_scheme
+            FROM file_versions fv
+            INNER JOIN (
+                SELECT relative_path, MAX(id) AS max_id
+                FROM file_versions
+                WHERE recorded_at <= $asOf
+                GROUP BY relative_path
+            ) latest ON fv.relative_path = latest.relative_path AND fv.id = latest.max_id
+            WHERE fv.change_kind != $deleted
+            """;
+        command.Parameters.AddWithValue("$asOf", ToIso(asOf));
+        command.Parameters.AddWithValue("$deleted", nameof(FileChangeKind.Deleted));
+
+        var result = new Dictionary<string, CurrentFileState>(StringComparer.OrdinalIgnoreCase);
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var relativePath = reader.GetString(0);
+            result[relativePath] = new CurrentFileState(
+                relativePath,
+                reader.GetString(1),
+                reader.GetInt64(2),
+                ParseIso(reader.GetString(3)),
+                reader.IsDBNull(4) ? null : reader.GetString(4),
+                reader.IsDBNull(5) ? null : reader.GetInt32(5));
+        }
+
+        return result;
+    }
+
+    public IReadOnlyList<FileVersionRecord> GetTombstones(DateTimeOffset? asOf)
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = asOf is null
+            ? """
+              SELECT fv.id, fv.snapshot_id, fv.relative_path, fv.previous_relative_path, fv.content_hash, fv.size, fv.source_modified_at, fv.change_kind, fv.recorded_at, fv.quick_hash, fv.quick_hash_scheme
+              FROM file_versions fv
+              INNER JOIN (
+                  SELECT relative_path, MAX(id) AS max_id
+                  FROM file_versions
+                  GROUP BY relative_path
+              ) latest ON fv.relative_path = latest.relative_path AND fv.id = latest.max_id
+              WHERE fv.change_kind = $deleted
+              """
+            : """
+              SELECT fv.id, fv.snapshot_id, fv.relative_path, fv.previous_relative_path, fv.content_hash, fv.size, fv.source_modified_at, fv.change_kind, fv.recorded_at, fv.quick_hash, fv.quick_hash_scheme
+              FROM file_versions fv
+              INNER JOIN (
+                  SELECT relative_path, MAX(id) AS max_id
+                  FROM file_versions
+                  WHERE recorded_at <= $asOf
+                  GROUP BY relative_path
+              ) latest ON fv.relative_path = latest.relative_path AND fv.id = latest.max_id
+              WHERE fv.change_kind = $deleted
+              """;
+        command.Parameters.AddWithValue("$deleted", nameof(FileChangeKind.Deleted));
+        if (asOf is not null)
+        {
+            command.Parameters.AddWithValue("$asOf", ToIso(asOf.Value));
+        }
+
+        var results = new List<FileVersionRecord>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            results.Add(ReadFileVersionRecord(reader));
+        }
+
+        return results;
+    }
+
+    public IReadOnlyDictionary<string, string> GetMoveOrigins()
+    {
+        using var command = _connection.CreateCommand();
+        command.CommandText = """
+            SELECT fv.relative_path, fv.previous_relative_path
+            FROM file_versions fv
+            INNER JOIN (
+                SELECT relative_path, MAX(id) AS max_id
+                FROM file_versions
+                GROUP BY relative_path
+            ) latest ON fv.relative_path = latest.relative_path AND fv.id = latest.max_id
+            WHERE fv.change_kind = $moved AND fv.previous_relative_path IS NOT NULL
+            """;
+        command.Parameters.AddWithValue("$moved", nameof(FileChangeKind.Moved));
+
+        var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var currentPath = reader.GetString(0);
+            var previousPath = reader.GetString(1);
+            result[previousPath] = currentPath;
+        }
+
+        return result;
+    }
+
     public IReadOnlyList<Snapshot> ListSnapshots()
     {
         using var command = _connection.CreateCommand();

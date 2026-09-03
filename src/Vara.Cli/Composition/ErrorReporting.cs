@@ -68,7 +68,8 @@ public static class ErrorReporting
                 or NoHistoryForPathException
                 or NoMatchingVersionException
                 or RestoreDestinationInMirrorException
-                or DestinationExistsException:
+                or DestinationExistsException
+                or NoSuchDirectoryException:
                 message = ex.Message;
                 return true;
             default:
