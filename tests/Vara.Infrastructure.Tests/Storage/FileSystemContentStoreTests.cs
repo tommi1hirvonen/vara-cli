@@ -345,6 +345,29 @@ public class FileSystemContentStoreTests : IDisposable
     }
 
     [Fact]
+    public void PlaceAtMirrorPath_re_placing_the_same_content_with_no_previous_hash_stays_read_only()
+    {
+        // Regression coverage: this simulates a run recovering from an interruption that wrote
+        // the mirror entry but never recorded it in the manifest, so the planner treats the
+        // path as a fresh "Add" with no previousContentHash to restore protection from. The
+        // mirror path is already a hardlink to the same blob as the incoming content, so the
+        // staged file, the mirror path, and the blob are all one underlying file - clearing
+        // read-only on the destination before the move must not permanently strip it from the
+        // shared blob.
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        var (hash, _) = store.StoreFromStream(Content("stable content"));
+        store.PlaceAtMirrorPath(hash, "file.txt");
+        var mirrorPath = Path.Combine(_targetRoot, "file.txt");
+        Assert.True(File.GetAttributes(mirrorPath).HasFlag(FileAttributes.ReadOnly));
+
+        store.PlaceAtMirrorPath(hash, "file.txt");
+
+        Assert.True(File.GetAttributes(mirrorPath).HasFlag(FileAttributes.ReadOnly));
+        Assert.True(File.GetAttributes(BlobPath(hash)).HasFlag(FileAttributes.ReadOnly));
+    }
+
+    [Fact]
     public void ExtractTo_writes_the_blobs_content_to_a_fresh_destination()
     {
         var store = CreateStore();
@@ -514,6 +537,55 @@ public class FileSystemContentStoreTests : IDisposable
 
         Assert.Throws<FileNotFoundException>(() =>
             store.MoveMirrorEntry(@"Downloads\missing.pdf", @"Documents\missing.pdf"));
+    }
+
+    [Fact]
+    public void MoveMirrorEntry_onto_an_occupied_read_only_destination_succeeds_and_stays_read_only()
+    {
+        // Regression coverage: the archived design assumed MoveMirrorEntry always targets a
+        // not-yet-existing destination, but the method's own doc comment describes the
+        // interrupted-run case where the destination already exists - and once mirror entries
+        // became read-only, File.Move(overwrite: true) against that occupied, read-only
+        // destination started throwing UnauthorizedAccessException.
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        var (sourceHash, _) = store.StoreFromStream(Content("source content"));
+        var (destinationHash, _) = store.StoreFromStream(Content("destination content"));
+        store.PlaceAtMirrorPath(sourceHash, @"Downloads\report.pdf");
+        store.PlaceAtMirrorPath(destinationHash, @"Documents\report.pdf");
+        var destinationPath = Path.Combine(_targetRoot, "Documents", "report.pdf");
+        Assert.True(File.GetAttributes(destinationPath).HasFlag(FileAttributes.ReadOnly));
+
+        store.MoveMirrorEntry(@"Downloads\report.pdf", @"Documents\report.pdf");
+
+        Assert.False(File.Exists(Path.Combine(_targetRoot, "Downloads", "report.pdf")));
+        Assert.Equal("source content", File.ReadAllText(destinationPath));
+        Assert.True(File.GetAttributes(destinationPath).HasFlag(FileAttributes.ReadOnly));
+    }
+
+    [Fact]
+    public void MoveMirrorEntry_of_a_writable_copy_fallback_entry_onto_an_occupied_destination_stays_writable()
+    {
+        // A move must carry its entry's own attribute forward as-is, not upgrade a
+        // copy-fallback (writable) entry into a read-only one just because it happens to
+        // overwrite a previously read-only destination.
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        var (sourceHash, _) = store.StoreFromStream(Content("source content"));
+        var (destinationHash, _) = store.StoreFromStream(Content("destination content"));
+        store.ForceNextHardlinkFailureForTesting();
+        store.PlaceAtMirrorPath(sourceHash, @"Downloads\report.pdf");
+        store.PlaceAtMirrorPath(destinationHash, @"Documents\report.pdf");
+        var sourcePath = Path.Combine(_targetRoot, "Downloads", "report.pdf");
+        var destinationPath = Path.Combine(_targetRoot, "Documents", "report.pdf");
+        Assert.False(File.GetAttributes(sourcePath).HasFlag(FileAttributes.ReadOnly));
+        Assert.True(File.GetAttributes(destinationPath).HasFlag(FileAttributes.ReadOnly));
+
+        store.MoveMirrorEntry(@"Downloads\report.pdf", @"Documents\report.pdf");
+
+        Assert.False(File.Exists(sourcePath));
+        Assert.Equal("source content", File.ReadAllText(destinationPath));
+        Assert.False(File.GetAttributes(destinationPath).HasFlag(FileAttributes.ReadOnly));
     }
 
     [Fact]

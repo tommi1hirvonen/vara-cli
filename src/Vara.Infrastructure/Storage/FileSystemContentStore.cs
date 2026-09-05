@@ -199,6 +199,22 @@ public sealed class FileSystemContentStore : IContentStore
         // entry in one filesystem operation - never an in-place overwrite.
         File.Move(stagingPath, mirrorPath, overwrite: true);
 
+        // Re-assert read-only on the final path for every hardlink placement, rather than
+        // relying solely on the staged file's attribute (set above) surviving the clear
+        // above. When the mirror path being replaced was already a hardlink to this exact
+        // same blob, the staged file, mirrorPath, and the blob are all one underlying file -
+        // ClearReadOnlyIfPresent(mirrorPath) then un-marks the staged file too (NTFS shares
+        // FileAttributes.ReadOnly per underlying file, not per hardlink name), so without this
+        // re-assert the moved-in file - and the blob itself - would land permanently writable.
+        // This is reachable through an "Add" placement with no previousContentHash (e.g. a run
+        // recovering from an interruption that wrote the mirror entry but never recorded it in
+        // the manifest, so the path is re-planned as newly added). A no-op in the overwhelming
+        // common case where the attribute survived the clear untouched.
+        if (placedViaHardlink)
+        {
+            EnsureReadOnlyIfPresent(mirrorPath);
+        }
+
         // The clear above (if it ran) affects every hardlink to the previous content, not
         // just mirrorPath - including that content's own canonical blob file, and any other
         // mirror path still deduplicated against it (NTFS shares FileAttributes.ReadOnly per
@@ -292,7 +308,36 @@ public sealed class FileSystemContentStore : IContentStore
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(toPath)!);
+
+        // fromPath can itself be read-only (a mirror entry placed via hardlink), and so can an
+        // existing toPath (an interrupted prior run's leftover destination) - both would make
+        // File.Move(overwrite: true) throw UnauthorizedAccessException. Capture the source's
+        // own attribute before clearing the destination: clearing toPath's read-only can also
+        // clear fromPath's, when they happen to be hardlinks to the same blob (the likeliest
+        // occupied-destination case, since it arises from an interrupted run that already
+        // performed part of this same relocation) - NTFS shares FileAttributes.ReadOnly per
+        // underlying file, not per hardlink name (see design.md).
+        var sourceWasReadOnly = File.Exists(fromPath) && File.GetAttributes(fromPath).HasFlag(FileAttributes.ReadOnly);
+        ClearReadOnlyIfPresent(toPath);
         File.Move(fromPath, toPath, overwrite: true);
+
+        // Restore the relocated entry's own attribute rather than unconditionally re-asserting
+        // it, so a copy-fallback (writable) entry is not silently upgraded to read-only just
+        // because it happened to overwrite a previously read-only destination.
+        if (sourceWasReadOnly)
+        {
+            EnsureReadOnlyIfPresent(toPath);
+        }
+
+        // Residual, accepted limitation: this cannot re-protect the blob of the content this
+        // move *displaces* at an occupied destination - the clear above can leave that
+        // content's blob, and any mirror path still deduplicated against it, writable, because
+        // this method has no hash identifying the displaced content (the destination is by
+        // definition an "Add" path with no manifest row to supply one from). Bounded: it only
+        // arises from an occupied move destination, which itself only arises from an
+        // interrupted run, and any later run that places, changes, or removes a path
+        // referencing that blob re-asserts its protection through the existing
+        // EnsureReadOnlyIfPresent calls elsewhere in this class.
     }
 
     public void RemoveFromMirror(string mirrorRelativePath, string hash)
