@@ -81,7 +81,10 @@ public sealed class ProfileResolver(IProfileConfigLoader configLoader)
                     name = directory;
                 }
 
-                profile = new Profile(name, directory, [new Source(directory)], retention: null);
+                // validateSourceOverlap: false - the placeholder Source intentionally equals the
+                // target root here; it is never used for browsing/restoring, only present because
+                // Profile's constructor requires at least one source.
+                profile = new Profile(name, directory, [new Source(directory)], retention: null, validateSourceOverlap: false);
                 return true;
             }
 

@@ -58,6 +58,54 @@ public class ProfileTests
     {
         Assert.Throws<ArgumentNullException>(() => new Profile("files", @"D:\backup", null!, null));
     }
+
+    [Fact]
+    public void Constructing_with_a_target_equal_to_a_source_throws()
+    {
+        Assert.Throws<ArgumentException>(() => new Profile("files", @"C:\data", [ValidSource()], null));
+    }
+
+    [Fact]
+    public void Constructing_with_a_target_nested_inside_a_source_throws()
+    {
+        var source = new Source(@"C:\Users\me");
+
+        Assert.Throws<ArgumentException>(() => new Profile("files", @"C:\Users\me\backup", [source], null));
+    }
+
+    [Fact]
+    public void Constructing_with_a_source_nested_inside_the_target_throws()
+    {
+        var source = new Source(@"C:\Users\me\backup\Documents");
+
+        Assert.Throws<ArgumentException>(() => new Profile("files", @"C:\Users\me\backup", [source], null));
+    }
+
+    [Fact]
+    public void Constructing_with_case_and_trailing_separator_differences_still_detects_overlap()
+    {
+        var source = new Source(@"C:\Backup");
+
+        Assert.Throws<ArgumentException>(() => new Profile("files", @"c:\backup\", [source], null));
+    }
+
+    [Fact]
+    public void Constructing_with_non_overlapping_target_and_sources_succeeds()
+    {
+        var profile = new Profile("files", @"D:\backup", [new Source(@"C:\data")], null);
+
+        Assert.Equal(@"D:\backup", profile.TargetRoot);
+    }
+
+    [Fact]
+    public void Constructing_with_overlap_validation_disabled_allows_target_equal_to_source()
+    {
+        var source = new Source(@"C:\Users\me");
+
+        var profile = new Profile("files", @"C:\Users\me", [source], null, validateSourceOverlap: false);
+
+        Assert.Equal(@"C:\Users\me", profile.TargetRoot);
+    }
 }
 
 public class SourceTests

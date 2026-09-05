@@ -8,7 +8,20 @@ namespace Vara.Core.Configuration;
 /// </summary>
 public sealed record Profile
 {
-    public Profile(string name, string targetRoot, IReadOnlyList<Source> sources, RetentionPolicy? retention, ConcurrencySettings? concurrency = null)
+    /// <param name="validateSourceOverlap">
+    /// When <see langword="true"/> (the default), rejects a <paramref name="targetRoot"/> that is
+    /// equal to, an ancestor of, or a descendant of any of <paramref name="sources"/>' paths. Pass
+    /// <see langword="false"/> only for the synthetic placeholder profile built by
+    /// <c>ProfileResolver.TryResolveFromWorkingDirectory</c>, whose single placeholder
+    /// <see cref="Source"/> is intentionally the same directory as the target root.
+    /// </param>
+    public Profile(
+        string name,
+        string targetRoot,
+        IReadOnlyList<Source> sources,
+        RetentionPolicy? retention,
+        ConcurrencySettings? concurrency = null,
+        bool validateSourceOverlap = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetRoot);
@@ -16,6 +29,19 @@ public sealed record Profile
         if (sources.Count == 0)
         {
             throw new ArgumentException("A profile must define at least one source.", nameof(sources));
+        }
+
+        if (validateSourceOverlap)
+        {
+            foreach (var source in sources)
+            {
+                if (PathsOverlap(targetRoot, source.Path))
+                {
+                    throw new ArgumentException(
+                        $"Target root '{targetRoot}' overlaps source path '{source.Path}'. A profile's target must not be the same as, contain, or be contained by any of its own sources.",
+                        nameof(targetRoot));
+                }
+            }
         }
 
         Name = name;
@@ -30,6 +56,25 @@ public sealed record Profile
     public IReadOnlyList<Source> Sources { get; }
     public RetentionPolicy? Retention { get; }
     public ConcurrencySettings? Concurrency { get; }
+
+    /// <summary>
+    /// Returns <see langword="true"/> if <paramref name="targetRoot"/> and <paramref name="sourcePath"/>
+    /// are the same location, or one is an ancestor directory of the other. Comparison is
+    /// case-insensitive and ignores a trailing directory separator, mirroring the normalization
+    /// the file system scanner applies when matching exclude paths.
+    /// </summary>
+    private static bool PathsOverlap(string targetRoot, string sourcePath)
+    {
+        var normalizedTarget = NormalizePath(targetRoot);
+        var normalizedSource = NormalizePath(sourcePath);
+
+        return string.Equals(normalizedTarget, normalizedSource, StringComparison.OrdinalIgnoreCase)
+            || normalizedSource.StartsWith(normalizedTarget + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+            || normalizedTarget.StartsWith(normalizedSource + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizePath(string path) =>
+        path.Trim().TrimEnd('\\', '/').Replace('/', System.IO.Path.DirectorySeparatorChar);
 }
 
 /// <summary>

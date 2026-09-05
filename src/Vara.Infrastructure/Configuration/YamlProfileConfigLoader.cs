@@ -92,7 +92,14 @@ public sealed class YamlProfileConfigLoader : IProfileConfigLoader
         var retention = ParseRetention(mapping);
         var concurrency = ParseConcurrency(mapping);
 
-        return new Profile(name, target, sources, retention, concurrency);
+        try
+        {
+            return new Profile(name, target, sources, retention, concurrency);
+        }
+        catch (ArgumentException ex) when (ex.ParamName == "targetRoot")
+        {
+            throw new ProfileValidationException(name, ex.Message);
+        }
     }
 
     private static Source ParseSource(string profileName, YamlMappingNode mapping)

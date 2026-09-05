@@ -325,6 +325,55 @@ public class YamlProfileConfigLoaderTests
         Assert.Contains(value, ex.Reason);
     }
 
+    [Fact]
+    public void Profile_with_target_equal_to_a_source_throws_a_validation_error_naming_the_profile()
+    {
+        var path = WriteTempConfig(
+            """
+            profiles:
+              - name: broken
+                target: 'C:\data'
+                sources:
+                  - path: 'C:\data'
+            """);
+
+        var ex = Assert.Throws<ProfileValidationException>(() => _loader.LoadProfiles(path));
+        Assert.Equal("broken", ex.ProfileName);
+        Assert.Contains(@"C:\data", ex.Reason);
+    }
+
+    [Fact]
+    public void Profile_with_target_nested_inside_a_source_throws_a_validation_error_naming_the_profile()
+    {
+        var path = WriteTempConfig(
+            """
+            profiles:
+              - name: broken
+                target: 'C:\Users\me\backup'
+                sources:
+                  - path: 'C:\Users\me'
+            """);
+
+        var ex = Assert.Throws<ProfileValidationException>(() => _loader.LoadProfiles(path));
+        Assert.Equal("broken", ex.ProfileName);
+    }
+
+    [Fact]
+    public void Profile_with_a_source_nested_inside_the_target_throws_a_validation_error_naming_the_profile()
+    {
+        var path = WriteTempConfig(
+            """
+            profiles:
+              - name: broken
+                target: 'C:\Users\me\backup'
+                sources:
+                  - path: 'C:\Users\me\backup\Documents'
+            """);
+
+        var ex = Assert.Throws<ProfileValidationException>(() => _loader.LoadProfiles(path));
+        Assert.Equal("broken", ex.ProfileName);
+    }
+
     private static string WriteTempConfig(string yaml)
     {
         var path = Path.Combine(Path.GetTempPath(), $"vara-test-{Guid.NewGuid():N}.yml");
