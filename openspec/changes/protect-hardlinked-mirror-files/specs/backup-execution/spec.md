@@ -22,3 +22,7 @@ WHEN a mirror entry is placed via a hardlink to its content-store blob, the syst
 #### Scenario: Moving or removing a read-only hardlinked mirror entry still succeeds
 - **WHEN** a backup run relocates or removes a mirror entry that was previously marked read-only because it was placed via a hardlink
 - **THEN** the move or removal completes successfully, unaffected by the entry's read-only attribute
+
+#### Scenario: Deleting or changing one hardlinked mirror path does not weaken protection on a sibling sharing the same content
+- **WHEN** two different mirror paths were both placed via a hardlink to the same content (deduplicated), and a backup run then deletes or changes one of those mirror paths
+- **THEN** the other, still-live mirror path remains read-only afterward

@@ -128,7 +128,7 @@ public sealed class FileSystemContentStore : IContentStore
         return new FileStream(blobPath, FileMode.Open, FileAccess.Read, FileShare.Read);
     }
 
-    public void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null)
+    public void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null, string? previousContentHash = null)
     {
         var blobPath = BlobPath(hash);
         if (!File.Exists(blobPath))
@@ -140,6 +140,7 @@ public sealed class FileSystemContentStore : IContentStore
         Directory.CreateDirectory(Path.GetDirectoryName(mirrorPath)!);
 
         var stagingPath = Path.Combine(_tempRoot, Guid.NewGuid().ToString("N"));
+        bool placedViaHardlink;
         if (SupportsHardlinks)
         {
             // The hardlink attempt is retried-then-fallback per placement rather than
@@ -155,6 +156,7 @@ public sealed class FileSystemContentStore : IContentStore
                 }
 
                 Kernel32.CreateHardLink(stagingPath, blobPath);
+                placedViaHardlink = true;
             }
             catch (IOException)
             {
@@ -163,16 +165,94 @@ public sealed class FileSystemContentStore : IContentStore
                 // fails. Falling back to a real copy for just this placement keeps the run
                 // succeeding instead of permanently failing every mirror path beyond the cap.
                 CopyWithProgress(blobPath, stagingPath, onBytesCopied);
+                placedViaHardlink = false;
             }
         }
         else
         {
             CopyWithProgress(blobPath, stagingPath, onBytesCopied);
+            placedViaHardlink = false;
         }
+
+        // A hardlinked mirror entry IS the content-store blob (same physical file): an
+        // in-place edit through it would silently rewrite the blob, corrupting that
+        // content's historical version record and every other mirror path or version
+        // sharing the same hash. Marking it read-only turns a naive in-place overwrite
+        // into a failure instead of silent corruption. A copy-fallback entry is an
+        // independent physical copy with no such risk, so it stays writable - explicitly
+        // cleared here (not merely assumed) since a given mirror path's placement kind can
+        // change between runs (see the hard-link-limit fallback/recovery requirement).
+        var stagingAttributes = File.GetAttributes(stagingPath);
+        File.SetAttributes(stagingPath, placedViaHardlink
+            ? stagingAttributes | FileAttributes.ReadOnly
+            : stagingAttributes & ~FileAttributes.ReadOnly);
+
+        // File.Move(overwrite: true) throws UnauthorizedAccessException if the existing
+        // destination is read-only (verified empirically - it does not just replace a
+        // read-only file), so a "Changed" re-placement of an already-hardlinked mirror path
+        // would otherwise fail every time. Clearing it first lets the overwrite proceed;
+        // the moved-in staged file's own attribute (set above) becomes the destination's
+        // final attribute, not the cleared one.
+        ClearReadOnlyIfPresent(mirrorPath);
 
         // Atomic swap: rename the staged file into place, replacing any existing mirror
         // entry in one filesystem operation - never an in-place overwrite.
         File.Move(stagingPath, mirrorPath, overwrite: true);
+
+        // The clear above (if it ran) affects every hardlink to the previous content, not
+        // just mirrorPath - including that content's own canonical blob file, and any other
+        // mirror path still deduplicated against it (NTFS shares FileAttributes.ReadOnly per
+        // underlying file, not per hardlink name - verified empirically; see design.md).
+        // Restoring it via the blob's own name re-protects all of those survivors uniformly.
+        // Safe to attempt unconditionally: a no-op if the previous entry was a copy-fallback
+        // placement (whose attribute clear never touched the blob), or if the blob has since
+        // been pruned.
+        if (previousContentHash is not null)
+        {
+            EnsureReadOnlyIfPresent(BlobPath(previousContentHash));
+        }
+    }
+
+    /// <summary>
+    /// Clears <see cref="FileAttributes.ReadOnly"/> on <paramref name="path"/> if it is
+    /// currently set, so a subsequent <see cref="File.Move(string, string, bool)"/> overwrite
+    /// or <see cref="File.Delete(string)"/> against it does not throw
+    /// <see cref="UnauthorizedAccessException"/>. No-ops if the path doesn't exist or isn't
+    /// read-only.
+    /// </summary>
+    private static void ClearReadOnlyIfPresent(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return;
+        }
+
+        var attributes = File.GetAttributes(path);
+        if (attributes.HasFlag(FileAttributes.ReadOnly))
+        {
+            File.SetAttributes(path, attributes & ~FileAttributes.ReadOnly);
+        }
+    }
+
+    /// <summary>
+    /// Sets <see cref="FileAttributes.ReadOnly"/> on <paramref name="path"/> if it isn't
+    /// already set - the inverse of <see cref="ClearReadOnlyIfPresent"/>, used to restore
+    /// protection on a content-store blob after a clear-and-mutate elsewhere shared that
+    /// same underlying file's attribute (see design.md). No-ops if the path doesn't exist or
+    /// is already read-only.
+    /// </summary>
+    private static void EnsureReadOnlyIfPresent(string path)
+    {
+        if (!File.Exists(path))
+        {
+            return;
+        }
+
+        var attributes = File.GetAttributes(path);
+        if (!attributes.HasFlag(FileAttributes.ReadOnly))
+        {
+            File.SetAttributes(path, attributes | FileAttributes.ReadOnly);
+        }
     }
 
     /// <summary>
@@ -215,12 +295,26 @@ public sealed class FileSystemContentStore : IContentStore
         File.Move(fromPath, toPath, overwrite: true);
     }
 
-    public void RemoveFromMirror(string mirrorRelativePath)
+    public void RemoveFromMirror(string mirrorRelativePath, string hash)
     {
         var mirrorPath = Path.Combine(_mirrorRoot, mirrorRelativePath);
         if (File.Exists(mirrorPath))
         {
+            // File.Delete throws UnauthorizedAccessException against a read-only target
+            // (verified empirically) - a mirror entry placed via hardlink is marked
+            // read-only, so this clears it first rather than leaving every hardlinked
+            // file's deletion failing.
+            ClearReadOnlyIfPresent(mirrorPath);
             File.Delete(mirrorPath);
+
+            // The clear above affects every hardlink to this content, not just mirrorPath -
+            // including the content's own canonical blob file, and any other mirror path
+            // still deduplicated against it (NTFS shares FileAttributes.ReadOnly per
+            // underlying file, not per hardlink name - see design.md). Restoring it via the
+            // blob's own name re-protects all of those survivors uniformly. Safe to attempt
+            // unconditionally: a no-op if this entry was a copy-fallback placement, or if the
+            // blob has since been pruned.
+            EnsureReadOnlyIfPresent(BlobPath(hash));
         }
     }
 
@@ -229,6 +323,11 @@ public sealed class FileSystemContentStore : IContentStore
         var blobPath = BlobPath(hash);
         if (File.Exists(blobPath))
         {
+            // A blob can now be read-only (see PlaceAtMirrorPath/RemoveFromMirror), so
+            // File.Delete would otherwise throw UnauthorizedAccessException. No restore is
+            // needed afterward - PruneService only calls this for content it has already
+            // confirmed is unreferenced by any live mirror path.
+            ClearReadOnlyIfPresent(blobPath);
             File.Delete(blobPath);
         }
     }
@@ -330,6 +429,11 @@ public sealed class FileSystemContentStore : IContentStore
     {
         try
         {
+            // A staged file can be orphaned mid-way through PlaceAtMirrorPath (e.g. a crash
+            // after it's marked read-only but before the final move) - clear the attribute
+            // first so cleanup can actually remove it instead of silently leaving it behind
+            // forever.
+            ClearReadOnlyIfPresent(path);
             File.Delete(path);
         }
         catch (IOException)

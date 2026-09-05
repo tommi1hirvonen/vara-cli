@@ -85,7 +85,7 @@ public sealed class BackupExecutor(IContentStore contentStore, ISnapshotReposito
             }
             else
             {
-                contentStore.RemoveFromMirror(operation.RelativePath);
+                contentStore.RemoveFromMirror(operation.RelativePath, operation.KnownContentHash!);
                 repository.RecordFileVersion(
                     snapshotId, operation.RelativePath, null, operation.KnownContentHash!,
                     operation.Size, operation.SourceModifiedAt, FileChangeKind.Deleted, recordedAt,
@@ -137,7 +137,7 @@ public sealed class BackupExecutor(IContentStore contentStore, ISnapshotReposito
                 (hash, size) = contentStore.StoreFromStream(signature.ReplayFromStart(), onBytesTransferred);
             }
 
-            contentStore.PlaceAtMirrorPath(hash, operation.RelativePath, onBytesTransferred);
+            contentStore.PlaceAtMirrorPath(hash, operation.RelativePath, onBytesTransferred, operation.PreviousContentHash);
 
             lock (reportLock)
             {

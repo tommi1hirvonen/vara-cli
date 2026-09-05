@@ -7,6 +7,7 @@ using Vara.Infrastructure.Hashing;
 using Vara.Infrastructure.Snapshots;
 using Vara.Infrastructure.Storage;
 using Vara.IntegrationTests.Backup;
+using Vara.IntegrationTests.TestSupport;
 using Xunit;
 
 namespace Vara.IntegrationTests.Retention;
@@ -40,7 +41,7 @@ public class PruneServiceRealPortsTests : IDisposable
 
         if (Directory.Exists(_targetRoot))
         {
-            Directory.Delete(_targetRoot, recursive: true);
+            DirectoryCleanup.ClearReadOnlyAndDelete(_targetRoot);
         }
     }
 

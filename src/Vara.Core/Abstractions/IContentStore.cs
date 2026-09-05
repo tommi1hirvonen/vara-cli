@@ -40,9 +40,16 @@ public interface IContentStore
     /// single file can have on the target filesystem), falls back to a real copy for just this
     /// placement rather than failing the operation. When a real copy is performed and
     /// <paramref name="onBytesCopied"/> is given, it is invoked with each chunk's size as it is
-    /// copied, so a caller can report progress incrementally during a large fallback copy.
+    /// copied, so a caller can report progress incrementally during a large fallback copy. A
+    /// hardlinked placement is marked read-only, since it is the same physical file as its
+    /// content-store blob; a copy-fallback placement is left writable. <paramref name="previousContentHash"/>,
+    /// when given, identifies the content previously at <paramref name="mirrorRelativePath"/> (if
+    /// any) - used to restore the read-only attribute on that content's own blob file after the
+    /// overwrite, since overwriting a hardlinked mirror entry must clear that attribute first, and
+    /// on NTFS it is shared across every hardlink to the same data (the blob's own canonical name,
+    /// and any other mirror path still deduplicated against it), not just the one being replaced.
     /// </summary>
-    void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null);
+    void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null, string? previousContentHash = null);
 
     /// <summary>
     /// Relocates an existing mirror entry from one relative path to another (a rename),
@@ -53,9 +60,13 @@ public interface IContentStore
 
     /// <summary>
     /// Removes a mirror entry (used for deletions). The blob itself, if any, remains in
-    /// the store until garbage-collected.
+    /// the store until garbage-collected. <paramref name="hash"/> identifies that content -
+    /// used to restore the read-only attribute on its blob file after removal, since removing
+    /// a hardlinked mirror entry must clear that attribute first, and on NTFS it is shared
+    /// across every hardlink to the same data (the blob's own canonical name, and any other
+    /// mirror path still deduplicated against it), not just the entry being removed.
     /// </summary>
-    void RemoveFromMirror(string mirrorRelativePath);
+    void RemoveFromMirror(string mirrorRelativePath, string hash);
 
     /// <summary>
     /// Permanently deletes the blob for <paramref name="hash"/> from the store (used by pruning's GC step).

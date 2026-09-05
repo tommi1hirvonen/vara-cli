@@ -208,6 +208,40 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
+    public void Executing_a_delete_passes_the_operations_known_hash_to_RemoveFromMirror()
+    {
+        // The content store needs the deleted file's hash to restore read-only protection
+        // on its blob after removing the mirror entry (protect-hardlinked-mirror-files
+        // change's design.md).
+        _contentStore.PlaceAtMirrorPath("hash-1", "gone.txt");
+        var plan = new BackupPlan([new PlannedOperation(PlannedOperationKind.Delete, "gone.txt", null, null, 10, DateTimeOffset.UtcNow, "hash-1")], 0);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+
+        Assert.Equal("hash-1", _contentStore.RemoveFromMirrorHashesSeen["gone.txt"]);
+    }
+
+    [Fact]
+    public void Executing_a_change_passes_the_operations_previous_content_hash_to_PlaceAtMirrorPath()
+    {
+        // The content store needs the previous content's hash to restore read-only
+        // protection on that content's blob after overwriting the mirror entry
+        // (protect-hardlinked-mirror-files change's design.md).
+        var path = WriteFile("changed.txt", "new content");
+        var plan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Change, "changed.txt", null, path, 11, DateTimeOffset.UtcNow, null, PreviousContentHash: "old-hash")],
+            11);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+
+        Assert.Equal("old-hash", _contentStore.PreviousContentHashesSeen["changed.txt"]);
+    }
+
+    [Fact]
     public void The_transfer_phase_starting_callback_fires_once_after_moves_deletes_and_before_any_transfer()
     {
         // A move and a delete both precede the add in the plan's operation list, but

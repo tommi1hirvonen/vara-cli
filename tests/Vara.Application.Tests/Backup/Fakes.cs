@@ -83,6 +83,12 @@ internal sealed class FakeContentStore : IContentStore
     /// <summary>Test seam: destination paths for which <see cref="IsWithinMirror"/> should report containment.</summary>
     public HashSet<string> MirrorPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Test seam: records the <c>previousContentHash</c> argument passed to each <see cref="PlaceAtMirrorPath"/> call, keyed by mirror path - lets a test assert BackupExecutor threads the previous content's hash through correctly for a Changed operation.</summary>
+    public System.Collections.Concurrent.ConcurrentDictionary<string, string?> PreviousContentHashesSeen { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Test seam: records the <c>hash</c> argument passed to each <see cref="RemoveFromMirror"/> call, keyed by mirror path - lets a test assert BackupExecutor threads the deleted file's known hash through correctly.</summary>
+    public System.Collections.Concurrent.ConcurrentDictionary<string, string> RemoveFromMirrorHashesSeen { get; } = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Test seam: marks <paramref name="absolutePath"/> as already existing, so <see cref="TargetExists"/> reports it.</summary>
     public void SeedExistingTarget(string absolutePath) => _existingTargets.Add(absolutePath);
 
@@ -124,9 +130,10 @@ internal sealed class FakeContentStore : IContentStore
         return new MemoryStream(bytes, writable: false);
     }
 
-    public void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null)
+    public void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null, string? previousContentHash = null)
     {
         Mirror[mirrorRelativePath] = hash;
+        PreviousContentHashesSeen[mirrorRelativePath] = previousContentHash;
         if (!SupportsHardlinks && _blobs.TryGetValue(hash, out var bytes))
         {
             // Every placement falls back to a streamed copy on a target without
@@ -175,13 +182,14 @@ internal sealed class FakeContentStore : IContentStore
         throw new FileNotFoundException($"No mirror entry at '{fromRelativePath}' or '{toRelativePath}'.");
     }
 
-    public void RemoveFromMirror(string mirrorRelativePath)
+    public void RemoveFromMirror(string mirrorRelativePath, string hash)
     {
         if (ThrowOnRemove is not null)
         {
             throw ThrowOnRemove;
         }
 
+        RemoveFromMirrorHashesSeen[mirrorRelativePath] = hash;
         Mirror.TryRemove(mirrorRelativePath, out _);
     }
 

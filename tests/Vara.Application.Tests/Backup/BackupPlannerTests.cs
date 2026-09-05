@@ -289,6 +289,45 @@ public class BackupPlannerTests : IDisposable
         Assert.True(hasher.MaxObservedConcurrency > 1, $"expected more than one concurrent hash call by default, observed {hasher.MaxObservedConcurrency}");
     }
 
+    [Fact]
+    public void A_changed_entrys_previous_content_hash_is_carried_from_current_state()
+    {
+        // PlaceAtMirrorPath needs the previous content's hash to restore read-only
+        // protection on that content's blob after overwriting the mirror entry
+        // (protect-hardlinked-mirror-files change's design.md) - already available in
+        // currentState at plan time, distinct from KnownContentHash (the new content's
+        // hash, unresolved until execution for Add/Change).
+        var path = WriteFile("existing.txt", "new content");
+        var size = new FileInfo(path).Length;
+        var previousHash = HashOf("old content");
+
+        var scannedEntry = new ScannedEntry("existing.txt", path, size, DateTimeOffset.UtcNow, false, null);
+        var diff = new DiffResult([new PendingChange(scannedEntry, PendingChangeKind.Changed)], []);
+        var currentState = new Dictionary<string, CurrentFileState>
+        {
+            ["existing.txt"] = new("existing.txt", previousHash, size, DateTimeOffset.UtcNow.AddDays(-1)),
+        };
+
+        var plan = _planner.Plan(diff, currentState);
+
+        var operation = Assert.Single(plan.Operations);
+        Assert.Equal(PlannedOperationKind.Change, operation.Kind);
+        Assert.Equal(previousHash, operation.PreviousContentHash);
+    }
+
+    [Fact]
+    public void An_added_entry_has_no_previous_content_hash()
+    {
+        var path = WriteFile("new.txt", "hello world");
+        var entry = new ScannedEntry("new.txt", path, 11, DateTimeOffset.UtcNow, false, null);
+        var diff = new DiffResult([new PendingChange(entry, PendingChangeKind.Added)], []);
+
+        var plan = _planner.Plan(diff, new Dictionary<string, CurrentFileState>());
+
+        var operation = Assert.Single(plan.Operations);
+        Assert.Null(operation.PreviousContentHash);
+    }
+
     /// <summary>Wraps <see cref="FakeHasher"/>, recording the byte-length hashed on every call - used to prove exactly how much of a stream was actually read.</summary>
     private sealed class CountingHasher : IHasher
     {

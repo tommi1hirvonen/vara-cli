@@ -31,6 +31,11 @@ public enum PlannedOperationKind
 /// <see cref="QuickHash"/>/<see cref="QuickHashScheme"/>) is already known (no content read is
 /// needed); for <see cref="PlannedOperationKind.Add"/>/<see cref="PlannedOperationKind.Change"/> these
 /// are resolved during execution as content is streamed into the content store.
+/// <see cref="PreviousContentHash"/> is distinct: for <see cref="PlannedOperationKind.Change"/> it is
+/// the *previous* content's hash (already known from the current manifest state at plan time, unlike
+/// <see cref="KnownContentHash"/>'s *new*-content meaning above) - used to restore the content
+/// store's read-only protection on the superseded blob after the mirror entry is overwritten
+/// (protect-hardlinked-mirror-files change's design.md). <c>null</c> for every other operation kind.
 /// </summary>
 public sealed record PlannedOperation(
     PlannedOperationKind Kind,
@@ -41,7 +46,8 @@ public sealed record PlannedOperation(
     DateTimeOffset SourceModifiedAt,
     string? KnownContentHash,
     string? QuickHash = null,
-    int? QuickHashScheme = null);
+    int? QuickHashScheme = null,
+    string? PreviousContentHash = null);
 
 /// <summary>
 /// The full backup plan: every operation to carry out, and the total bytes that will

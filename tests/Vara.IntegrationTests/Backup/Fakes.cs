@@ -58,7 +58,7 @@ internal sealed class FakeContentStore : IContentStore
         return new MemoryStream(bytes, writable: false);
     }
 
-    public void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null)
+    public void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null, string? previousContentHash = null)
     {
         Mirror[mirrorRelativePath] = hash;
     }
@@ -82,7 +82,7 @@ internal sealed class FakeContentStore : IContentStore
         throw new FileNotFoundException($"No mirror entry at '{fromRelativePath}' or '{toRelativePath}'.");
     }
 
-    public void RemoveFromMirror(string mirrorRelativePath) => Mirror.TryRemove(mirrorRelativePath, out _);
+    public void RemoveFromMirror(string mirrorRelativePath, string hash) => Mirror.TryRemove(mirrorRelativePath, out _);
 
     public void DeleteContent(string hash) => _blobs.TryRemove(hash, out _);
     public void CleanupOrphanedTemp() { }

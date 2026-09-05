@@ -128,9 +128,9 @@ public class PortAbstractionsTests
         public (string Hash, long Size) StoreFromStream(Stream content, Action<long>? onBytesWritten = null) => ("fake-hash", content.Length);
         public bool HasContent(string hash) => false;
         public Stream OpenRead(string hash) => throw new FileNotFoundException($"No stored content for hash '{hash}'.");
-        public void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null) { }
+        public void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null, string? previousContentHash = null) { }
         public void MoveMirrorEntry(string fromRelativePath, string toRelativePath) { }
-        public void RemoveFromMirror(string mirrorRelativePath) { }
+        public void RemoveFromMirror(string mirrorRelativePath, string hash) { }
         public void DeleteContent(string hash) { }
         public void CleanupOrphanedTemp() { }
         public IReadOnlySet<string> ListAllStoredHashes() => new HashSet<string>();

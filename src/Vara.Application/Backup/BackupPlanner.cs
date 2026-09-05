@@ -71,8 +71,18 @@ public sealed class BackupPlanner(IHasher hasher, int maxDegreeOfParallelism = 0
             }
 
             var kind = change.Kind == PendingChangeKind.Added ? PlannedOperationKind.Add : PlannedOperationKind.Change;
+            // For a Changed entry, the manifest's current-state view already holds the
+            // previous content's hash (it's exactly how BackupDiffer classified this entry
+            // as Changed rather than Added) - carried forward so PlaceAtMirrorPath can
+            // restore read-only protection on that superseded blob after the overwrite
+            // (protect-hardlinked-mirror-files change's design.md). Add has no previous
+            // content at all, so this stays null for it.
+            var previousContentHash = kind == PlannedOperationKind.Change && currentState.TryGetValue(change.Entry.RelativePath, out var previousState)
+                ? previousState.ContentHash
+                : null;
             operations.Add(new PlannedOperation(
-                kind, change.Entry.RelativePath, null, change.Entry.AbsolutePath, change.Entry.Size, change.Entry.ModifiedAt, null));
+                kind, change.Entry.RelativePath, null, change.Entry.AbsolutePath, change.Entry.Size, change.Entry.ModifiedAt, null,
+                PreviousContentHash: previousContentHash));
             totalBytes += change.Entry.Size;
         }
 

@@ -16,11 +16,31 @@ public class FileSystemContentStoreTests : IDisposable
     {
         if (Directory.Exists(_targetRoot))
         {
+            // Hardlinked mirror entries are now marked read-only (protect-hardlinked-mirror-files),
+            // and Directory.Delete(recursive: true) throws UnauthorizedAccessException against a
+            // read-only file - clear the attribute on every file first so test cleanup can proceed.
+            foreach (var file in Directory.EnumerateFiles(_targetRoot, "*", SearchOption.AllDirectories))
+            {
+                var attributes = File.GetAttributes(file);
+                if (attributes.HasFlag(FileAttributes.ReadOnly))
+                {
+                    File.SetAttributes(file, attributes & ~FileAttributes.ReadOnly);
+                }
+            }
+
             Directory.Delete(_targetRoot, recursive: true);
         }
     }
 
     private static Stream Content(string text) => new MemoryStream(Encoding.UTF8.GetBytes(text));
+
+    /// <summary>
+    /// Mirrors FileSystemContentStore's own private BlobPath(hash) convention, for tests
+    /// that need to assert on the canonical blob file's attributes directly (there's already
+    /// precedent for reaching into the internal `.vara\` layout in this test class - see
+    /// CleanupOrphanedTemp_removes_leftover_staging_files's use of `.vara\tmp`).
+    /// </summary>
+    private string BlobPath(string hash) => Path.Combine(_targetRoot, ".vara", "versions", hash[..2], hash);
 
     private static Stream LargeContent(int length)
     {
@@ -220,6 +240,111 @@ public class FileSystemContentStoreTests : IDisposable
     }
 
     [Fact]
+    public void PlaceAtMirrorPath_with_hardlink_support_marks_the_mirror_file_read_only()
+    {
+        // A hardlinked mirror file IS the content-store blob (same physical file): read-only
+        // turns a naive in-place overwrite into a failure instead of silently corrupting the
+        // blob, its version history, and every other mirror path sharing the same content.
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        var (hash, _) = store.StoreFromStream(Content("mirrored content"));
+
+        store.PlaceAtMirrorPath(hash, @"Documents\report.txt");
+
+        var mirrorPath = Path.Combine(_targetRoot, "Documents", "report.txt");
+        Assert.True(File.GetAttributes(mirrorPath).HasFlag(FileAttributes.ReadOnly));
+        Assert.Throws<UnauthorizedAccessException>(() => File.WriteAllText(mirrorPath, "tampered"));
+    }
+
+    [Fact]
+    public void PlaceAtMirrorPath_without_hardlink_support_leaves_the_mirror_file_writable()
+    {
+        var store = CreateStore();
+        store.ForceHardlinkSupportForTesting(false);
+        var (hash, _) = store.StoreFromStream(Content("copied content"));
+
+        store.PlaceAtMirrorPath(hash, @"Documents\report.txt");
+
+        var mirrorPath = Path.Combine(_targetRoot, "Documents", "report.txt");
+        Assert.False(File.GetAttributes(mirrorPath).HasFlag(FileAttributes.ReadOnly));
+        File.WriteAllText(mirrorPath, "edited in place");
+        Assert.Equal("edited in place", File.ReadAllText(mirrorPath));
+    }
+
+    [Fact]
+    public void PlaceAtMirrorPath_falling_back_to_a_copy_leaves_the_mirror_file_writable()
+    {
+        // Same as the no-hardlink-support case, but reached via the per-blob hardlink-limit
+        // fallback instead - a copy-fallback entry is an independent physical copy, whichever
+        // reason triggered the fallback.
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        var (hash, _) = store.StoreFromStream(Content("over-linked content"));
+        store.ForceNextHardlinkFailureForTesting();
+
+        store.PlaceAtMirrorPath(hash, @"Documents\report.txt");
+
+        var mirrorPath = Path.Combine(_targetRoot, "Documents", "report.txt");
+        Assert.False(File.GetAttributes(mirrorPath).HasFlag(FileAttributes.ReadOnly));
+    }
+
+    [Fact]
+    public void PlaceAtMirrorPath_transitioning_from_hardlink_to_copy_fallback_clears_the_read_only_attribute()
+    {
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        var (hash, _) = store.StoreFromStream(Content("transitioning content"));
+        store.PlaceAtMirrorPath(hash, "file.txt");
+        var mirrorPath = Path.Combine(_targetRoot, "file.txt");
+        Assert.True(File.GetAttributes(mirrorPath).HasFlag(FileAttributes.ReadOnly));
+
+        // Simulates the blob's hard-link limit being reached on a later run.
+        store.ForceNextHardlinkFailureForTesting();
+        store.PlaceAtMirrorPath(hash, "file.txt");
+
+        Assert.False(File.GetAttributes(mirrorPath).HasFlag(FileAttributes.ReadOnly));
+        Assert.Equal("transitioning content", File.ReadAllText(mirrorPath));
+    }
+
+    [Fact]
+    public void PlaceAtMirrorPath_transitioning_from_copy_fallback_to_hardlink_sets_the_read_only_attribute()
+    {
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        var (hash, _) = store.StoreFromStream(Content("recovering content"));
+        store.ForceNextHardlinkFailureForTesting();
+        store.PlaceAtMirrorPath(hash, "file.txt");
+        var mirrorPath = Path.Combine(_targetRoot, "file.txt");
+        Assert.False(File.GetAttributes(mirrorPath).HasFlag(FileAttributes.ReadOnly));
+
+        // The forced failure was single-shot, so this placement succeeds via a real hardlink.
+        store.PlaceAtMirrorPath(hash, "file.txt");
+
+        Assert.True(File.GetAttributes(mirrorPath).HasFlag(FileAttributes.ReadOnly));
+        Assert.Equal("recovering content", File.ReadAllText(mirrorPath));
+    }
+
+    [Fact]
+    public void PlaceAtMirrorPath_overwriting_an_already_hardlinked_entry_succeeds_and_remains_read_only()
+    {
+        // Regression coverage: File.Move(overwrite: true) throws UnauthorizedAccessException
+        // against a read-only destination unless it is explicitly cleared first - this is the
+        // ordinary "Changed" file backup scenario for a file that was already hardlinked once.
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        var (oldHash, _) = store.StoreFromStream(Content("old content"));
+        store.PlaceAtMirrorPath(oldHash, "file.txt");
+        var mirrorPath = Path.Combine(_targetRoot, "file.txt");
+        Assert.True(File.GetAttributes(mirrorPath).HasFlag(FileAttributes.ReadOnly));
+
+        var (newHash, _) = store.StoreFromStream(Content("new content"));
+        store.PlaceAtMirrorPath(newHash, "file.txt", previousContentHash: oldHash);
+
+        Assert.Equal("new content", File.ReadAllText(mirrorPath));
+        Assert.True(File.GetAttributes(mirrorPath).HasFlag(FileAttributes.ReadOnly));
+    }
+
+    [Fact]
     public void ExtractTo_writes_the_blobs_content_to_a_fresh_destination()
     {
         var store = CreateStore();
@@ -346,6 +471,23 @@ public class FileSystemContentStoreTests : IDisposable
     }
 
     [Fact]
+    public void MoveMirrorEntry_succeeds_on_a_read_only_hardlinked_entry_and_stays_read_only()
+    {
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        var (hash, _) = store.StoreFromStream(Content("movable content"));
+        store.PlaceAtMirrorPath(hash, @"Downloads\report.pdf");
+        var oldPath = Path.Combine(_targetRoot, "Downloads", "report.pdf");
+        Assert.True(File.GetAttributes(oldPath).HasFlag(FileAttributes.ReadOnly));
+
+        store.MoveMirrorEntry(@"Downloads\report.pdf", @"Documents\report.pdf");
+
+        var newPath = Path.Combine(_targetRoot, "Documents", "report.pdf");
+        Assert.True(File.Exists(newPath));
+        Assert.True(File.GetAttributes(newPath).HasFlag(FileAttributes.ReadOnly));
+    }
+
+    [Fact]
     public void MoveMirrorEntry_retried_after_the_destination_already_exists_is_a_no_op()
     {
         // Simulates a run interrupted between the mirror rename and its manifest commit:
@@ -382,10 +524,83 @@ public class FileSystemContentStoreTests : IDisposable
         var (hash, _) = store.StoreFromStream(Content("removable content"));
         store.PlaceAtMirrorPath(hash, "file.txt");
 
-        store.RemoveFromMirror("file.txt");
+        store.RemoveFromMirror("file.txt", hash);
 
         Assert.False(File.Exists(Path.Combine(_targetRoot, "file.txt")));
         Assert.True(store.HasContent(hash));
+    }
+
+    [Fact]
+    public void RemoveFromMirror_succeeds_on_a_read_only_hardlinked_entry()
+    {
+        // Regression coverage: File.Delete throws UnauthorizedAccessException against a
+        // read-only target unless it is explicitly cleared first.
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        var (hash, _) = store.StoreFromStream(Content("removable content"));
+        store.PlaceAtMirrorPath(hash, "file.txt");
+        var mirrorPath = Path.Combine(_targetRoot, "file.txt");
+        Assert.True(File.GetAttributes(mirrorPath).HasFlag(FileAttributes.ReadOnly));
+
+        store.RemoveFromMirror("file.txt", hash);
+
+        Assert.False(File.Exists(mirrorPath));
+        Assert.True(store.HasContent(hash));
+    }
+
+    [Fact]
+    public void RemoveFromMirror_restores_read_only_on_the_blob_after_clearing_it_to_delete()
+    {
+        // The clear-before-delete step needed to remove a read-only hardlinked mirror entry
+        // shares its attribute with the canonical blob file (NTFS ties FileAttributes.ReadOnly
+        // to the underlying file, not the specific hardlink name) - this asserts the blob's own
+        // attribute is restored afterward rather than left permanently writable.
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        var (hash, _) = store.StoreFromStream(Content("removable content"));
+        store.PlaceAtMirrorPath(hash, "file.txt");
+
+        store.RemoveFromMirror("file.txt", hash);
+
+        Assert.True(File.GetAttributes(BlobPath(hash)).HasFlag(FileAttributes.ReadOnly));
+    }
+
+    [Fact]
+    public void RemoveFromMirror_does_not_weaken_protection_on_a_deduplicated_sibling_mirror_path()
+    {
+        // Two mirror paths hardlinked to the same content share one underlying file on NTFS -
+        // deleting one must not leave the other permanently writable.
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        var (hash, _) = store.StoreFromStream(Content("shared content"));
+        store.PlaceAtMirrorPath(hash, "first.txt");
+        store.PlaceAtMirrorPath(hash, "second.txt");
+        var secondPath = Path.Combine(_targetRoot, "second.txt");
+        Assert.True(File.GetAttributes(secondPath).HasFlag(FileAttributes.ReadOnly));
+
+        store.RemoveFromMirror("first.txt", hash);
+
+        Assert.True(File.GetAttributes(secondPath).HasFlag(FileAttributes.ReadOnly));
+    }
+
+    [Fact]
+    public void PlaceAtMirrorPath_does_not_weaken_protection_on_a_deduplicated_sibling_mirror_path_after_an_overwrite()
+    {
+        // Same shared-attribute hazard as the RemoveFromMirror case, but for the "Changed
+        // file" overwrite path: changing one deduplicated mirror path's content must not
+        // leave a sibling mirror path (still referencing the old content) permanently writable.
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        var (oldHash, _) = store.StoreFromStream(Content("shared content"));
+        store.PlaceAtMirrorPath(oldHash, "first.txt");
+        store.PlaceAtMirrorPath(oldHash, "second.txt");
+        var secondPath = Path.Combine(_targetRoot, "second.txt");
+        Assert.True(File.GetAttributes(secondPath).HasFlag(FileAttributes.ReadOnly));
+
+        var (newHash, _) = store.StoreFromStream(Content("new content"));
+        store.PlaceAtMirrorPath(newHash, "first.txt", previousContentHash: oldHash);
+
+        Assert.True(File.GetAttributes(secondPath).HasFlag(FileAttributes.ReadOnly));
     }
 
     [Fact]
@@ -394,6 +609,24 @@ public class FileSystemContentStoreTests : IDisposable
         var store = CreateStore();
         store.ProbeHardlinkSupport();
         var (hash, _) = store.StoreFromStream(Content("garbage collected content"));
+
+        store.DeleteContent(hash);
+
+        Assert.False(store.HasContent(hash));
+    }
+
+    [Fact]
+    public void DeleteContent_succeeds_on_a_blob_that_has_become_read_only()
+    {
+        // Hardlinking a blob into the mirror (and the RemoveFromMirror/PlaceAtMirrorPath
+        // restore steps) can leave the blob itself read-only - permanent GC deletion must
+        // still succeed rather than throwing UnauthorizedAccessException.
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        var (hash, _) = store.StoreFromStream(Content("garbage collected content"));
+        store.PlaceAtMirrorPath(hash, "file.txt");
+        store.RemoveFromMirror("file.txt", hash);
+        Assert.True(File.GetAttributes(BlobPath(hash)).HasFlag(FileAttributes.ReadOnly));
 
         store.DeleteContent(hash);
 
