@@ -69,6 +69,7 @@ public static class ErrorReporting
                 or NoMatchingVersionException
                 or RestoreDestinationInMirrorException
                 or DestinationExistsException
+                or RestoreDirectoryConfirmationRequiredException
                 or NoSuchDirectoryException:
                 message = ex.Message;
                 return true;

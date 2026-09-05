@@ -67,3 +67,21 @@ public sealed class DestinationExistsException(string destinationPath)
 {
     public string DestinationPath { get; } = destinationPath;
 }
+
+/// <summary>
+/// A recursive directory restore (<c>restore --recursive</c>) was planned for a profile
+/// while running with a non-interactive input stream and without <c>--force</c> - so the
+/// operation's single required confirmation, covering every planned write and removal,
+/// cannot be shown interactively and was not explicitly authorized. See the
+/// snapshot-history spec's "Single confirmation for a directory restore" requirement.
+/// </summary>
+public sealed class RestoreDirectoryConfirmationRequiredException(string directoryPath, int writeCount, int removeCount)
+    : Exception(
+        $"Restoring directory '{directoryPath}' will write {writeCount} file(s)" +
+        (removeCount > 0 ? $" and remove {removeCount} file(s)" : string.Empty) +
+        ". Pass --force to confirm, or re-run interactively to be prompted.")
+{
+    public string DirectoryPath { get; } = directoryPath;
+    public int WriteCount { get; } = writeCount;
+    public int RemoveCount { get; } = removeCount;
+}

@@ -78,6 +78,15 @@ public interface IContentStore
     void ExtractTo(string hash, string destinationAbsolutePath, Action<long>? onBytesCopied = null);
 
     /// <summary>
+    /// Deletes a file previously written by <see cref="ExtractTo"/> at an arbitrary destination
+    /// path (not necessarily within the mirror) - used by the snapshot-history capability's
+    /// recursive directory restore to remove destination content that is tracked as currently
+    /// live but was not live as of the requested point in time. A no-op when no file exists at
+    /// <paramref name="absolutePath"/>.
+    /// </summary>
+    void RemoveExtractedFile(string absolutePath);
+
+    /// <summary>
     /// Opens a readable stream over the blob for <paramref name="hash"/>, for callers that
     /// need to read a version's content directly (e.g. streaming it to standard output, or
     /// diffing two versions) rather than copying it to a destination file via

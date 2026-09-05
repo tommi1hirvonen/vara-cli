@@ -273,6 +273,14 @@ public sealed class FileSystemContentStore : IContentStore
         CopyWithProgress(blobPath, destinationAbsolutePath, onBytesCopied);
     }
 
+    public void RemoveExtractedFile(string absolutePath)
+    {
+        if (File.Exists(absolutePath))
+        {
+            File.Delete(absolutePath);
+        }
+    }
+
     public bool IsWithinMirror(string absolutePath)
     {
         var resolvedMirrorRoot = Path.GetFullPath(_mirrorRoot);

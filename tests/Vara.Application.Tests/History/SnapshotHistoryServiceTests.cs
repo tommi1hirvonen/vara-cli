@@ -557,4 +557,169 @@ public class SnapshotHistoryServiceTests
 
         Assert.Empty(service.ListDeleted(directoryPath: null, since: null));
     }
+
+    [Fact]
+    public void PlanDirectoryRestore_includes_files_live_at_the_requested_date_and_excludes_files_added_later()
+    {
+        var repository = new FakeSnapshotRepository();
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, @"src\a.txt", null, "hash-1", 10, t0, FileChangeKind.Added, t0);
+        var t1 = t0.AddDays(1);
+        var s2 = repository.BeginSnapshot(t1);
+        repository.RecordFileVersion(s2, @"src\b.txt", null, "hash-2", 5, t1, FileChangeKind.Added, t1);
+        var service = new SnapshotHistoryService(repository, new FakeContentStore());
+
+        var plan = service.PlanDirectoryRestore("src", asOf: t0.AddHours(12), outRoot: @"C:\out", inPlace: false);
+
+        var entry = Assert.Single(plan.ToWrite);
+        Assert.Equal(@"src\a.txt", entry.RelativePath);
+        Assert.Equal(@"C:\out\a.txt", entry.DestinationPath);
+        Assert.Equal(10, plan.TotalBytes);
+    }
+
+    [Fact]
+    public void PlanDirectoryRestore_includes_a_file_deleted_after_the_requested_date()
+    {
+        var repository = new FakeSnapshotRepository();
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, @"src\a.txt", null, "hash-1", 10, t0, FileChangeKind.Added, t0);
+        var t1 = t0.AddDays(1);
+        var s2 = repository.BeginSnapshot(t1);
+        repository.RecordFileVersion(s2, @"src\a.txt", null, "hash-1", 10, t1, FileChangeKind.Deleted, t1);
+        var service = new SnapshotHistoryService(repository, new FakeContentStore());
+
+        var plan = service.PlanDirectoryRestore("src", asOf: t0.AddHours(12), outRoot: @"C:\out", inPlace: false);
+
+        Assert.Single(plan.ToWrite, e => e.RelativePath == @"src\a.txt");
+    }
+
+    [Fact]
+    public void PlanDirectoryRestore_computes_removals_for_paths_live_now_but_not_at_the_requested_date()
+    {
+        var contentStore = new FakeContentStore();
+        var repository = new FakeSnapshotRepository();
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, @"src\a.txt", null, "hash-1", 10, t0, FileChangeKind.Added, t0);
+        var t1 = t0.AddDays(1);
+        var s2 = repository.BeginSnapshot(t1);
+        repository.RecordFileVersion(s2, @"src\b.txt", null, "hash-2", 5, t1, FileChangeKind.Added, t1);
+        contentStore.SeedExistingTarget(@"C:\out\b.txt");
+        var service = new SnapshotHistoryService(repository, contentStore);
+
+        var plan = service.PlanDirectoryRestore("src", asOf: t0.AddHours(12), outRoot: @"C:\out", inPlace: false);
+
+        Assert.Single(plan.ToWrite, e => e.RelativePath == @"src\a.txt");
+        Assert.Single(plan.ToRemove, d => d == @"C:\out\b.txt");
+    }
+
+    [Fact]
+    public void PlanDirectoryRestore_does_not_remove_a_path_not_currently_present_at_its_destination()
+    {
+        var repository = new FakeSnapshotRepository();
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, @"src\a.txt", null, "hash-1", 10, t0, FileChangeKind.Added, t0);
+        var t1 = t0.AddDays(1);
+        var s2 = repository.BeginSnapshot(t1);
+        repository.RecordFileVersion(s2, @"src\b.txt", null, "hash-2", 5, t1, FileChangeKind.Added, t1);
+        // Note: no SeedExistingTarget for b.txt's destination - nothing physically there to remove.
+        var service = new SnapshotHistoryService(repository, new FakeContentStore());
+
+        var plan = service.PlanDirectoryRestore("src", asOf: t0.AddHours(12), outRoot: @"C:\out", inPlace: false);
+
+        Assert.Empty(plan.ToRemove);
+    }
+
+    [Fact]
+    public void PlanDirectoryRestore_in_place_maps_each_entry_to_its_own_original_source_location()
+    {
+        var repository = new FakeSnapshotRepository();
+        var t0 = DateTimeOffset.UtcNow;
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, @"C\Users\john\Documents\a.txt", null, "hash-1", 10, t0, FileChangeKind.Added, t0);
+        var service = new SnapshotHistoryService(repository, new FakeContentStore());
+
+        var plan = service.PlanDirectoryRestore(@"C\Users\john\Documents", asOf: null, outRoot: null, inPlace: true);
+
+        var entry = Assert.Single(plan.ToWrite);
+        Assert.Equal(@"C:\Users\john\Documents\a.txt", entry.DestinationPath);
+    }
+
+    [Fact]
+    public void PlanDirectoryRestore_throws_RestoreDestinationInMirror_for_a_write_destination_inside_the_mirror()
+    {
+        var contentStore = new FakeContentStore();
+        contentStore.MirrorPaths.Add(@"C:\out\a.txt");
+        var repository = new FakeSnapshotRepository();
+        var t0 = DateTimeOffset.UtcNow;
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, @"src\a.txt", null, "hash-1", 10, t0, FileChangeKind.Added, t0);
+        var service = new SnapshotHistoryService(repository, contentStore);
+
+        var ex = Assert.Throws<RestoreDestinationInMirrorException>(
+            () => service.PlanDirectoryRestore("src", asOf: null, outRoot: @"C:\out", inPlace: false));
+        Assert.Equal(@"C:\out\a.txt", ex.DestinationPath);
+    }
+
+    [Fact]
+    public void PlanDirectoryRestore_for_a_never_tracked_directory_throws_NoSuchDirectory()
+    {
+        var repository = new FakeSnapshotRepository();
+        var s1 = repository.BeginSnapshot(DateTimeOffset.UtcNow);
+        repository.RecordFileVersion(s1, @"src\a.txt", null, "hash-1", 10, DateTimeOffset.UtcNow, FileChangeKind.Added, DateTimeOffset.UtcNow);
+        var service = new SnapshotHistoryService(repository, new FakeContentStore());
+
+        var ex = Assert.Throws<NoSuchDirectoryException>(
+            () => service.PlanDirectoryRestore("never-tracked-dir", asOf: null, outRoot: @"C:\out", inPlace: false));
+        Assert.Equal("never-tracked-dir", ex.DirectoryPath);
+    }
+
+    [Fact]
+    public void ExecuteDirectoryRestore_writes_planned_entries_and_removes_planned_destinations()
+    {
+        var contentStore = new FakeContentStore();
+        var (hashA, sizeA) = contentStore.StoreFromStream(new MemoryStream("content a"u8.ToArray()));
+        var (hashC, sizeC) = contentStore.StoreFromStream(new MemoryStream("content c"u8.ToArray()));
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"vara-dirrestore-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        var destinationA = Path.Combine(tempRoot, "a.txt");
+        var destinationC = Path.Combine(tempRoot, "sub", "c.txt");
+        var toRemove = Path.Combine(tempRoot, "stale.txt");
+        File.WriteAllText(toRemove, "should be removed");
+
+        try
+        {
+            var plan = new DirectoryRestorePlan(
+                ToWrite:
+                [
+                    new DirectoryRestoreEntry(@"src\a.txt", hashA, sizeA, destinationA),
+                    new DirectoryRestoreEntry(@"src\sub\c.txt", hashC, sizeC, destinationC),
+                ],
+                ToRemove: [toRemove],
+                TotalBytes: sizeA + sizeC);
+            var service = new SnapshotHistoryService(new FakeSnapshotRepository(), contentStore);
+
+            var chunkReports = new List<long>();
+            long? resolvedSize = null;
+
+            service.ExecuteDirectoryRestore(
+                plan,
+                onBytesCopied: bytes => chunkReports.Add(bytes),
+                onSizeResolved: resolved => resolvedSize = resolved);
+
+            Assert.Equal("content a", File.ReadAllText(destinationA));
+            Assert.Equal("content c", File.ReadAllText(destinationC));
+            Assert.False(File.Exists(toRemove));
+            Assert.Equal(plan.TotalBytes, resolvedSize);
+            Assert.Equal(plan.TotalBytes, chunkReports.Sum());
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
 }
+

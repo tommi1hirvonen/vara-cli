@@ -235,4 +235,82 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
             Directory.Delete(sourceRoot, recursive: true);
         }
     }
+
+    [Fact]
+    public void PlanAndExecuteDirectoryRestore_reconstructs_a_real_point_in_time_directory_to_a_fresh_out_destination()
+    {
+        var (hashKept, _) = ContentStore.StoreFromStream(new MemoryStream("kept content"u8.ToArray()));
+        var (hashDeletedLater, _) = ContentStore.StoreFromStream(new MemoryStream("deleted later"u8.ToArray()));
+        var (hashAddedLater, _) = ContentStore.StoreFromStream(new MemoryStream("added later"u8.ToArray()));
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = Repository.BeginSnapshot(t0);
+        Repository.RecordFileVersion(s1, @"src\a.txt", null, hashKept, 12, t0, FileChangeKind.Added, t0);
+        Repository.RecordFileVersion(s1, @"src\old.txt", null, hashDeletedLater, 13, t0, FileChangeKind.Added, t0);
+        var t1 = t0.AddDays(1);
+        var s2 = Repository.BeginSnapshot(t1);
+        Repository.RecordFileVersion(s2, @"src\old.txt", null, hashDeletedLater, 13, t1, FileChangeKind.Deleted, t1);
+        Repository.RecordFileVersion(s2, @"src\new.txt", null, hashAddedLater, 11, t1, FileChangeKind.Added, t1);
+        var service = new SnapshotHistoryService(Repository, ContentStore);
+        var outRoot = Path.Combine(Path.GetTempPath(), $"vara-inttest-dirrestore-{Guid.NewGuid():N}");
+
+        try
+        {
+            var plan = service.PlanDirectoryRestore("src", asOf: t0.AddHours(12), outRoot, inPlace: false);
+            service.ExecuteDirectoryRestore(plan);
+
+            Assert.Equal("kept content", File.ReadAllText(Path.Combine(outRoot, "a.txt")));
+            Assert.Equal("deleted later", File.ReadAllText(Path.Combine(outRoot, "old.txt")));
+            Assert.False(File.Exists(Path.Combine(outRoot, "new.txt")));
+        }
+        finally
+        {
+            if (Directory.Exists(outRoot))
+            {
+                Directory.Delete(outRoot, recursive: true);
+            }
+        }
+    }
+
+    [Fact]
+    public void PlanAndExecuteDirectoryRestore_in_place_removes_a_currently_live_file_not_present_at_the_requested_date_and_maps_each_source_correctly()
+    {
+        var sourceRootA = Path.Combine(Path.GetTempPath(), $"vara-inttest-sourceA-{Guid.NewGuid():N}");
+        var sourceRootB = Path.Combine(Path.GetTempPath(), $"vara-inttest-sourceB-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(sourceRootA);
+        Directory.CreateDirectory(sourceRootB);
+        try
+        {
+            var pathA = Vara.Core.FileSystem.AbsolutePathMirrorMapper.ToMirrorPath(Path.Combine(sourceRootA, "a.txt"));
+            var pathB = Vara.Core.FileSystem.AbsolutePathMirrorMapper.ToMirrorPath(Path.Combine(sourceRootB, "b.txt"));
+            var (hashA, _) = ContentStore.StoreFromStream(new MemoryStream("from source a"u8.ToArray()));
+            var (hashB, _) = ContentStore.StoreFromStream(new MemoryStream("from source b"u8.ToArray()));
+            var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+            var s1 = Repository.BeginSnapshot(t0);
+            Repository.RecordFileVersion(s1, pathA, null, hashA, 13, t0, FileChangeKind.Added, t0);
+            var t1 = t0.AddDays(1);
+            var s2 = Repository.BeginSnapshot(t1);
+            // pathB is only added after t0 - not part of the requested-date state, but it is
+            // currently live, so a directory restore as of t0 should remove it in place.
+            Repository.RecordFileVersion(s2, pathB, null, hashB, 13, t1, FileChangeKind.Added, t1);
+            var service = new SnapshotHistoryService(Repository, ContentStore);
+
+            // pathB currently "lives" on disk (as ContentStore.TargetExists has no real
+            // filesystem backing for arbitrary destinations, seed the real file directly so
+            // the plan's removal step has something real to delete).
+            var originalPathB = Vara.Core.FileSystem.AbsolutePathMirrorMapper.FromMirrorPath(pathB);
+            File.WriteAllText(originalPathB, "should be removed");
+
+            var plan = service.PlanDirectoryRestore(".", asOf: t0.AddHours(12), outRoot: null, inPlace: true);
+            service.ExecuteDirectoryRestore(plan);
+
+            var originalPathA = Vara.Core.FileSystem.AbsolutePathMirrorMapper.FromMirrorPath(pathA);
+            Assert.Equal("from source a", File.ReadAllText(originalPathA));
+            Assert.False(File.Exists(originalPathB));
+        }
+        finally
+        {
+            Directory.Delete(sourceRootA, recursive: true);
+            Directory.Delete(sourceRootB, recursive: true);
+        }
+    }
 }

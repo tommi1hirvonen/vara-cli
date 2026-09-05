@@ -285,6 +285,29 @@ public class FileSystemContentStoreTests : IDisposable
     }
 
     [Fact]
+    public void RemoveExtractedFile_deletes_an_existing_file()
+    {
+        var store = CreateStore();
+        var destination = Path.Combine(Path.GetTempPath(), $"vara-extract-{Guid.NewGuid():N}.txt");
+        File.WriteAllText(destination, "content to remove");
+
+        store.RemoveExtractedFile(destination);
+
+        Assert.False(File.Exists(destination));
+    }
+
+    [Fact]
+    public void RemoveExtractedFile_is_a_no_op_for_a_path_that_does_not_exist()
+    {
+        var store = CreateStore();
+        var destination = Path.Combine(Path.GetTempPath(), $"vara-extract-{Guid.NewGuid():N}.txt");
+
+        var exception = Record.Exception(() => store.RemoveExtractedFile(destination));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
     public void OpenRead_returns_a_readable_stream_over_a_stored_hashs_content()
     {
         var store = CreateStore();

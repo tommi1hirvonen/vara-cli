@@ -17,17 +17,18 @@ public static class RestoreCommand
     public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory)
     {
         var profileOption = new Option<string?>("--profile") { Description = "The profile to restore from. Optional when the current directory is inside a profile's target root." };
-        var pathArgument = new Argument<string>("path") { Description = "The file to restore - a mirror-relative path, an absolute source path, or a path relative to the current directory." };
+        var pathArgument = new Argument<string>("path") { Description = "The file (or, with --recursive, directory) to restore - a mirror-relative path, an absolute source path, or a path relative to the current directory." };
         var outOption = new Option<string?>("--out") { Description = "Destination path to write the restored content to. Mutually exclusive with --in-place." };
-        var inPlaceOption = new Option<bool>("--in-place") { Description = "Restore back to the file's original source location instead of an explicit --out destination. Mutually exclusive with --out." };
-        var atOption = new Option<string?>("--at") { Description = "Restore the version current as of this date/time." };
-        var versionOption = new Option<long?>("--version") { Description = "Restore this specific version id (see the 'history' command). If neither this nor --at is given in an interactive session, a version picker is shown instead." };
+        var inPlaceOption = new Option<bool>("--in-place") { Description = "Restore back to the original source location instead of an explicit --out destination. Mutually exclusive with --out." };
+        var atOption = new Option<string?>("--at") { Description = "Restore the version current as of this date/time. With --recursive, omitting this restores the directory's current tracked state." };
+        var versionOption = new Option<long?>("--version") { Description = "Restore this specific version id (see the 'history' command). If neither this nor --at is given in an interactive session, a version picker is shown instead. Mutually exclusive with --recursive." };
         var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
-        var forceOption = new Option<bool>("--force") { Description = "Overwrite an existing destination file without prompting for confirmation." };
+        var forceOption = new Option<bool>("--force") { Description = "Skip the overwrite confirmation (single-file restore) or the single directory-restore confirmation (--recursive) without prompting." };
+        var recursiveOption = new Option<bool>("--recursive") { Description = "Restore an entire directory (subtree) instead of a single file, reconstructing its exact tracked state as of --at (or the current state if --at is omitted). Mutually exclusive with --version." };
 
         var command = new Command("restore", "Restore a file's historical content, without touching the live mirror.")
         {
-            pathArgument, profileOption, outOption, inPlaceOption, atOption, versionOption, configOption, forceOption,
+            pathArgument, profileOption, outOption, inPlaceOption, atOption, versionOption, configOption, forceOption, recursiveOption,
         };
 
         command.SetAction(parseResult =>
@@ -40,6 +41,7 @@ public static class RestoreCommand
             var version = parseResult.GetValue(versionOption);
             var configPath = parseResult.GetValue(configOption);
             var force = parseResult.GetValue(forceOption);
+            var recursive = parseResult.GetValue(recursiveOption);
 
             if (outPath is not null && inPlace)
             {
@@ -53,13 +55,22 @@ public static class RestoreCommand
                 return 1;
             }
 
+            if (recursive && version is not null)
+            {
+                OutcomeStyle.WriteLineError(StandardError.Console, "Error: --recursive and --version are mutually exclusive.");
+                return 1;
+            }
+
             // Whether an interactive version picker can be shown when neither --at nor
             // --version is given - requires both a real, non-redirected input stream (to read
             // the user's selection) and a console capable of rendering the picker itself.
+            // Only relevant to single-file restore; a recursive restore has no single per-file
+            // version history to pick from (per the "Interactive version selection when
+            // restoring" requirement's "does not apply to a recursive directory restore" note).
             var console = AnsiConsole.Console;
             var canPromptForVersion = !Console.IsInputRedirected && OutputMode.IsLiveCapable(console);
 
-            if (at is null && version is null && !canPromptForVersion)
+            if (!recursive && at is null && version is null && !canPromptForVersion)
             {
                 OutcomeStyle.WriteLineError(StandardError.Console, "Error: specify either --at <date> or --version <id>.");
                 return 1;
@@ -72,6 +83,12 @@ public static class RestoreCommand
                 var profile = profileResolver.ResolveForBrowsing(profileName, configPath);
                 using var services = serviceFactory.CreateFor(profile);
                 var history = new SnapshotHistoryService(services.Repository, services.ContentStore);
+
+                if (recursive)
+                {
+                    RunRecursiveRestore(history, profile.TargetRoot, path, at, outPath, inPlace, force, console, ref cancelled);
+                    return;
+                }
 
                 path = SnapshotPathResolver.TryResolve(
                     profile.TargetRoot,
@@ -243,6 +260,160 @@ public static class RestoreCommand
             var asOf = DateTimeOffset.Parse(at!, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal);
             history.RestoreAsOf(path, asOf, outPath, overwrite, onBytesCopied, onSizeResolved);
         }
+    }
+
+    // --recursive path: plans the whole directory restore up front (PlanDirectoryRestore is
+    // read-only), shows exactly one confirmation covering every planned write/removal (skipped
+    // when --force is given), and only then executes - mirroring PruneCommand's
+    // count-then-confirm-then-run shape for its own single confirmation, per design.md's
+    // "single confirmation replaces per-file overwrite guarding" decision.
+    private static void RunRecursiveRestore(
+        SnapshotHistoryService history,
+        string mirrorRoot,
+        string path,
+        string? at,
+        string? outPath,
+        bool inPlace,
+        bool force,
+        IAnsiConsole console,
+        ref bool cancelled)
+    {
+        var resolvedPath = SnapshotPathResolver.TryResolve(
+            mirrorRoot,
+            path,
+            candidate => IsDirectoryTracked(history, candidate),
+            out var candidatePath)
+            ? candidatePath
+            : path;
+
+        var asOf = at is null
+            ? (DateTimeOffset?)null
+            : DateTimeOffset.Parse(at, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal);
+
+        var plan = history.PlanDirectoryRestore(resolvedPath, asOf, outPath, inPlace);
+
+        void Execute()
+        {
+            if (OutputMode.IsLiveCapable(console))
+            {
+                RunDirectoryRestoreWithLiveDisplay(history, resolvedPath, plan, console);
+            }
+            else
+            {
+                RunDirectoryRestoreWithPlainOutput(history, plan, console);
+            }
+
+            OutcomeStyle.WriteLineSuccess(
+                AnsiConsole.Console,
+                $"Restored directory '{resolvedPath}': {plan.ToWrite.Count} file(s) written, {plan.ToRemove.Count} file(s) removed.");
+        }
+
+        if (force)
+        {
+            Execute();
+            return;
+        }
+
+        if (Console.IsInputRedirected)
+        {
+            // Non-interactive session, no --force: refuse rather than silently writing and
+            // removing potentially many files without explicit authorization. Reported as a
+            // normal error (exit 1) by ErrorReporting, directing the user to --force.
+            throw new RestoreDirectoryConfirmationRequiredException(resolvedPath, plan.ToWrite.Count, plan.ToRemove.Count);
+        }
+
+        // Interactive session, no --force: ask once before making any change, covering every
+        // planned write and removal - replacing the per-file overwrite prompt single-file
+        // restore uses, per the "Single confirmation for a directory restore" requirement. The
+        // prompt goes to stderr so it's still visible even if stdout is redirected.
+        var removalClause = plan.ToRemove.Count > 0 ? $" and remove {plan.ToRemove.Count} file(s)" : string.Empty;
+        var confirmed = StandardError.Console.Confirm(
+            $"This will write {plan.ToWrite.Count} file(s){removalClause} under '{Markup.Escape(resolvedPath)}'. Continue?",
+            defaultValue: false);
+
+        if (confirmed)
+        {
+            Execute();
+        }
+        else
+        {
+            cancelled = true;
+        }
+    }
+
+    /// <summary>
+    /// Whether any tracked path, at any point in history, falls under <paramref name="candidate"/> -
+    /// used as <see cref="SnapshotPathResolver.TryResolve"/>'s "does this candidate match"
+    /// predicate for a recursive restore's directory argument, reusing
+    /// <see cref="SnapshotHistoryService.ListDirectory"/>'s own "any tracked path" check rather
+    /// than duplicating it.
+    /// </summary>
+    private static bool IsDirectoryTracked(SnapshotHistoryService history, string candidate)
+    {
+        try
+        {
+            history.ListDirectory(candidate, asOf: null, includeDeleted: true);
+            return true;
+        }
+        catch (NoSuchDirectoryException)
+        {
+            return false;
+        }
+    }
+
+    // Interactive path for a recursive directory restore: one aggregate task spans the whole
+    // operation - onSizeResolved (invoked once, with the plan's total byte count, before any
+    // file is written) sizes it up front, exactly as the single-file path does, per design.md's
+    // "Progress reporting reuses RestoreProgressReporter unmodified" decision.
+    private static void RunDirectoryRestoreWithLiveDisplay(
+        SnapshotHistoryService history,
+        string directoryPath,
+        DirectoryRestorePlan plan,
+        IAnsiConsole console)
+    {
+        var displayGate = new ProgressDisplayGate();
+
+        console.Progress()
+            .Columns(new TaskDescriptionColumn(), new ProgressBarColumn(), new PercentageColumn(), new RemainingTimeColumn(), new TransferSpeedColumn())
+            .Start(ctx =>
+            {
+                ProgressTask? task = null;
+
+                void Render(BackupProgress admitted)
+                {
+                    task ??= ctx.AddTask($"Restoring directory '{Markup.Escape(directoryPath)}'", autoStart: true, maxValue: admitted.TotalBytes);
+                    task.Value = admitted.BytesTransferred;
+                    ctx.Refresh();
+                }
+
+                var reporter = new RestoreProgressReporter(displayGate, Render);
+                history.ExecuteDirectoryRestore(plan, reporter.OnBytesCopied, reporter.OnSizeResolved);
+            });
+    }
+
+    // Non-interactive/redirected path for a recursive directory restore - analogous to
+    // RunWithPlainOutput's single-file equivalent.
+    private static void RunDirectoryRestoreWithPlainOutput(
+        SnapshotHistoryService history,
+        DirectoryRestorePlan plan,
+        IAnsiConsole console)
+    {
+        var calculator = new BackupProgressCalculator();
+        var displayGate = new ProgressDisplayGate();
+
+        void Render(BackupProgress admitted)
+        {
+            var snapshot = calculator.Calculate(admitted);
+            var eta = snapshot.EstimatedTimeRemaining is { } remaining
+                ? BackupRunSummaryFormatter.FormatDuration(remaining)
+                : "calculating...";
+            console.WriteLine(
+                $"{BackupRunSummaryFormatter.FormatBytes(snapshot.BytesTransferred)} / {BackupRunSummaryFormatter.FormatBytes(snapshot.TotalBytes)} " +
+                $"({snapshot.PercentComplete:0.0}%) - {BackupRunSummaryFormatter.FormatBytes((long)snapshot.ThroughputBytesPerSecond)}/s - ETA {eta}");
+        }
+
+        var reporter = new RestoreProgressReporter(displayGate, Render);
+        history.ExecuteDirectoryRestore(plan, reporter.OnBytesCopied, reporter.OnSizeResolved);
     }
 }
 

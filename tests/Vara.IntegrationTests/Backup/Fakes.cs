@@ -113,6 +113,15 @@ internal sealed class FakeContentStore : IContentStore
         }
     }
 
+    public void RemoveExtractedFile(string absolutePath)
+    {
+        _existingTargets.Remove(absolutePath);
+        if (File.Exists(absolutePath))
+        {
+            File.Delete(absolutePath);
+        }
+    }
+
     public bool IsWithinMirror(string absolutePath) => false;
     public bool TargetExists(string absolutePath) => _existingTargets.Contains(absolutePath);
 }

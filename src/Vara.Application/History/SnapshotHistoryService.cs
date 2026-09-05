@@ -1,7 +1,25 @@
 using Vara.Core.Abstractions;
+using Vara.Core.FileSystem;
 using Vara.Core.Snapshots;
 
 namespace Vara.Application.History;
+
+/// <summary>
+/// One file to be written as part of a directory restore's planned reconstruction of a point in
+/// time, per <see cref="SnapshotHistoryService.PlanDirectoryRestore"/>.
+/// </summary>
+public sealed record DirectoryRestoreEntry(string RelativePath, string ContentHash, long Size, string DestinationPath);
+
+/// <summary>
+/// The full set of writes and removals a directory restore will perform, computed entirely from
+/// manifest data before any file is touched, per the snapshot-history capability's "Restore a
+/// directory at a given date" requirement - so a single confirmation can report exact counts
+/// before anything changes.
+/// </summary>
+public sealed record DirectoryRestorePlan(
+    IReadOnlyList<DirectoryRestoreEntry> ToWrite,
+    IReadOnlyList<string> ToRemove,
+    long TotalBytes);
 
 /// <summary>
 /// Browsing recorded snapshots/versions and restoring historical file content for a
@@ -225,6 +243,139 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
     }
 
     /// <summary>
+    /// Computes the full write/remove plan for restoring every tracked path under
+    /// <paramref name="directoryPath"/> to its state as of <paramref name="asOf"/> (or the
+    /// current state, if <c>null</c>), per the snapshot-history capability's "Restore a
+    /// directory at a given date" requirement. Every path tracked as live at that date is
+    /// planned for writing (<see cref="DirectoryRestorePlan.ToWrite"/>), including one later
+    /// deleted from the profile; a path currently tracked as live under the directory but not
+    /// live at that date is planned for removal (<see cref="DirectoryRestorePlan.ToRemove"/>)
+    /// if it currently exists at its computed destination. Every computed destination is
+    /// validated against the live mirror before this method returns, so a violation aborts the
+    /// whole plan rather than causing a partial restore.
+    /// </summary>
+    /// <param name="outRoot">
+    /// The destination directory each write is placed under, relative to
+    /// <paramref name="directoryPath"/>'s own prefix. Required (and used) unless
+    /// <paramref name="inPlace"/> is <c>true</c>.
+    /// </param>
+    /// <param name="inPlace">
+    /// When <c>true</c>, each tracked path is restored to its own original absolute source
+    /// location (via <see cref="AbsolutePathMirrorMapper.FromMirrorPath"/>) instead of under
+    /// <paramref name="outRoot"/>.
+    /// </param>
+    /// <exception cref="NoSuchDirectoryException">
+    /// No tracked path, at any point in history, falls under <paramref name="directoryPath"/>.
+    /// </exception>
+    /// <exception cref="RestoreDestinationInMirrorException">
+    /// Any computed destination resolves inside the profile's live mirror.
+    /// </exception>
+    public DirectoryRestorePlan PlanDirectoryRestore(string directoryPath, DateTimeOffset? asOf, string? outRoot, bool inPlace)
+    {
+        var prefix = NormalizeDirectoryPrefix(directoryPath);
+        var historical = asOf is null ? repository.GetCurrentState() : repository.GetStateAsOf(asOf.Value);
+        var current = repository.GetCurrentState();
+        var anyTracked = false;
+
+        string ComputeDestination(string relativePath, string subPath) =>
+            inPlace ? AbsolutePathMirrorMapper.FromMirrorPath(relativePath) : Path.Combine(outRoot!, subPath);
+
+        var toWrite = new List<DirectoryRestoreEntry>();
+        foreach (var (path, state) in historical)
+        {
+            if (!TryGetDescendantSubPath(path, prefix, out var subPath))
+            {
+                continue;
+            }
+
+            anyTracked = true;
+            toWrite.Add(new DirectoryRestoreEntry(path, state.ContentHash, state.Size, ComputeDestination(path, subPath)));
+        }
+
+        var historicalPaths = new HashSet<string>(toWrite.Select(e => e.RelativePath), StringComparer.OrdinalIgnoreCase);
+
+        var toRemove = new List<string>();
+        foreach (var (path, _) in current)
+        {
+            if (!TryGetDescendantSubPath(path, prefix, out var subPath))
+            {
+                continue;
+            }
+
+            anyTracked = true;
+            if (historicalPaths.Contains(path))
+            {
+                continue;
+            }
+
+            var destination = ComputeDestination(path, subPath);
+            if (contentStore.TargetExists(destination))
+            {
+                toRemove.Add(destination);
+            }
+        }
+
+        if (!anyTracked)
+        {
+            foreach (var record in repository.GetTombstones(asOf))
+            {
+                if (TryGetDescendantSubPath(record.RelativePath, prefix, out _))
+                {
+                    anyTracked = true;
+                    break;
+                }
+            }
+        }
+
+        if (!anyTracked)
+        {
+            throw new NoSuchDirectoryException(directoryPath);
+        }
+
+        foreach (var entry in toWrite)
+        {
+            if (contentStore.IsWithinMirror(entry.DestinationPath))
+            {
+                throw new RestoreDestinationInMirrorException(entry.DestinationPath);
+            }
+        }
+
+        foreach (var destination in toRemove)
+        {
+            if (contentStore.IsWithinMirror(destination))
+            {
+                throw new RestoreDestinationInMirrorException(destination);
+            }
+        }
+
+        return new DirectoryRestorePlan(toWrite, toRemove, toWrite.Sum(e => e.Size));
+    }
+
+    /// <summary>
+    /// Executes a previously computed <see cref="DirectoryRestorePlan"/>: reports the plan's
+    /// total byte count once via <paramref name="onSizeResolved"/>, then removes every
+    /// <see cref="DirectoryRestorePlan.ToRemove"/> destination (fast, with no byte content to
+    /// report), and finally writes every <see cref="DirectoryRestorePlan.ToWrite"/> entry,
+    /// forwarding <paramref name="onBytesCopied"/> through each entry's
+    /// <see cref="IContentStore.ExtractTo"/> call so a caller can render one
+    /// continuously-advancing progress indicator across the whole operation.
+    /// </summary>
+    public void ExecuteDirectoryRestore(DirectoryRestorePlan plan, Action<long>? onBytesCopied = null, Action<long>? onSizeResolved = null)
+    {
+        onSizeResolved?.Invoke(plan.TotalBytes);
+
+        foreach (var destination in plan.ToRemove)
+        {
+            contentStore.RemoveExtractedFile(destination);
+        }
+
+        foreach (var entry in plan.ToWrite)
+        {
+            contentStore.ExtractTo(entry.ContentHash, entry.DestinationPath, onBytesCopied);
+        }
+    }
+
+    /// <summary>
     /// Reports deleted files, most recently deleted first, optionally scoped to a subtree
     /// (<paramref name="directoryPath"/>) and/or bounded to deletions recorded at or after
     /// <paramref name="since"/>, per the backup-browsing capability's recently-deleted report.
@@ -327,6 +478,33 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
         name = remainder[..separatorIndex];
         isLeaf = false;
         return name.Length > 0;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="relativePath"/> falls under <paramref name="prefix"/> (as
+    /// produced by <see cref="NormalizeDirectoryPrefix"/>), at any depth - unlike
+    /// <see cref="TryGetImmediateChild"/>, which only matches the prefix's immediate children.
+    /// Used by directory restore, which needs every descendant, not just one level. When it
+    /// falls under the prefix, <paramref name="subPath"/> is the portion of
+    /// <paramref name="relativePath"/> after the prefix - the path's location relative to the
+    /// requested directory, used to compute a directory restore's destination.
+    /// </summary>
+    private static bool TryGetDescendantSubPath(string relativePath, string prefix, out string subPath)
+    {
+        if (prefix.Length == 0)
+        {
+            subPath = relativePath;
+            return true;
+        }
+
+        if (!relativePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            subPath = string.Empty;
+            return false;
+        }
+
+        subPath = relativePath[prefix.Length..];
+        return true;
     }
 
     /// <summary>

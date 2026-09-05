@@ -36,6 +36,25 @@ public class RestoreProgressReporterTests
     }
 
     [Fact]
+    public void OnBytesCopied_accumulates_across_what_would_be_multiple_files_in_a_directory_restore()
+    {
+        // A directory restore constructs exactly one RestoreProgressReporter for the whole
+        // operation (per design.md's "reuses RestoreProgressReporter unmodified" decision),
+        // calling OnSizeResolved once with the plan's combined total, then routing every
+        // constituent file's ExtractTo chunks through the same instance's OnBytesCopied -
+        // indistinguishable, from this reporter's perspective, from one file's chunks.
+        var rendered = new List<BackupProgress>();
+        var reporter = new RestoreProgressReporter(new ProgressDisplayGate(), rendered.Add);
+        reporter.OnSizeResolved(25); // combined total across two files: 10 + 15
+
+        reporter.OnBytesCopied(10); // all of "file A"
+        reporter.OnBytesCopied(15); // all of "file B"
+
+        Assert.Equal(25, rendered[^1].BytesTransferred);
+        Assert.Equal(25, rendered[^1].TotalBytes);
+    }
+
+    [Fact]
     public void Many_small_onBytesCopied_calls_do_not_redraw_on_every_single_call()
     {
         var renderCount = 0;
