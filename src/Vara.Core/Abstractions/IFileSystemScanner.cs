@@ -22,6 +22,10 @@ public enum ScanFailureReason
 
     /// <summary>A directory's contents could not be enumerated; the whole subtree rooted there was skipped.</summary>
     UnreadableDirectory,
+
+    /// <summary>A configured source's path was neither an existing file nor an existing directory at scan
+    /// time (for example, an unplugged drive, a drive-letter change, or a typo'd path).</summary>
+    SourceUnavailable,
 }
 
 /// <summary>
@@ -29,7 +33,21 @@ public enum ScanFailureReason
 /// so its absence from <see cref="ScannedEntry"/> results is not mistaken for the path
 /// simply not existing (backup-execution spec: "Unreadable files do not abort the run").
 /// </summary>
-public sealed record ScanFailure(string RelativePath, ScanFailureReason Reason);
+/// <param name="RelativePath">
+/// Source-relative (not mirror-relative) path of the failed file, directory, or source root,
+/// for human-facing reporting (for example, in a run's failed-paths summary) - reads naturally,
+/// e.g. <c>subdir\locked.txt</c>, rather than a mirror-mangled absolute-looking path.
+/// </param>
+/// <param name="Reason">Why the path could not be scanned.</param>
+/// <param name="MirrorPath">
+/// The same failed location expressed in mirror-path space (see <see cref="ScannedEntry.RelativePath"/>
+/// and <see cref="Vara.Core.FileSystem.AbsolutePathMirrorMapper"/>), i.e. what a successfully-scanned
+/// entry at that same location would have had as its own <see cref="ScannedEntry.RelativePath"/>. Used
+/// to match this failure against manifest-tracked paths (which are recorded in mirror-path space)
+/// regardless of which source produced them, so a failed scan can suppress deletion classification for
+/// every previously recorded path it made it impossible to verify.
+/// </param>
+public sealed record ScanFailure(string RelativePath, ScanFailureReason Reason, string MirrorPath);
 
 /// <summary>
 /// The result of scanning a profile's sources: successfully discovered entries plus

@@ -182,11 +182,27 @@ public class DirectoryFileSystemScannerTests : IDisposable
             var failure = Assert.Single(result.Failures);
             Assert.Equal("denied-dir", failure.RelativePath);
             Assert.Equal(ScanFailureReason.UnreadableDirectory, failure.Reason);
+            Assert.Equal(MirrorPath_("denied-dir"), failure.MirrorPath);
         }
         finally
         {
             RemoveDeny(deniedDir);
         }
+    }
+
+    [Fact]
+    public void A_source_path_that_does_not_exist_is_reported_as_a_single_scan_failure_with_no_entries()
+    {
+        var missingPath = Path_("does-not-exist");
+
+        var result = _scanner.Scan([new Source(missingPath)]);
+        var entries = result.Entries.ToList();
+
+        Assert.Empty(entries);
+        var failure = Assert.Single(result.Failures);
+        Assert.Equal(missingPath, failure.RelativePath);
+        Assert.Equal(ScanFailureReason.SourceUnavailable, failure.Reason);
+        Assert.Equal(AbsolutePathMirrorMapper.ToMirrorPath(missingPath), failure.MirrorPath);
     }
 
     private static void CreateJunction(string junctionPath, string targetPath)

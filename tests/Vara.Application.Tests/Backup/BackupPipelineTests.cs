@@ -233,7 +233,7 @@ public class BackupPipelineTests : IDisposable
         var path = Path.Combine(_root, "a.txt");
         File.WriteAllText(path, "hello");
         var entry = new ScannedEntry("a.txt", path, 5, File.GetLastWriteTimeUtc(path), false, null);
-        var scanFailure = new ScanFailure("denied-dir", ScanFailureReason.UnreadableDirectory);
+        var scanFailure = new ScanFailure("denied-dir", ScanFailureReason.UnreadableDirectory, "denied-dir");
         var repository = new FakeSnapshotRepository();
 
         var pipeline = new BackupPipeline(

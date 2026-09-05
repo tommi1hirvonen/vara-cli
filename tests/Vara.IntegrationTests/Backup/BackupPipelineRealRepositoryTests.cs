@@ -145,4 +145,81 @@ public class BackupPipelineRealRepositoryTests : IDisposable
             Assert.True(contentStore.Mirror.ContainsKey($"file-{i}.txt"));
         }
     }
+
+    [Fact]
+    public void A_source_unavailable_failure_does_not_delete_that_sources_previously_mirrored_files()
+    {
+        var appDataPath = Path.Combine(_root, "app-data", "a.txt");
+        var otherPath = Path.Combine(_root, "other.txt");
+        WriteFile(appDataPath, "app data");
+        WriteFile(otherPath, "other");
+        var appDataEntry = new ScannedEntry(@"app-data\a.txt", appDataPath, 8, File.GetLastWriteTimeUtc(appDataPath), false, null);
+        var otherEntry = new ScannedEntry("other.txt", otherPath, 5, File.GetLastWriteTimeUtc(otherPath), false, null);
+        var contentStore = new FakeContentStore();
+
+        // First run: both sources scan successfully.
+        var firstRun = new BackupPipeline(
+            new FakeFileSystemScanner([appDataEntry, otherEntry]), new FakeHasher(), contentStore, Repository, new FakeRunLock())
+            .Run(SimpleProfile(_root));
+        Assert.Equal(2, firstRun.Stats.FilesAdded);
+
+        // Second run: the "app-data" source is now unavailable (unplugged drive/typo) - only
+        // "other.txt"'s source still scans. The fake scanner reports a SourceUnavailable
+        // failure whose mirror path is "app-data", matching appDataEntry's own mirror path.
+        var sourceUnavailable = new ScanFailure(
+            @"D:\missing-drive\app-data", ScanFailureReason.SourceUnavailable, "app-data");
+        var secondRun = new BackupPipeline(
+            new FakeFileSystemScanner([otherEntry], [sourceUnavailable]), new FakeHasher(), contentStore, Repository, new FakeRunLock())
+            .Run(SimpleProfile(_root));
+
+        Assert.Equal(0, secondRun.Stats.FilesDeleted);
+        Assert.Equal(0, secondRun.Stats.FilesAdded);
+        Assert.Equal(0, secondRun.Stats.FilesChanged);
+        Assert.Contains(@"D:\missing-drive\app-data", secondRun.FailedPaths);
+
+        var current = Repository.GetCurrentState();
+        Assert.True(current.ContainsKey(@"app-data\a.txt"));
+        Assert.True(current.ContainsKey("other.txt"));
+        Assert.True(contentStore.Mirror.ContainsKey(@"app-data\a.txt"));
+    }
+
+    [Fact]
+    public void A_permission_denied_directory_failure_does_not_delete_previously_mirrored_files_under_it()
+    {
+        var deniedPath = Path.Combine(_root, "denied-dir", "hidden.txt");
+        var otherPath = Path.Combine(_root, "other.txt");
+        WriteFile(deniedPath, "hidden");
+        WriteFile(otherPath, "other");
+        var deniedEntry = new ScannedEntry(@"denied-dir\hidden.txt", deniedPath, 6, File.GetLastWriteTimeUtc(deniedPath), false, null);
+        var otherEntry = new ScannedEntry("other.txt", otherPath, 5, File.GetLastWriteTimeUtc(otherPath), false, null);
+        var contentStore = new FakeContentStore();
+
+        // First run: both files scan successfully.
+        var firstRun = new BackupPipeline(
+            new FakeFileSystemScanner([deniedEntry, otherEntry]), new FakeHasher(), contentStore, Repository, new FakeRunLock())
+            .Run(SimpleProfile(_root));
+        Assert.Equal(2, firstRun.Stats.FilesAdded);
+
+        // Second run: "denied-dir" can no longer be enumerated (permission denied) - only
+        // "other.txt" still scans. The fake scanner reports an UnreadableDirectory failure
+        // whose mirror path is "denied-dir", the ancestor of deniedEntry's own mirror path.
+        var unreadableDirectory = new ScanFailure("denied-dir", ScanFailureReason.UnreadableDirectory, "denied-dir");
+        var secondRun = new BackupPipeline(
+            new FakeFileSystemScanner([otherEntry], [unreadableDirectory]), new FakeHasher(), contentStore, Repository, new FakeRunLock())
+            .Run(SimpleProfile(_root));
+
+        Assert.Equal(0, secondRun.Stats.FilesDeleted);
+        Assert.Contains("denied-dir", secondRun.FailedPaths);
+
+        var current = Repository.GetCurrentState();
+        Assert.True(current.ContainsKey(@"denied-dir\hidden.txt"));
+        Assert.True(current.ContainsKey("other.txt"));
+        Assert.True(contentStore.Mirror.ContainsKey(@"denied-dir\hidden.txt"));
+    }
+
+    private static void WriteFile(string path, string content)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, content);
+    }
 }

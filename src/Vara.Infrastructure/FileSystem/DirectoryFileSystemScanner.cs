@@ -11,9 +11,10 @@ namespace Vara.Infrastructure.FileSystem;
 /// symlinks, junctions, and other reparse points can be detected and reported without
 /// ever being traversed - the backup-execution spec requires they are recorded, not
 /// followed. A file, directory, or link that cannot be read (for example, an
-/// ACL-protected path) never throws out of <see cref="Scan"/> - it is recorded as a
-/// <see cref="ScanFailure"/> and skipped instead, per the backup-execution spec's
-/// "Unreadable files do not abort the run" requirement.
+/// ACL-protected path), or a configured source path that does not exist at all (for
+/// example, an unplugged drive), never throws out of <see cref="Scan"/> - it is
+/// recorded as a <see cref="ScanFailure"/> and skipped instead, per the
+/// backup-execution spec's "Unreadable files do not abort the run" requirement.
 /// </summary>
 public sealed class DirectoryFileSystemScanner : IFileSystemScanner
 {
@@ -55,6 +56,8 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
 
         if (!Directory.Exists(source.Path))
         {
+            failures.Add(new ScanFailure(
+                source.Path, ScanFailureReason.SourceUnavailable, AbsolutePathMirrorMapper.ToMirrorPath(source.Path)));
             yield break;
         }
 
@@ -94,7 +97,8 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
         {
-            failures.Add(new ScanFailure(Path.GetRelativePath(root, directory), ScanFailureReason.UnreadableDirectory));
+            failures.Add(new ScanFailure(
+                Path.GetRelativePath(root, directory), ScanFailureReason.UnreadableDirectory, AbsolutePathMirrorMapper.ToMirrorPath(directory)));
             yield break;
         }
 
@@ -107,7 +111,8 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                failures.Add(new ScanFailure(Path.GetRelativePath(root, entryPath), ScanFailureReason.UnreadableEntry));
+                failures.Add(new ScanFailure(
+                    Path.GetRelativePath(root, entryPath), ScanFailureReason.UnreadableEntry, AbsolutePathMirrorMapper.ToMirrorPath(entryPath)));
                 continue;
             }
 
@@ -154,7 +159,7 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            failures.Add(new ScanFailure(relativePath, ScanFailureReason.UnreadableEntry));
+            failures.Add(new ScanFailure(relativePath, ScanFailureReason.UnreadableEntry, mirrorPath));
             return null;
         }
 
@@ -170,7 +175,7 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            failures.Add(new ScanFailure(relativePath, ScanFailureReason.UnreadableEntry));
+            failures.Add(new ScanFailure(relativePath, ScanFailureReason.UnreadableEntry, mirrorPath));
             return null;
         }
     }
