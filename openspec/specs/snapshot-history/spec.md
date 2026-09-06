@@ -45,7 +45,9 @@ The system SHALL provide a command that extracts a specific file's content as it
 given version or as of a given date, without modifying the current live mirror. The system SHALL
 NOT overwrite an existing file at the requested destination unless the user has explicitly
 authorized the overwrite, either by passing an explicit override or by confirming an interactive
-prompt.
+prompt. A version id and an "as of" date SHALL be mutually exclusive ways of identifying which
+version to restore; supplying both SHALL be rejected with a clear error, and no restore SHALL be
+performed.
 
 #### Scenario: Restoring a previous version
 - **WHEN** a user requests a file's content as of a date prior to its most recent change
@@ -87,6 +89,12 @@ prompt.
 - **THEN** the system reports a clear error explaining that the destination already exists and
   that an explicit overwrite override is required, and does not modify the existing destination
   file
+
+#### Scenario: Both a version id and an as-of date are given
+- **WHEN** a user supplies both a version id and an "as of" date for the same restore, show, or
+  diff request
+- **THEN** the system reports a clear error explaining that the two are mutually exclusive, and
+  performs no restore, show, or diff
 
 ### Requirement: Restore progress indication for large files
 While a restore command is extracting a historical file's content to its destination, the system SHALL display a byte-based progress indicator reflecting bytes copied against the version's known total size, per the `progress-reporting` capability's incremental-progress requirement, so a restore of a large file does not appear to hang with no feedback. Because a version's total size is known before extraction begins, no separate scan or indeterminate phase is needed.
