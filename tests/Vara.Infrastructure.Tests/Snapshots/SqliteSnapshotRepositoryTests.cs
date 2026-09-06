@@ -44,6 +44,94 @@ public class SqliteSnapshotRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void A_fresh_database_declares_relative_path_with_nocase_collation()
+    {
+        _ = Repository; // trigger creation
+
+        Assert.Contains("COLLATE NOCASE", GetFileVersionsTableSql(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void A_database_created_before_the_collation_fix_is_migrated_and_its_rows_survive_intact()
+    {
+        // Seed a fixture shaped like a pre-fix profile.db: file_versions without
+        // COLLATE NOCASE on relative_path, populated directly (bypassing the repository,
+        // which always creates the corrected schema).
+        using (var connection = new SqliteConnection($"Data Source={_dbPath}"))
+        {
+            connection.Open();
+            using var create = connection.CreateCommand();
+            create.CommandText = """
+                CREATE TABLE snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    started_at TEXT NOT NULL,
+                    completed_at TEXT NULL,
+                    status TEXT NOT NULL,
+                    bytes_transferred INTEGER NOT NULL DEFAULT 0,
+                    files_added INTEGER NOT NULL DEFAULT 0,
+                    files_changed INTEGER NOT NULL DEFAULT 0,
+                    files_moved INTEGER NOT NULL DEFAULT 0,
+                    files_deleted INTEGER NOT NULL DEFAULT 0,
+                    files_failed INTEGER NOT NULL DEFAULT 0
+                );
+
+                CREATE TABLE file_versions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    snapshot_id INTEGER NOT NULL REFERENCES snapshots(id),
+                    relative_path TEXT NOT NULL,
+                    previous_relative_path TEXT NULL,
+                    content_hash TEXT NOT NULL,
+                    size INTEGER NOT NULL,
+                    source_modified_at TEXT NOT NULL,
+                    change_kind TEXT NOT NULL,
+                    recorded_at TEXT NOT NULL,
+                    quick_hash TEXT NULL,
+                    quick_hash_scheme INTEGER NULL
+                );
+
+                INSERT INTO snapshots (id, started_at, completed_at, status)
+                VALUES (1, '2026-01-01T00:00:00Z', '2026-01-01T00:05:00Z', 'Complete');
+
+                INSERT INTO file_versions
+                    (id, snapshot_id, relative_path, previous_relative_path, content_hash, size, source_modified_at, change_kind, recorded_at, quick_hash, quick_hash_scheme)
+                VALUES
+                    (1, 1, 'a.txt', NULL, 'hash-a', 10, '2026-01-01T00:00:00Z', 'Added', '2026-01-01T00:00:00Z', NULL, NULL),
+                    (2, 1, 'B.txt', NULL, 'hash-b', 20, '2026-01-01T00:00:00Z', 'Added', '2026-01-01T00:00:00Z', 'quick-b', 1);
+                """;
+            create.ExecuteNonQuery();
+        }
+
+        // Opening the repository against the pre-existing file triggers the migration.
+        _ = Repository;
+
+        Assert.Contains("COLLATE NOCASE", GetFileVersionsTableSql(), StringComparison.OrdinalIgnoreCase);
+
+        var current = Repository.GetCurrentState();
+        Assert.Equal(2, current.Count);
+        Assert.Equal("hash-a", current["a.txt"].ContentHash);
+        Assert.Equal(10, current["a.txt"].Size);
+        Assert.Equal("hash-b", current["B.txt"].ContentHash);
+        Assert.Equal(20, current["B.txt"].Size);
+        Assert.Equal("quick-b", current["B.txt"].QuickHash);
+        Assert.Equal(1, current["B.txt"].QuickHashScheme);
+
+        // Future writes must still auto-increment past the migrated rows' ids.
+        var snapshotId = Repository.BeginSnapshot(DateTimeOffset.UtcNow);
+        Repository.RecordFileVersion(snapshotId, "c.txt", null, "hash-c", 30, DateTimeOffset.UtcNow, FileChangeKind.Added, DateTimeOffset.UtcNow);
+        var history = Repository.GetFileHistory("c.txt");
+        Assert.True(Assert.Single(history).Id > 2);
+    }
+
+    private string GetFileVersionsTableSql()
+    {
+        using var connection = new SqliteConnection($"Data Source={_dbPath}");
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'file_versions'";
+        return (string)command.ExecuteScalar()!;
+    }
+
+    [Fact]
     public void Begin_and_complete_snapshot_round_trips_status_and_stats()
     {
         var startedAt = new DateTimeOffset(2026, 1, 1, 10, 0, 0, TimeSpan.Zero);
@@ -105,6 +193,31 @@ public class SqliteSnapshotRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void GetCurrentState_resolves_multiple_recorded_casings_of_the_same_path_to_one_deterministic_row()
+    {
+        // Regression test for the original bug report: rows recorded for the same
+        // logical path under two different casings (e.g. from before this capability
+        // existed) must resolve to exactly one entry, deterministically the
+        // most-recently-recorded row, rather than nondeterministically alternating.
+        var now = DateTimeOffset.UtcNow;
+        var s1 = Repository.BeginSnapshot(now);
+        Repository.RecordFileVersion(s1, "Photo.JPG", null, "hash-old-casing", 10, now, FileChangeKind.Added, now);
+        Repository.CompleteSnapshot(s1, now, SnapshotStats.Empty);
+
+        var s2 = Repository.BeginSnapshot(now.AddMinutes(1));
+        Repository.RecordFileVersion(s2, "photo.jpg", null, "hash-new-casing", 20, now.AddMinutes(1), FileChangeKind.Added, now.AddMinutes(1));
+        Repository.CompleteSnapshot(s2, now.AddMinutes(1), SnapshotStats.Empty);
+
+        for (var i = 0; i < 5; i++)
+        {
+            var current = Repository.GetCurrentState();
+            var state = Assert.Single(current.Values);
+            Assert.Equal("hash-new-casing", state.ContentHash);
+            Assert.Equal(20, state.Size);
+        }
+    }
+
+    [Fact]
     public void GetCurrentState_excludes_deleted_paths()
     {
         var now = DateTimeOffset.UtcNow;
@@ -145,6 +258,75 @@ public class SqliteSnapshotRepositoryTests : IDisposable
 
         Assert.Null(state.QuickHash);
         Assert.Null(state.QuickHashScheme);
+    }
+
+    [Fact]
+    public void GetStateAsOf_resolves_multiple_recorded_casings_of_the_same_path_to_one_deterministic_row()
+    {
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = Repository.BeginSnapshot(t0);
+        Repository.RecordFileVersion(s1, "Photo.JPG", null, "hash-old-casing", 10, t0, FileChangeKind.Added, t0);
+        Repository.CompleteSnapshot(s1, t0, SnapshotStats.Empty);
+
+        var t1 = t0.AddDays(1);
+        var s2 = Repository.BeginSnapshot(t1);
+        Repository.RecordFileVersion(s2, "photo.jpg", null, "hash-new-casing", 20, t1, FileChangeKind.Added, t1);
+        Repository.CompleteSnapshot(s2, t1, SnapshotStats.Empty);
+
+        var asOf = t1.AddDays(1);
+        for (var i = 0; i < 5; i++)
+        {
+            var current = Repository.GetStateAsOf(asOf);
+            var state = Assert.Single(current.Values);
+            Assert.Equal("hash-new-casing", state.ContentHash);
+        }
+    }
+
+    [Fact]
+    public void GetTombstones_resolves_multiple_recorded_casings_of_the_same_path_to_one_deterministic_row()
+    {
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = Repository.BeginSnapshot(t0);
+        Repository.RecordFileVersion(s1, "Photo.JPG", null, "hash-old-casing", 10, t0, FileChangeKind.Added, t0);
+        Repository.CompleteSnapshot(s1, t0, SnapshotStats.Empty);
+
+        var t1 = t0.AddDays(1);
+        var s2 = Repository.BeginSnapshot(t1);
+        Repository.RecordFileVersion(s2, "photo.jpg", null, "hash-new-casing", 20, t1, FileChangeKind.Deleted, t1);
+        Repository.CompleteSnapshot(s2, t1, SnapshotStats.Empty);
+
+        for (var i = 0; i < 5; i++)
+        {
+            var tombstone = Assert.Single(Repository.GetTombstones(asOf: null));
+            Assert.Equal("photo.jpg", tombstone.RelativePath);
+        }
+    }
+
+    [Fact]
+    public void GetMoveOrigins_resolves_multiple_recorded_casings_of_the_same_path_to_one_deterministic_row()
+    {
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = Repository.BeginSnapshot(t0);
+        Repository.RecordFileVersion(s1, "old\\Photo.JPG", null, "hash-v1", 10, t0, FileChangeKind.Added, t0);
+        Repository.CompleteSnapshot(s1, t0, SnapshotStats.Empty);
+
+        var t1 = t0.AddDays(1);
+        var s2 = Repository.BeginSnapshot(t1);
+        Repository.RecordFileVersion(s2, "new\\Photo.JPG", "old\\Photo.JPG", "hash-v1", 10, t1, FileChangeKind.Moved, t1);
+        Repository.CompleteSnapshot(s2, t1, SnapshotStats.Empty);
+
+        // A second, differently-cased row recorded for the same logical destination path.
+        var t2 = t1.AddDays(1);
+        var s3 = Repository.BeginSnapshot(t2);
+        Repository.RecordFileVersion(s3, "new\\photo.jpg", "old\\Photo.JPG", "hash-v1", 10, t2, FileChangeKind.Moved, t2);
+        Repository.CompleteSnapshot(s3, t2, SnapshotStats.Empty);
+
+        for (var i = 0; i < 5; i++)
+        {
+            var origins = Repository.GetMoveOrigins();
+            Assert.Single(origins);
+            Assert.Equal("new\\photo.jpg", origins["old\\Photo.JPG"]);
+        }
     }
 
     [Fact]

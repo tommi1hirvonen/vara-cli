@@ -51,40 +51,105 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
 
     private void InitializeSchema()
     {
-        using var command = _connection.CreateCommand();
-        command.CommandText = """
-            CREATE TABLE IF NOT EXISTS snapshots (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                started_at TEXT NOT NULL,
-                completed_at TEXT NULL,
-                status TEXT NOT NULL,
-                bytes_transferred INTEGER NOT NULL DEFAULT 0,
-                files_added INTEGER NOT NULL DEFAULT 0,
-                files_changed INTEGER NOT NULL DEFAULT 0,
-                files_moved INTEGER NOT NULL DEFAULT 0,
-                files_deleted INTEGER NOT NULL DEFAULT 0,
-                files_failed INTEGER NOT NULL DEFAULT 0
-            );
+        using (var command = _connection.CreateCommand())
+        {
+            command.CommandText = """
+                CREATE TABLE IF NOT EXISTS snapshots (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    started_at TEXT NOT NULL,
+                    completed_at TEXT NULL,
+                    status TEXT NOT NULL,
+                    bytes_transferred INTEGER NOT NULL DEFAULT 0,
+                    files_added INTEGER NOT NULL DEFAULT 0,
+                    files_changed INTEGER NOT NULL DEFAULT 0,
+                    files_moved INTEGER NOT NULL DEFAULT 0,
+                    files_deleted INTEGER NOT NULL DEFAULT 0,
+                    files_failed INTEGER NOT NULL DEFAULT 0
+                );
 
-            CREATE TABLE IF NOT EXISTS file_versions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                snapshot_id INTEGER NOT NULL REFERENCES snapshots(id),
-                relative_path TEXT NOT NULL,
-                previous_relative_path TEXT NULL,
-                content_hash TEXT NOT NULL,
-                size INTEGER NOT NULL,
-                source_modified_at TEXT NOT NULL,
-                change_kind TEXT NOT NULL,
-                recorded_at TEXT NOT NULL,
-                quick_hash TEXT NULL,
-                quick_hash_scheme INTEGER NULL
-            );
+                CREATE TABLE IF NOT EXISTS file_versions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    snapshot_id INTEGER NOT NULL REFERENCES snapshots(id),
+                    relative_path TEXT NOT NULL COLLATE NOCASE,
+                    previous_relative_path TEXT NULL,
+                    content_hash TEXT NOT NULL,
+                    size INTEGER NOT NULL,
+                    source_modified_at TEXT NOT NULL,
+                    change_kind TEXT NOT NULL,
+                    recorded_at TEXT NOT NULL,
+                    quick_hash TEXT NULL,
+                    quick_hash_scheme INTEGER NULL
+                );
 
-            CREATE INDEX IF NOT EXISTS idx_file_versions_relative_path ON file_versions(relative_path, id);
-            CREATE INDEX IF NOT EXISTS idx_file_versions_snapshot_id ON file_versions(snapshot_id);
-            CREATE INDEX IF NOT EXISTS idx_file_versions_content_hash ON file_versions(content_hash);
-            """;
-        command.ExecuteNonQuery();
+                CREATE INDEX IF NOT EXISTS idx_file_versions_relative_path ON file_versions(relative_path, id);
+                CREATE INDEX IF NOT EXISTS idx_file_versions_snapshot_id ON file_versions(snapshot_id);
+                CREATE INDEX IF NOT EXISTS idx_file_versions_content_hash ON file_versions(content_hash);
+                """;
+            command.ExecuteNonQuery();
+        }
+
+        MigrateFileVersionsCollationIfNeeded();
+    }
+
+    /// <summary>
+    /// A <c>profile.db</c> created before this fix has <c>file_versions</c> without
+    /// <c>COLLATE NOCASE</c> on <c>relative_path</c> - the <c>CREATE TABLE IF NOT EXISTS</c>
+    /// above is a no-op for it, since SQLite cannot alter a column's collation in place.
+    /// This recreates the table with the corrected collation, copies every existing row
+    /// across unchanged, and swaps it in. Guarded by inspecting the table's actual
+    /// recorded schema (via <c>sqlite_master</c>) rather than a separate version counter,
+    /// so it is a no-op - and safe to call on every startup - for already-migrated or
+    /// brand-new databases.
+    /// </summary>
+    private void MigrateFileVersionsCollationIfNeeded()
+    {
+        using (var check = _connection.CreateCommand())
+        {
+            check.CommandText = "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'file_versions'";
+            var tableSql = check.ExecuteScalar() as string;
+            if (tableSql is null || tableSql.Contains("COLLATE NOCASE", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+        }
+
+        using var transaction = _connection.BeginTransaction();
+        using (var migrate = _connection.CreateCommand())
+        {
+            migrate.Transaction = transaction;
+            migrate.CommandText = """
+                CREATE TABLE file_versions_migrated (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    snapshot_id INTEGER NOT NULL REFERENCES snapshots(id),
+                    relative_path TEXT NOT NULL COLLATE NOCASE,
+                    previous_relative_path TEXT NULL,
+                    content_hash TEXT NOT NULL,
+                    size INTEGER NOT NULL,
+                    source_modified_at TEXT NOT NULL,
+                    change_kind TEXT NOT NULL,
+                    recorded_at TEXT NOT NULL,
+                    quick_hash TEXT NULL,
+                    quick_hash_scheme INTEGER NULL
+                );
+
+                INSERT INTO file_versions_migrated
+                    (id, snapshot_id, relative_path, previous_relative_path, content_hash, size, source_modified_at, change_kind, recorded_at, quick_hash, quick_hash_scheme)
+                SELECT id, snapshot_id, relative_path, previous_relative_path, content_hash, size, source_modified_at, change_kind, recorded_at, quick_hash, quick_hash_scheme
+                FROM file_versions;
+
+                DROP TABLE file_versions;
+                ALTER TABLE file_versions_migrated RENAME TO file_versions;
+
+                UPDATE sqlite_sequence SET seq = (SELECT COALESCE(MAX(id), 0) FROM file_versions) WHERE name = 'file_versions';
+
+                CREATE INDEX IF NOT EXISTS idx_file_versions_relative_path ON file_versions(relative_path, id);
+                CREATE INDEX IF NOT EXISTS idx_file_versions_snapshot_id ON file_versions(snapshot_id);
+                CREATE INDEX IF NOT EXISTS idx_file_versions_content_hash ON file_versions(content_hash);
+                """;
+            migrate.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
     }
 
     public void Dispose() => _connection.Dispose();
