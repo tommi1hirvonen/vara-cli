@@ -394,6 +394,202 @@ public class SnapshotHistoryServiceTests
         Assert.Throws<NoMatchingVersionException>(() => service.OpenVersionsForDiff("a.txt", versionId, null, 9999, null));
     }
 
+    private const long OversizedForDiff = 10 * 1024 * 1024 + 1;
+
+    [Fact]
+    public void OpenVersionsForDiff_with_only_the_left_side_oversized_throws_DiffContentTooLarge()
+    {
+        var contentStore = new FakeContentStore();
+        var (hashV1, _) = contentStore.StoreFromStream(new MemoryStream("version one"u8.ToArray()));
+        var (hashV2, _) = contentStore.StoreFromStream(new MemoryStream("version two"u8.ToArray()));
+        var repository = new FakeSnapshotRepository();
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, "a.txt", null, hashV1, OversizedForDiff, t0, FileChangeKind.Added, t0);
+        var t1 = t0.AddDays(1);
+        var s2 = repository.BeginSnapshot(t1);
+        repository.RecordFileVersion(s2, "a.txt", null, hashV2, 11, t1, FileChangeKind.Changed, t1);
+        var versionIds = repository.GetFileHistory("a.txt").OrderBy(r => r.Id).Select(r => r.Id).ToList();
+        var service = new SnapshotHistoryService(repository, contentStore);
+
+        var ex = Assert.Throws<DiffContentTooLargeException>(() => service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null));
+
+        Assert.Equal(OversizedForDiff, ex.LeftSize);
+        Assert.Null(ex.RightSize);
+    }
+
+    [Fact]
+    public void OpenVersionsForDiff_with_only_the_right_side_oversized_throws_DiffContentTooLarge()
+    {
+        var contentStore = new FakeContentStore();
+        var (hashV1, _) = contentStore.StoreFromStream(new MemoryStream("version one"u8.ToArray()));
+        var (hashV2, _) = contentStore.StoreFromStream(new MemoryStream("version two"u8.ToArray()));
+        var repository = new FakeSnapshotRepository();
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, "a.txt", null, hashV1, 11, t0, FileChangeKind.Added, t0);
+        var t1 = t0.AddDays(1);
+        var s2 = repository.BeginSnapshot(t1);
+        repository.RecordFileVersion(s2, "a.txt", null, hashV2, OversizedForDiff, t1, FileChangeKind.Changed, t1);
+        var versionIds = repository.GetFileHistory("a.txt").OrderBy(r => r.Id).Select(r => r.Id).ToList();
+        var service = new SnapshotHistoryService(repository, contentStore);
+
+        var ex = Assert.Throws<DiffContentTooLargeException>(() => service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null));
+
+        Assert.Null(ex.LeftSize);
+        Assert.Equal(OversizedForDiff, ex.RightSize);
+    }
+
+    [Fact]
+    public void OpenVersionsForDiff_with_both_sides_oversized_throws_DiffContentTooLarge_naming_both()
+    {
+        var contentStore = new FakeContentStore();
+        var (hashV1, _) = contentStore.StoreFromStream(new MemoryStream("version one"u8.ToArray()));
+        var (hashV2, _) = contentStore.StoreFromStream(new MemoryStream("version two"u8.ToArray()));
+        var repository = new FakeSnapshotRepository();
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, "a.txt", null, hashV1, OversizedForDiff, t0, FileChangeKind.Added, t0);
+        var t1 = t0.AddDays(1);
+        var s2 = repository.BeginSnapshot(t1);
+        repository.RecordFileVersion(s2, "a.txt", null, hashV2, OversizedForDiff + 1, t1, FileChangeKind.Changed, t1);
+        var versionIds = repository.GetFileHistory("a.txt").OrderBy(r => r.Id).Select(r => r.Id).ToList();
+        var service = new SnapshotHistoryService(repository, contentStore);
+
+        var ex = Assert.Throws<DiffContentTooLargeException>(() => service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null));
+
+        Assert.Equal(OversizedForDiff, ex.LeftSize);
+        Assert.Equal(OversizedForDiff + 1, ex.RightSize);
+    }
+
+    private static byte[] BinaryContent(int nulOffset, int totalLength)
+    {
+        var bytes = new byte[totalLength];
+        Array.Fill(bytes, (byte)'x');
+        bytes[nulOffset] = 0;
+        return bytes;
+    }
+
+    [Fact]
+    public void OpenVersionsForDiff_with_only_the_left_side_binary_throws_DiffBinaryContent()
+    {
+        var contentStore = new FakeContentStore();
+        var (hashV1, _) = contentStore.StoreFromStream(new MemoryStream(BinaryContent(nulOffset: 5, totalLength: 20)));
+        var (hashV2, _) = contentStore.StoreFromStream(new MemoryStream("version two"u8.ToArray()));
+        var repository = new FakeSnapshotRepository();
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, "a.txt", null, hashV1, 20, t0, FileChangeKind.Added, t0);
+        var t1 = t0.AddDays(1);
+        var s2 = repository.BeginSnapshot(t1);
+        repository.RecordFileVersion(s2, "a.txt", null, hashV2, 11, t1, FileChangeKind.Changed, t1);
+        var versionIds = repository.GetFileHistory("a.txt").OrderBy(r => r.Id).Select(r => r.Id).ToList();
+        var service = new SnapshotHistoryService(repository, contentStore);
+
+        var ex = Assert.Throws<DiffBinaryContentException>(() => service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null));
+
+        Assert.True(ex.LeftIsBinary);
+        Assert.False(ex.RightIsBinary);
+    }
+
+    [Fact]
+    public void OpenVersionsForDiff_with_only_the_right_side_binary_throws_DiffBinaryContent()
+    {
+        var contentStore = new FakeContentStore();
+        var (hashV1, _) = contentStore.StoreFromStream(new MemoryStream("version one"u8.ToArray()));
+        var (hashV2, _) = contentStore.StoreFromStream(new MemoryStream(BinaryContent(nulOffset: 5, totalLength: 20)));
+        var repository = new FakeSnapshotRepository();
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, "a.txt", null, hashV1, 11, t0, FileChangeKind.Added, t0);
+        var t1 = t0.AddDays(1);
+        var s2 = repository.BeginSnapshot(t1);
+        repository.RecordFileVersion(s2, "a.txt", null, hashV2, 20, t1, FileChangeKind.Changed, t1);
+        var versionIds = repository.GetFileHistory("a.txt").OrderBy(r => r.Id).Select(r => r.Id).ToList();
+        var service = new SnapshotHistoryService(repository, contentStore);
+
+        var ex = Assert.Throws<DiffBinaryContentException>(() => service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null));
+
+        Assert.False(ex.LeftIsBinary);
+        Assert.True(ex.RightIsBinary);
+    }
+
+    [Fact]
+    public void OpenVersionsForDiff_with_both_sides_binary_throws_DiffBinaryContent_naming_both()
+    {
+        var contentStore = new FakeContentStore();
+        var (hashV1, _) = contentStore.StoreFromStream(new MemoryStream(BinaryContent(nulOffset: 3, totalLength: 20)));
+        var (hashV2, _) = contentStore.StoreFromStream(new MemoryStream(BinaryContent(nulOffset: 7, totalLength: 20)));
+        var repository = new FakeSnapshotRepository();
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, "a.txt", null, hashV1, 20, t0, FileChangeKind.Added, t0);
+        var t1 = t0.AddDays(1);
+        var s2 = repository.BeginSnapshot(t1);
+        repository.RecordFileVersion(s2, "a.txt", null, hashV2, 20, t1, FileChangeKind.Changed, t1);
+        var versionIds = repository.GetFileHistory("a.txt").OrderBy(r => r.Id).Select(r => r.Id).ToList();
+        var service = new SnapshotHistoryService(repository, contentStore);
+
+        var ex = Assert.Throws<DiffBinaryContentException>(() => service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null));
+
+        Assert.True(ex.LeftIsBinary);
+        Assert.True(ex.RightIsBinary);
+    }
+
+    [Fact]
+    public void OpenVersionsForDiff_with_a_NUL_byte_beyond_the_binary_sample_still_diffs_and_rewinds_the_stream()
+    {
+        // A NUL byte placed after the first 8000 bytes must not trip the binary check, and the
+        // sample read used to check for it must not leave the returned stream partially consumed.
+        var content = new byte[9000];
+        Array.Fill(content, (byte)'x');
+        content[8500] = 0;
+        var contentStore = new FakeContentStore();
+        var (hashV1, _) = contentStore.StoreFromStream(new MemoryStream(content));
+        var (hashV2, _) = contentStore.StoreFromStream(new MemoryStream("version two"u8.ToArray()));
+        var repository = new FakeSnapshotRepository();
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, "a.txt", null, hashV1, content.Length, t0, FileChangeKind.Added, t0);
+        var t1 = t0.AddDays(1);
+        var s2 = repository.BeginSnapshot(t1);
+        repository.RecordFileVersion(s2, "a.txt", null, hashV2, 11, t1, FileChangeKind.Changed, t1);
+        var versionIds = repository.GetFileHistory("a.txt").OrderBy(r => r.Id).Select(r => r.Id).ToList();
+        var service = new SnapshotHistoryService(repository, contentStore);
+
+        var (left, right) = service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null);
+        using var leftStream = left;
+        using var rightStream = right;
+        using var leftBuffer = new MemoryStream();
+        leftStream.CopyTo(leftBuffer);
+
+        Assert.Equal(content, leftBuffer.ToArray());
+    }
+
+    [Fact]
+    public void OpenVersionsForDiff_with_one_side_oversized_and_the_other_binary_reports_only_the_size_error()
+    {
+        // Size is checked before binary sampling, so a comparison already refused on size never
+        // even samples the other side for binary content.
+        var contentStore = new FakeContentStore();
+        var (hashV1, _) = contentStore.StoreFromStream(new MemoryStream("version one"u8.ToArray()));
+        var (hashV2, _) = contentStore.StoreFromStream(new MemoryStream(BinaryContent(nulOffset: 5, totalLength: 20)));
+        var repository = new FakeSnapshotRepository();
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, "a.txt", null, hashV1, OversizedForDiff, t0, FileChangeKind.Added, t0);
+        var t1 = t0.AddDays(1);
+        var s2 = repository.BeginSnapshot(t1);
+        repository.RecordFileVersion(s2, "a.txt", null, hashV2, 20, t1, FileChangeKind.Changed, t1);
+        var versionIds = repository.GetFileHistory("a.txt").OrderBy(r => r.Id).Select(r => r.Id).ToList();
+        var service = new SnapshotHistoryService(repository, contentStore);
+
+        var ex = Assert.Throws<DiffContentTooLargeException>(() => service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null));
+
+        Assert.Equal(OversizedForDiff, ex.LeftSize);
+        Assert.Null(ex.RightSize);
+    }
+
     [Fact]
     public void ListDirectory_returns_only_live_entries_by_default()
     {

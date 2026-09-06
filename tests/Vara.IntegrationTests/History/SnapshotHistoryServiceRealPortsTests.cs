@@ -206,6 +206,51 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
     }
 
     [Fact]
+    public void OpenVersionsForDiff_refuses_an_oversized_version_against_real_stored_content()
+    {
+        var oversizedContent = new byte[10 * 1024 * 1024 + 1];
+        Array.Fill(oversizedContent, (byte)'a');
+        var (hashV1, sizeV1) = ContentStore.StoreFromStream(new MemoryStream(oversizedContent));
+        var (hashV2, sizeV2) = ContentStore.StoreFromStream(new MemoryStream("version two"u8.ToArray()));
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = Repository.BeginSnapshot(t0);
+        Repository.RecordFileVersion(s1, "big.log", null, hashV1, sizeV1, t0, FileChangeKind.Added, t0);
+        var t1 = t0.AddDays(1);
+        var s2 = Repository.BeginSnapshot(t1);
+        Repository.RecordFileVersion(s2, "big.log", null, hashV2, sizeV2, t1, FileChangeKind.Changed, t1);
+        var versionIds = Repository.GetFileHistory("big.log").OrderBy(r => r.Id).Select(r => r.Id).ToList();
+        var service = new SnapshotHistoryService(Repository, ContentStore);
+
+        var ex = Assert.Throws<DiffContentTooLargeException>(() => service.OpenVersionsForDiff("big.log", versionIds[0], null, versionIds[1], null));
+
+        Assert.Equal(sizeV1, ex.LeftSize);
+        Assert.Null(ex.RightSize);
+    }
+
+    [Fact]
+    public void OpenVersionsForDiff_refuses_binary_content_against_real_stored_content()
+    {
+        var binaryContent = new byte[20];
+        Array.Fill(binaryContent, (byte)'x');
+        binaryContent[5] = 0;
+        var (hashV1, sizeV1) = ContentStore.StoreFromStream(new MemoryStream(binaryContent));
+        var (hashV2, sizeV2) = ContentStore.StoreFromStream(new MemoryStream("version two"u8.ToArray()));
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = Repository.BeginSnapshot(t0);
+        Repository.RecordFileVersion(s1, "image.png", null, hashV1, sizeV1, t0, FileChangeKind.Added, t0);
+        var t1 = t0.AddDays(1);
+        var s2 = Repository.BeginSnapshot(t1);
+        Repository.RecordFileVersion(s2, "image.png", null, hashV2, sizeV2, t1, FileChangeKind.Changed, t1);
+        var versionIds = Repository.GetFileHistory("image.png").OrderBy(r => r.Id).Select(r => r.Id).ToList();
+        var service = new SnapshotHistoryService(Repository, ContentStore);
+
+        var ex = Assert.Throws<DiffBinaryContentException>(() => service.OpenVersionsForDiff("image.png", versionIds[0], null, versionIds[1], null));
+
+        Assert.True(ex.LeftIsBinary);
+        Assert.False(ex.RightIsBinary);
+    }
+
+    [Fact]
     public void RestoreAsOf_in_place_writes_back_to_the_original_absolute_source_path()
     {
         // Simulates restore --in-place: the CLI computes the destination via

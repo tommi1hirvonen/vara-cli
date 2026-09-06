@@ -140,12 +140,31 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
     }
 
     /// <summary>
+    /// The largest a single resolved version's recorded size may be for <see cref="OpenVersionsForDiff"/>
+    /// to diff it, per the snapshot-history spec's "Refusing an oversized version" scenario.
+    /// </summary>
+    private const long MaxDiffContentSize = 10 * 1024 * 1024;
+
+    /// <summary>
+    /// The number of leading bytes sampled from each side to detect binary content in
+    /// <see cref="OpenVersionsForDiff"/>, per the snapshot-history spec's "Refusing binary
+    /// content" scenario. Matches the sample size Git itself uses for the same NUL-byte
+    /// heuristic.
+    /// </summary>
+    private const int BinarySampleSize = 8000;
+
+    /// <summary>
     /// Opens two versions of the same path - each resolved by its own version id or "as of"
     /// date, independently, exactly as <see cref="RestoreVersion"/>/<see cref="RestoreAsOf"/>
-    /// resolve theirs - for a caller to diff. The caller owns and disposes both streams.
+    /// resolve theirs - for a caller to diff. The caller owns and disposes both streams. Refuses
+    /// the comparison, before either side's full content is read, when either side's recorded
+    /// size exceeds <see cref="MaxDiffContentSize"/> or either side's content is detected as
+    /// binary from its leading <see cref="BinarySampleSize"/> bytes.
     /// </summary>
     /// <exception cref="NoHistoryForPathException">The path was never part of any recorded snapshot.</exception>
     /// <exception cref="NoMatchingVersionException">No such version id/date exists for either side.</exception>
+    /// <exception cref="DiffContentTooLargeException">Either resolved version's recorded size exceeds the diff size limit.</exception>
+    /// <exception cref="DiffBinaryContentException">Either resolved version's content is detected as binary.</exception>
     public (Stream Left, Stream Right) OpenVersionsForDiff(
         string relativePath,
         long? leftVersionId,
@@ -155,7 +174,57 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
     {
         var left = ResolveVersion(relativePath, leftVersionId, leftAsOf);
         var right = ResolveVersion(relativePath, rightVersionId, rightAsOf);
-        return (contentStore.OpenRead(left.ContentHash), contentStore.OpenRead(right.ContentHash));
+
+        var leftTooLarge = left.Size > MaxDiffContentSize;
+        var rightTooLarge = right.Size > MaxDiffContentSize;
+        if (leftTooLarge || rightTooLarge)
+        {
+            throw new DiffContentTooLargeException(
+                relativePath,
+                MaxDiffContentSize,
+                leftTooLarge ? left.Size : null,
+                rightTooLarge ? right.Size : null);
+        }
+
+        var leftStream = contentStore.OpenRead(left.ContentHash);
+        var rightStream = contentStore.OpenRead(right.ContentHash);
+        try
+        {
+            var leftIsBinary = LooksBinary(leftStream);
+            var rightIsBinary = LooksBinary(rightStream);
+            if (leftIsBinary || rightIsBinary)
+            {
+                throw new DiffBinaryContentException(relativePath, leftIsBinary, rightIsBinary);
+            }
+
+            return (leftStream, rightStream);
+        }
+        catch
+        {
+            leftStream.Dispose();
+            rightStream.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Reads up to <see cref="BinarySampleSize"/> leading bytes from <paramref name="stream"/>
+    /// and checks them for a NUL byte - the same heuristic Git uses to detect binary content -
+    /// then rewinds the stream back to its start so a caller that goes on to read it (or is
+    /// itself refused for another reason) sees its content from the beginning.
+    /// </summary>
+    private static bool LooksBinary(Stream stream)
+    {
+        var buffer = new byte[BinarySampleSize];
+        var totalRead = 0;
+        int bytesRead;
+        while (totalRead < buffer.Length && (bytesRead = stream.Read(buffer, totalRead, buffer.Length - totalRead)) > 0)
+        {
+            totalRead += bytesRead;
+        }
+
+        stream.Position = 0;
+        return Array.IndexOf(buffer, (byte)0, 0, totalRead) >= 0;
     }
 
     /// <summary>

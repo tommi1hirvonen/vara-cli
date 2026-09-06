@@ -71,7 +71,9 @@ public static class ErrorReporting
                 or DestinationExistsException
                 or RestoreDirectoryConfirmationRequiredException
                 or NoSuchDirectoryException
-                or InvalidDateTimeOptionException:
+                or InvalidDateTimeOptionException
+                or DiffContentTooLargeException
+                or DiffBinaryContentException:
                 message = ex.Message;
                 return true;
             default:

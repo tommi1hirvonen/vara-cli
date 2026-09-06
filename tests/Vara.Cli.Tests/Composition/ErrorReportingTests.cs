@@ -95,4 +95,36 @@ public class ErrorReportingTests
         Assert.Contains("Error: Restoring directory 'src\\docs' will write 3 file(s) and remove 1 file(s).", console.Output);
         Assert.DoesNotContain("RestoreDirectoryConfirmationRequiredException", console.Output);
     }
+
+    [Fact]
+    public void DiffContentTooLargeException_takes_the_friendly_message_path()
+    {
+        var console = new TestConsole { EmitAnsiSequences = true };
+        console.Profile.Capabilities.Ansi = true;
+        console.Profile.Capabilities.ColorSystem = Spectre.Console.ColorSystem.EightBit;
+
+        var exitCode = ErrorReporting.Run(
+            () => throw new Vara.Core.Snapshots.DiffContentTooLargeException(@"src\big.log", 10 * 1024 * 1024, 12_000_000, null),
+            console);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Error: Cannot diff 'src\\big.log'", console.Output);
+        Assert.DoesNotContain("DiffContentTooLargeException", console.Output);
+    }
+
+    [Fact]
+    public void DiffBinaryContentException_takes_the_friendly_message_path()
+    {
+        var console = new TestConsole { EmitAnsiSequences = true };
+        console.Profile.Capabilities.Ansi = true;
+        console.Profile.Capabilities.ColorSystem = Spectre.Console.ColorSystem.EightBit;
+
+        var exitCode = ErrorReporting.Run(
+            () => throw new Vara.Core.Snapshots.DiffBinaryContentException(@"src\image.png", leftIsBinary: true, rightIsBinary: false),
+            console);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Error: Cannot diff 'src\\image.png'", console.Output);
+        Assert.DoesNotContain("DiffBinaryContentException", console.Output);
+    }
 }

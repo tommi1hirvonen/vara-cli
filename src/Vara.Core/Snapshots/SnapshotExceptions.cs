@@ -48,6 +48,83 @@ public sealed class NoMatchingVersionException : Exception
 }
 
 /// <summary>
+/// A diff was requested where at least one resolved version's recorded size exceeds the diff
+/// size limit (snapshot-history spec: "Refusing an oversized version"). Raised before either
+/// version's full content is read into memory. Only the side(s) that actually exceed the limit
+/// are included in <see cref="LeftSize"/>/<see cref="RightSize"/> and named in the message.
+/// </summary>
+public sealed class DiffContentTooLargeException : Exception
+{
+    public string RelativePath { get; }
+    public long Limit { get; }
+    public long? LeftSize { get; }
+    public long? RightSize { get; }
+
+    public DiffContentTooLargeException(string relativePath, long limit, long? leftSize, long? rightSize)
+        : base(BuildMessage(relativePath, limit, leftSize, rightSize))
+    {
+        RelativePath = relativePath;
+        Limit = limit;
+        LeftSize = leftSize;
+        RightSize = rightSize;
+    }
+
+    private static string BuildMessage(string relativePath, long limit, long? leftSize, long? rightSize)
+    {
+        var sides = new List<string>();
+        if (leftSize is { } left)
+        {
+            sides.Add($"left side is {left:N0} bytes");
+        }
+
+        if (rightSize is { } right)
+        {
+            sides.Add($"right side is {right:N0} bytes");
+        }
+
+        return $"Cannot diff '{relativePath}': {string.Join(" and ", sides)}, exceeding the {limit:N0}-byte diff size limit.";
+    }
+}
+
+/// <summary>
+/// A diff was requested where at least one resolved version's content was detected as binary
+/// from a bounded initial sample of its bytes (snapshot-history spec: "Refusing binary
+/// content"). Raised before either version's full content is read into memory. Only the side(s)
+/// actually detected as binary are reflected in <see cref="LeftIsBinary"/>/<see cref="RightIsBinary"/>
+/// and named in the message.
+/// </summary>
+public sealed class DiffBinaryContentException : Exception
+{
+    public string RelativePath { get; }
+    public bool LeftIsBinary { get; }
+    public bool RightIsBinary { get; }
+
+    public DiffBinaryContentException(string relativePath, bool leftIsBinary, bool rightIsBinary)
+        : base(BuildMessage(relativePath, leftIsBinary, rightIsBinary))
+    {
+        RelativePath = relativePath;
+        LeftIsBinary = leftIsBinary;
+        RightIsBinary = rightIsBinary;
+    }
+
+    private static string BuildMessage(string relativePath, bool leftIsBinary, bool rightIsBinary)
+    {
+        var sides = new List<string>();
+        if (leftIsBinary)
+        {
+            sides.Add("left side");
+        }
+
+        if (rightIsBinary)
+        {
+            sides.Add("right side");
+        }
+
+        return $"Cannot diff '{relativePath}': {string.Join(" and ", sides)} appears to be binary content.";
+    }
+}
+
+/// <summary>
 /// A restore was requested to a destination path that resolves inside the profile's live
 /// mirror. Refused unconditionally, since restore's contract is to extract content without
 /// touching the live mirror.
