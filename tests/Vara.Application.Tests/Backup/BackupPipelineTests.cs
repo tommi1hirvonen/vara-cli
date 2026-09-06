@@ -368,6 +368,39 @@ public class BackupPipelineTests : IDisposable
         Assert.True(current.ContainsKey("photo.jpg"));
     }
 
+    [Fact]
+    public void A_secondary_failure_while_recording_the_original_failure_does_not_replace_it()
+    {
+        var repository = new FakeSnapshotRepository();
+        var pipeline = new BackupPipeline(new ThrowingScanner(), new FakeHasher(), new FakeContentStore(), repository, new FakeRunLock());
+
+        // The catch block's own manifestBatch.Commit() call - made while recording the
+        // run's Failed status - is forced to throw a second, unrelated exception here.
+        repository.ThrowOnNextCommit = new InvalidOperationException("commit failed while recording failure");
+
+        // The original scan failure must still be what propagates, not the secondary
+        // commit failure encountered while trying to record it.
+        var ex = Assert.Throws<InvalidOperationException>(() => pipeline.Run(SimpleProfile(_root)));
+        Assert.Equal("scan failed", ex.Message);
+    }
+
+    [Fact]
+    public void A_secondary_failure_while_recording_the_original_failure_is_still_surfaced_via_diagnostics()
+    {
+        var repository = new FakeSnapshotRepository();
+        var diagnostics = new StringWriter();
+        var pipeline = new BackupPipeline(new ThrowingScanner(), new FakeHasher(), new FakeContentStore(), repository, new FakeRunLock(), diagnostics);
+
+        repository.ThrowOnNextCommit = new InvalidOperationException("commit failed while recording failure");
+
+        Assert.Throws<InvalidOperationException>(() => pipeline.Run(SimpleProfile(_root)));
+
+        // The secondary exception isn't silently discarded - it's still observable
+        // through the diagnostics channel, even though it never becomes the exception
+        // the caller sees.
+        Assert.Contains("commit failed while recording failure", diagnostics.ToString());
+    }
+
     private sealed class ThrowingScanner : IFileSystemScanner
     {
         public ScanResult Scan(IReadOnlyList<Source> sources) => throw new InvalidOperationException("scan failed");

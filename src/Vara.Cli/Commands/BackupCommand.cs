@@ -49,6 +49,10 @@ public static class BackupCommand
     // manual heartbeat timer is needed any more.
     private static BackupRunResult RunWithLiveDisplay(BackupPipeline pipeline, Vara.Core.Configuration.Profile profile, IAnsiConsole console)
     {
+        // Bounded per design.md's "bounded timeout ... best-effort" decision: long enough
+        // to cover the handful of reports racing the final one in practice, short enough
+        // that a stuck callback can never hang the CLI's exit.
+        var drainTimeout = TimeSpan.FromSeconds(2);
         var calculator = new BackupProgressCalculator();
         var displayGate = new ProgressDisplayGate();
         var column = new BackupProgressColumn(calculator);
@@ -93,7 +97,14 @@ public static class BackupCommand
                     ctx.Refresh();
                 }
 
-                var progress = new Progress<BackupProgress>(p => displayGate.Report(p, Render));
+                // Progress<T> has no SynchronizationContext to capture in a console app,
+                // so it always dispatches Report callbacks via the thread pool,
+                // asynchronously relative to the call site - including the run's final
+                // report, which can race pipeline.Run's return. TrackedProgress mimics
+                // that same thread-pool dispatch but also tracks outstanding deliveries,
+                // so drainTimeout below can bound how long teardown waits for them,
+                // per design.md's "drain" decision.
+                var progress = new TrackedProgress<BackupProgress>(p => displayGate.Report(p, Render));
 
                 // The bar's final color reflects the run's actual outcome, not the
                 // byte-based percentage BackupProgressColumn happened to reach - stamped
@@ -106,6 +117,7 @@ public static class BackupCommand
                 try
                 {
                     result = pipeline.Run(profile, progress);
+                    progress.TryDrain(drainTimeout);
 
                     var outcome = ResolveOutcome(result);
                     (barTask ?? scanTask).State.Update(BackupProgressColumn.OutcomeKey, (BackupProgressOutcome _) => outcome);
@@ -113,6 +125,7 @@ public static class BackupCommand
                 }
                 catch
                 {
+                    progress.TryDrain(drainTimeout);
                     (barTask ?? scanTask).State.Update(BackupProgressColumn.OutcomeKey, (BackupProgressOutcome _) => BackupProgressOutcome.Error);
                     ctx.Refresh();
                     throw;

@@ -15,8 +15,17 @@ public sealed class BackupPipeline(
     IHasher hasher,
     IContentStore contentStore,
     ISnapshotRepository repository,
-    IRunLock runLock)
+    IRunLock runLock,
+    TextWriter? diagnostics = null)
 {
+    // Defaults to real standard error - the same physical stream Vara.Cli's
+    // StandardError.Console writes user-facing hard errors to - so a secondary
+    // failure recorded here (see the catch block below) remains observable outside
+    // of tests without this layer needing a dependency on Vara.Cli/Spectre.
+    // Overridable so tests can assert against an in-memory writer instead.
+    private readonly TextWriter _diagnostics = diagnostics ?? Console.Error;
+
+
     public BackupRunResult Run(Profile profile, IProgress<BackupProgress>? progress = null)
     {
         using (runLock)
@@ -114,8 +123,25 @@ public sealed class BackupPipeline(
                 // snapshot's Failed status and whatever rows were recorded should persist
                 // rather than vanish, so history/listing reflect the failed run instead of
                 // relying on ReconcileIncompleteSnapshots to notice it next startup.
-                repository.FailSnapshot(snapshotId, DateTimeOffset.UtcNow, SnapshotStats.Empty);
-                manifestBatch.Commit();
+                //
+                // Failure recording is isolated in its own try/catch so that a secondary
+                // exception here (e.g. FailSnapshot or Commit itself throwing) can never
+                // replace the original exception being handled by this catch block - the
+                // bare `throw;` below always rethrows that original exception, regardless
+                // of whether recording succeeded. The secondary exception is not silently
+                // discarded: it is surfaced via `_diagnostics` so it stays observable
+                // even though it does not become the exception the caller sees.
+                try
+                {
+                    repository.FailSnapshot(snapshotId, DateTimeOffset.UtcNow, SnapshotStats.Empty);
+                    manifestBatch.Commit();
+                }
+                catch (Exception recordingException)
+                {
+                    _diagnostics.WriteLine(
+                        $"Failed to record snapshot {snapshotId}'s failure state: {recordingException}");
+                }
+
                 throw;
             }
         }

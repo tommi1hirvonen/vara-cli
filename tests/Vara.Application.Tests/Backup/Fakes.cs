@@ -257,6 +257,12 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
     /// assert that many manifest writes fold into one commit rather than one-per-file.</summary>
     public int CommitCount { get; private set; }
 
+    /// <summary>When set, the next <see cref="IManifestBatch.Commit"/> call throws this
+    /// exception instead of committing - used to simulate a secondary failure while
+    /// <see cref="BackupPipeline"/>'s catch block is itself trying to record a run's
+    /// failure state.</summary>
+    public Exception? ThrowOnNextCommit { get; set; }
+
     public void Dispose() { }
 
     public void ReconcileIncompleteSnapshots()
@@ -369,6 +375,12 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
             if (_finished)
             {
                 return;
+            }
+
+            if (owner.ThrowOnNextCommit is { } exception)
+            {
+                owner.ThrowOnNextCommit = null;
+                throw exception;
             }
 
             owner.CommitBatch();
