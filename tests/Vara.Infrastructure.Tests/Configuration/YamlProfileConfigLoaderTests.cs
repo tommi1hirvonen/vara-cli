@@ -131,6 +131,18 @@ public class YamlProfileConfigLoaderTests
     }
 
     [Fact]
+    public void Configuration_file_with_a_yaml_syntax_error_throws_a_malformed_error()
+    {
+        var path = WriteTempConfig(
+            "profiles:\n" +
+            "  - name: files\n" +
+            "        target: 'D:\\backup'\n"); // inconsistent indentation - invalid YAML
+
+        var ex = Assert.Throws<ProfileConfigMalformedException>(() => _loader.LoadProfiles(path));
+        Assert.Equal(path, ex.ConfigPath);
+    }
+
+    [Fact]
     public void Empty_configuration_file_produces_zero_profiles_without_throwing()
     {
         var path = WriteTempConfig(

@@ -1,5 +1,6 @@
 using Vara.Core.Abstractions;
 using Vara.Core.Configuration;
+using YamlDotNet.Core;
 using YamlDotNet.RepresentationModel;
 
 namespace Vara.Infrastructure.Configuration;
@@ -25,7 +26,15 @@ public sealed class YamlProfileConfigLoader : IProfileConfigLoader
 
         using var reader = new StreamReader(configPath);
         var yamlStream = new YamlStream();
-        yamlStream.Load(reader);
+
+        try
+        {
+            yamlStream.Load(reader);
+        }
+        catch (YamlException ex)
+        {
+            throw new ProfileConfigMalformedException(configPath, $"could not be parsed as YAML - {ex.Message}");
+        }
 
         if (yamlStream.Documents.Count == 0)
         {

@@ -70,7 +70,8 @@ public static class ErrorReporting
                 or RestoreDestinationInMirrorException
                 or DestinationExistsException
                 or RestoreDirectoryConfirmationRequiredException
-                or NoSuchDirectoryException:
+                or NoSuchDirectoryException
+                or InvalidDateTimeOptionException:
                 message = ex.Message;
                 return true;
             default:

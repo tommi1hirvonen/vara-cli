@@ -1,5 +1,4 @@
 using System.CommandLine;
-using System.Globalization;
 using Spectre.Console;
 using Vara.Application.Backup;
 using Vara.Application.History;
@@ -20,7 +19,7 @@ public static class RestoreCommand
         var pathArgument = new Argument<string>("path") { Description = "The file (or, with --recursive, directory) to restore - a mirror-relative path, an absolute source path, or a path relative to the current directory." };
         var outOption = new Option<string?>("--out") { Description = "Destination path to write the restored content to. Mutually exclusive with --in-place." };
         var inPlaceOption = new Option<bool>("--in-place") { Description = "Restore back to the original source location instead of an explicit --out destination. Mutually exclusive with --out." };
-        var atOption = new Option<string?>("--at") { Description = "Restore the version current as of this date/time. With --recursive, omitting this restores the directory's current tracked state." };
+        var atOption = new Option<string?>("--at") { Description = "Restore the version current as of this date/time (for example, '2025-01-15' or '2025-01-15 14:30'). With --recursive, omitting this restores the directory's current tracked state." };
         var versionOption = new Option<long?>("--version") { Description = "Restore this specific version id (see the 'history' command). If neither this nor --at is given in an interactive session, a version picker is shown instead. Mutually exclusive with --recursive." };
         var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
         var forceOption = new Option<bool>("--force") { Description = "Skip the overwrite confirmation (single-file restore) or the single directory-restore confirmation (--recursive) without prompting." };
@@ -257,7 +256,7 @@ public static class RestoreCommand
         }
         else
         {
-            var asOf = DateTimeOffset.Parse(at!, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal);
+            var asOf = DateTimeOptionParser.Parse("--at", at!);
             history.RestoreAsOf(path, asOf, outPath, overwrite, onBytesCopied, onSizeResolved);
         }
     }
@@ -288,7 +287,7 @@ public static class RestoreCommand
 
         var asOf = at is null
             ? (DateTimeOffset?)null
-            : DateTimeOffset.Parse(at, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal);
+            : DateTimeOptionParser.Parse("--at", at);
 
         var plan = history.PlanDirectoryRestore(resolvedPath, asOf, outPath, inPlace);
 

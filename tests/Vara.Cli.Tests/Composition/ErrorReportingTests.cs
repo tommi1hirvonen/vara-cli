@@ -65,6 +65,22 @@ public class ErrorReportingTests
     }
 
     [Fact]
+    public void InvalidDateTimeOptionException_takes_the_friendly_message_path()
+    {
+        var console = new TestConsole { EmitAnsiSequences = true };
+        console.Profile.Capabilities.Ansi = true;
+        console.Profile.Capabilities.ColorSystem = Spectre.Console.ColorSystem.EightBit;
+
+        var exitCode = ErrorReporting.Run(
+            () => throw new InvalidDateTimeOptionException("--at", "yesterday"),
+            console);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Error: Invalid value 'yesterday' for option '--at'", console.Output);
+        Assert.DoesNotContain("InvalidDateTimeOptionException", console.Output);
+    }
+
+    [Fact]
     public void RestoreDirectoryConfirmationRequired_takes_the_friendly_message_path()
     {
         var console = new TestConsole { EmitAnsiSequences = true };

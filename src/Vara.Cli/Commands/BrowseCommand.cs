@@ -1,5 +1,4 @@
 using System.CommandLine;
-using System.Globalization;
 using Spectre.Console;
 using Vara.Application.History;
 using Vara.Application.Profiles;
@@ -19,7 +18,7 @@ public static class BrowseCommand
             Arity = ArgumentArity.ZeroOrOne,
             DefaultValueFactory = _ => ".",
         };
-        var atOption = new Option<string?>("--at") { Description = "List the directory's contents as of this date/time instead of now." };
+        var atOption = new Option<string?>("--at") { Description = "List the directory's contents as of this date/time instead of now (for example, '2025-01-15' or '2025-01-15 14:30')." };
         var deletedOption = new Option<bool>("--deleted") { Description = "Include deleted entries, interleaved among live ones and visually marked." };
         var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
 
@@ -43,7 +42,7 @@ public static class BrowseCommand
                 var history = new SnapshotHistoryService(services.Repository, services.ContentStore);
 
                 var resolvedDirectory = DirectoryArgumentResolver.Resolve(profile.TargetRoot, directory, services.Repository);
-                var asOf = at is null ? (DateTimeOffset?)null : DateTimeOffset.Parse(at, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal);
+                var asOf = at is null ? (DateTimeOffset?)null : DateTimeOptionParser.Parse("--at", at);
 
                 var entries = history.ListDirectory(resolvedDirectory, asOf, includeDeleted);
                 DirectoryListingPresenter.Render(AnsiConsole.Console, entries);

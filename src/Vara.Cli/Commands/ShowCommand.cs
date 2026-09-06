@@ -1,5 +1,4 @@
 using System.CommandLine;
-using System.Globalization;
 using Vara.Application.History;
 using Vara.Application.Profiles;
 using Vara.Cli.Composition;
@@ -13,7 +12,7 @@ public static class ShowCommand
     {
         var profileOption = new Option<string?>("--profile") { Description = "The profile to query. Optional when the current directory is inside a profile's target root." };
         var pathArgument = new Argument<string>("path") { Description = "The file whose content to show - a mirror-relative path, an absolute source path, or a path relative to the current directory." };
-        var atOption = new Option<string?>("--at") { Description = "Show the version current as of this date/time." };
+        var atOption = new Option<string?>("--at") { Description = "Show the version current as of this date/time (for example, '2025-01-15' or '2025-01-15 14:30')." };
         var versionOption = new Option<long?>("--version") { Description = "Show this specific version id (see the 'history' command)." };
         var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
 
@@ -50,7 +49,7 @@ public static class ShowCommand
                     ? candidatePath
                     : path;
 
-                var asOf = at is null ? (DateTimeOffset?)null : DateTimeOffset.Parse(at, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal);
+                var asOf = at is null ? (DateTimeOffset?)null : DateTimeOptionParser.Parse("--at", at);
 
                 using var stdout = Console.OpenStandardOutput();
                 history.ShowVersion(resolvedPath, version, asOf, stdout);

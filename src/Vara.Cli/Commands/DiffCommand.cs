@@ -1,5 +1,4 @@
 using System.CommandLine;
-using System.Globalization;
 using DiffPlex;
 using DiffPlex.DiffBuilder;
 using DiffPlex.DiffBuilder.Model;
@@ -17,9 +16,9 @@ public static class DiffCommand
     {
         var profileOption = new Option<string?>("--profile") { Description = "The profile to query. Optional when the current directory is inside a profile's target root." };
         var pathArgument = new Argument<string>("path") { Description = "The file whose versions to diff - a mirror-relative path, an absolute source path, or a path relative to the current directory." };
-        var leftAtOption = new Option<string?>("--left-at") { Description = "The earlier side of the diff: the version current as of this date/time." };
+        var leftAtOption = new Option<string?>("--left-at") { Description = "The earlier side of the diff: the version current as of this date/time (for example, '2025-01-15' or '2025-01-15 14:30')." };
         var leftVersionOption = new Option<long?>("--left-version") { Description = "The earlier side of the diff: this specific version id." };
-        var rightAtOption = new Option<string?>("--right-at") { Description = "The later side of the diff: the version current as of this date/time." };
+        var rightAtOption = new Option<string?>("--right-at") { Description = "The later side of the diff: the version current as of this date/time (for example, '2025-01-15' or '2025-01-15 14:30')." };
         var rightVersionOption = new Option<long?>("--right-version") { Description = "The later side of the diff: this specific version id." };
         var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
 
@@ -64,8 +63,8 @@ public static class DiffCommand
                     ? candidatePath
                     : path;
 
-                var leftAsOf = leftAt is null ? (DateTimeOffset?)null : DateTimeOffset.Parse(leftAt, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal);
-                var rightAsOf = rightAt is null ? (DateTimeOffset?)null : DateTimeOffset.Parse(rightAt, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal);
+                var leftAsOf = leftAt is null ? (DateTimeOffset?)null : DateTimeOptionParser.Parse("--left-at", leftAt);
+                var rightAsOf = rightAt is null ? (DateTimeOffset?)null : DateTimeOptionParser.Parse("--right-at", rightAt);
 
                 var (left, right) = history.OpenVersionsForDiff(resolvedPath, leftVersion, leftAsOf, rightVersion, rightAsOf);
                 using (left)
