@@ -35,6 +35,12 @@ public static class ShowCommand
                 return 1;
             }
 
+            if (at is not null && version is not null)
+            {
+                OutcomeStyle.WriteLineError(StandardError.Console, "Error: --at and --version are mutually exclusive.");
+                return 1;
+            }
+
             return ErrorReporting.Run(() =>
             {
                 var profile = profileResolver.ResolveForBrowsing(profileName, configPath);

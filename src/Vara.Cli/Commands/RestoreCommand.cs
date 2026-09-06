@@ -60,6 +60,12 @@ public static class RestoreCommand
                 return 1;
             }
 
+            if (at is not null && version is not null)
+            {
+                OutcomeStyle.WriteLineError(StandardError.Console, "Error: --at and --version are mutually exclusive.");
+                return 1;
+            }
+
             // Whether an interactive version picker can be shown when neither --at nor
             // --version is given - requires both a real, non-redirected input stream (to read
             // the user's selection) and a console capable of rendering the picker itself.

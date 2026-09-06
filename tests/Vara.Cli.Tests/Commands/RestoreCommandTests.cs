@@ -9,9 +9,9 @@ namespace Vara.Cli.Tests.Commands;
 
 public class RestoreCommandTests
 {
-    // Neither dependency is ever exercised by the tests below: --recursive/--version
-    // mutual exclusion (like --out/--in-place's existing check) is validated by
-    // RestoreCommand.Create's parsed-args handler before profile resolution or service
+    // Neither dependency is ever exercised by the tests below: --recursive/--version and
+    // --at/--version mutual exclusion (like --out/--in-place's existing check) is validated
+    // by RestoreCommand.Create's parsed-args handler before profile resolution or service
     // construction is ever reached, so a real profile/hasher is unnecessary here.
     private sealed class UnusedProfileConfigLoader : IProfileConfigLoader
     {
@@ -44,6 +44,16 @@ public class RestoreCommandTests
 
         // --recursive alone doesn't bypass the pre-existing --out/--in-place requirement.
         var exitCode = command.Parse(["src", "--recursive"]).Invoke();
+
+        Assert.Equal(1, exitCode);
+    }
+
+    [Fact]
+    public void At_combined_with_version_is_rejected_before_any_profile_resolution()
+    {
+        var command = CreateCommand();
+
+        var exitCode = command.Parse(["src", "--at", "2025-01-15", "--version", "5", "--out", @"C:\out"]).Invoke();
 
         Assert.Equal(1, exitCode);
     }

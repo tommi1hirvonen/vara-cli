@@ -43,9 +43,21 @@ public static class DiffCommand
                 return 1;
             }
 
+            if (leftAt is not null && leftVersion is not null)
+            {
+                OutcomeStyle.WriteLineError(StandardError.Console, "Error: --left-at and --left-version are mutually exclusive.");
+                return 1;
+            }
+
             if (rightAt is null && rightVersion is null)
             {
                 OutcomeStyle.WriteLineError(StandardError.Console, "Error: specify either --right-at <date> or --right-version <id>.");
+                return 1;
+            }
+
+            if (rightAt is not null && rightVersion is not null)
+            {
+                OutcomeStyle.WriteLineError(StandardError.Console, "Error: --right-at and --right-version are mutually exclusive.");
                 return 1;
             }
 
