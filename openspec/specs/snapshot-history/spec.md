@@ -7,7 +7,7 @@ Lets a user see what backups have been taken over time and recover a file's cont
 ## Requirements
 
 ### Requirement: List snapshots
-The system SHALL provide a command that lists the recorded snapshots for a profile, including each snapshot's timestamp and summary statistics, presented as an aligned table with column headers so each field lines up across rows, with each row's status rendered in the severity style matching that snapshot's outcome (per the `cli-presentation` capability), and numeric fields right-aligned within their column.
+The system SHALL provide a command that lists the recorded snapshots for a profile, including each snapshot's timestamp and summary statistics, presented as an aligned table with column headers so each field lines up across rows, with each row's status rendered in the severity style matching that snapshot's outcome (per the `cli-presentation` capability), and numeric fields right-aligned within their column. Listing snapshots SHALL NOT itself create the profile's backing storage (its manifest database or on-disk profile directory) as a side effect; it is a read-only operation.
 
 #### Scenario: Listing snapshot history
 - **WHEN** a user requests the snapshot history for a profile that has completed at least one backup run
@@ -24,6 +24,12 @@ The system SHALL provide a command that lists the recorded snapshots for a profi
 #### Scenario: Numeric statistics are right-aligned
 - **WHEN** the snapshot listing includes statistics of varying digit counts (for example, file counts and byte totals)
 - **THEN** each numeric column's values are right-aligned within their column, so the digits line up regardless of value length
+
+#### Scenario: Listing snapshots for a profile that has never completed a backup run
+- **WHEN** a user requests the snapshot history for a profile whose backing storage does not yet
+  exist because it has never completed a backup run
+- **THEN** the system reports that no snapshots are recorded, and does not create the profile's
+  backing storage as a result of the request
 
 ### Requirement: File version history
 The system SHALL provide a command that lists the recorded versions of a specific file within a profile, including the timestamp at which each version was introduced and, if applicable, when it was superseded or deleted, presented as an aligned table with column headers so each field lines up across rows, with each row's change kind rendered in a style that distinguishes it from the other kinds, and its size right-aligned within its column. WHEN a file path was previously tracked but no version records currently remain for it (for example, after retention has pruned the snapshots that referenced it), the system SHALL report that no version history remains for that path, rather than displaying an empty table.
