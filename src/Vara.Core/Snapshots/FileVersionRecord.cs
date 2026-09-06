@@ -11,6 +11,17 @@ public enum FileChangeKind
     Changed,
     Moved,
     Deleted,
+
+    /// <summary>
+    /// A symbolic link or junction was observed at this path - either for the first
+    /// time, or replacing a previously tracked regular file. Distinct from
+    /// <see cref="Deleted"/>: the path is still live, just not a regular file with
+    /// backed-up content. <see cref="FileVersionRecord.ContentHash"/> holds the link's
+    /// target path rather than a content-store hash, since the target is never
+    /// followed or copied (backup-execution spec's "Symlinks and junctions are not
+    /// followed" requirement).
+    /// </summary>
+    Linked,
 }
 
 /// <summary>
@@ -42,7 +53,11 @@ public sealed record FileVersionRecord(
 /// <summary>
 /// The current (as of the latest snapshot) state of a tracked, non-deleted file path.
 /// See <see cref="FileVersionRecord.QuickHash"/> for <see cref="QuickHash"/>/
-/// <see cref="QuickHashScheme"/>.
+/// <see cref="QuickHashScheme"/>. <see cref="IsLinked"/> is <c>true</c> when the most
+/// recent record for this path is a <see cref="FileChangeKind.Linked"/> entry, so
+/// <see cref="BackupDiffer"/> (Vara.Application.Backup) can tell a symlink that's
+/// already tracked as such (no new pending change needed) apart from a path newly
+/// becoming a link (which needs one).
 /// </summary>
 public sealed record CurrentFileState(
     string RelativePath,
@@ -50,4 +65,5 @@ public sealed record CurrentFileState(
     long Size,
     DateTimeOffset SourceModifiedAt,
     string? QuickHash = null,
-    int? QuickHashScheme = null);
+    int? QuickHashScheme = null,
+    bool IsLinked = false);

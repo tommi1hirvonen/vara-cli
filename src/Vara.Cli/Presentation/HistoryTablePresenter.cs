@@ -52,6 +52,7 @@ public static class HistoryTablePresenter
         FileChangeKind.Changed => new Style(Color.LightGoldenrod2),
         FileChangeKind.Moved => new Style(Color.LightSkyBlue1),
         FileChangeKind.Deleted => new Style(Color.IndianRed),
+        FileChangeKind.Linked => new Style(Color.Plum2),
         _ => Style.Plain,
     };
 }

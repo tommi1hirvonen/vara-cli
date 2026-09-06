@@ -24,14 +24,27 @@ public sealed class BackupDiffer
 
         foreach (var entry in scanned)
         {
+            scannedPaths.Add(entry.RelativePath);
+
             if (entry.IsLink)
             {
-                // Symlinks/junctions are recorded by the scanner but never diffed as
-                // content - the backup-execution spec requires they are never followed.
+                // Symlinks/junctions are never diffed as content - the backup-execution
+                // spec requires their target is never followed. A link already tracked
+                // as linked needs no new pending change; it's simply "seen" this run
+                // (scannedPaths, above), so it's never misclassified as added, deleted,
+                // or changed on a later run (spec: "Symlink present across multiple
+                // runs"). A link that's new, or replacing a previously tracked regular
+                // file, still needs a pending change so its existence (and target path)
+                // is actually recorded (spec: "Previously tracked file replaced by a
+                // symlink").
+                var alreadyLinked = currentState.TryGetValue(entry.RelativePath, out var linkState) && linkState.IsLinked;
+                if (!alreadyLinked)
+                {
+                    pending.Add(new PendingChange(entry, PendingChangeKind.Linked));
+                }
+
                 continue;
             }
-
-            scannedPaths.Add(entry.RelativePath);
 
             if (currentState.TryGetValue(entry.RelativePath, out var current))
             {

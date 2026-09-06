@@ -261,7 +261,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
     {
         using var command = _connection.CreateCommand();
         command.CommandText = """
-            SELECT fv.relative_path, fv.content_hash, fv.size, fv.source_modified_at, fv.quick_hash, fv.quick_hash_scheme
+            SELECT fv.relative_path, fv.content_hash, fv.size, fv.source_modified_at, fv.quick_hash, fv.quick_hash_scheme, fv.change_kind
             FROM file_versions fv
             INNER JOIN (
                 SELECT relative_path, MAX(id) AS max_id
@@ -283,7 +283,8 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
                 reader.GetInt64(2),
                 ParseIso(reader.GetString(3)),
                 reader.IsDBNull(4) ? null : reader.GetString(4),
-                reader.IsDBNull(5) ? null : reader.GetInt32(5));
+                reader.IsDBNull(5) ? null : reader.GetInt32(5),
+                reader.GetString(6) == nameof(FileChangeKind.Linked));
         }
 
         return result;
@@ -293,7 +294,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
     {
         using var command = _connection.CreateCommand();
         command.CommandText = """
-            SELECT fv.relative_path, fv.content_hash, fv.size, fv.source_modified_at, fv.quick_hash, fv.quick_hash_scheme
+            SELECT fv.relative_path, fv.content_hash, fv.size, fv.source_modified_at, fv.quick_hash, fv.quick_hash_scheme, fv.change_kind
             FROM file_versions fv
             INNER JOIN (
                 SELECT relative_path, MAX(id) AS max_id
@@ -317,7 +318,8 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
                 reader.GetInt64(2),
                 ParseIso(reader.GetString(3)),
                 reader.IsDBNull(4) ? null : reader.GetString(4),
-                reader.IsDBNull(5) ? null : reader.GetInt32(5));
+                reader.IsDBNull(5) ? null : reader.GetInt32(5),
+                reader.GetString(6) == nameof(FileChangeKind.Linked));
         }
 
         return result;

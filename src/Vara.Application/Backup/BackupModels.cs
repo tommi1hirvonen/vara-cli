@@ -8,6 +8,12 @@ public enum PendingChangeKind
 {
     Added,
     Changed,
+
+    /// <summary>
+    /// A symlink/junction newly observed at this path, or replacing a previously
+    /// tracked regular file - never a move candidate (see <see cref="BackupPlanner"/>).
+    /// </summary>
+    Linked,
 }
 
 /// <summary>A scanned entry whose content differs from (or is absent from) the current manifest state.</summary>
@@ -23,6 +29,13 @@ public enum PlannedOperationKind
     Change,
     Move,
     Delete,
+
+    /// <summary>
+    /// Records a symlink/junction's presence (and target path) as a manifest row -
+    /// metadata-only, like <see cref="Move"/>/<see cref="Delete"/>, since the target is
+    /// never followed or copied.
+    /// </summary>
+    Link,
 }
 
 /// <summary>
@@ -30,7 +43,10 @@ public enum PlannedOperationKind
 /// and <see cref="PlannedOperationKind.Delete"/>, <see cref="KnownContentHash"/> (and, when known,
 /// <see cref="QuickHash"/>/<see cref="QuickHashScheme"/>) is already known (no content read is
 /// needed); for <see cref="PlannedOperationKind.Add"/>/<see cref="PlannedOperationKind.Change"/> these
-/// are resolved during execution as content is streamed into the content store.
+/// are resolved during execution as content is streamed into the content store. For
+/// <see cref="PlannedOperationKind.Link"/>, <see cref="KnownContentHash"/> instead carries the
+/// link's target path (there is no real content-store hash, since the target is never read) -
+/// also known upfront, so no execution-time resolution is needed.
 /// <see cref="PreviousContentHash"/> is distinct: for <see cref="PlannedOperationKind.Change"/> it is
 /// the *previous* content's hash (already known from the current manifest state at plan time, unlike
 /// <see cref="KnownContentHash"/>'s *new*-content meaning above) - used to restore the content

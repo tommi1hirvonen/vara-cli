@@ -45,6 +45,18 @@ public sealed class BackupPlanner(IHasher hasher, int maxDegreeOfParallelism = 0
 
         foreach (var change in diff.Pending)
         {
+            if (change.Kind == PendingChangeKind.Linked)
+            {
+                // Metadata-only, like Move/Delete below - never a move candidate (its
+                // size is always 0 and it has no real content to hash), and no bytes to
+                // transfer. KnownContentHash carries the link's target path rather than
+                // a content-store hash, since the target is never read.
+                operations.Add(new PlannedOperation(
+                    PlannedOperationKind.Link, change.Entry.RelativePath, null, null,
+                    change.Entry.Size, change.Entry.ModifiedAt, change.Entry.LinkTarget ?? string.Empty));
+                continue;
+            }
+
             CurrentFileState? moveMatch = null;
             if (change.Kind == PendingChangeKind.Added &&
                 deletedCandidatesBySize.TryGetValue(change.Entry.Size, out var candidates) &&

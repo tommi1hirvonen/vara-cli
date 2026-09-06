@@ -88,10 +88,39 @@ public class BackupDifferTests
     }
 
     [Fact]
-    public void A_symlink_entry_is_never_diffed_as_content()
+    public void A_new_symlink_entry_is_recorded_as_linked_and_never_treated_as_deleted()
     {
         var now = DateTimeOffset.UtcNow;
         var result = _differ.Diff([Entry("link", 0, now, isLink: true)], new Dictionary<string, CurrentFileState>(), NoFailures);
+
+        var change = Assert.Single(result.Pending);
+        Assert.Equal(PendingChangeKind.Linked, change.Kind);
+        Assert.Empty(result.DeletedPaths);
+    }
+
+    [Fact]
+    public void A_path_previously_tracked_as_a_regular_file_now_scanned_as_a_symlink_is_classified_as_linked()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var current = new Dictionary<string, CurrentFileState> { ["was-file"] = new("was-file", "hash", 10, now.AddMinutes(-1)) };
+
+        var result = _differ.Diff([Entry("was-file", 0, now, isLink: true)], current, NoFailures);
+
+        var change = Assert.Single(result.Pending);
+        Assert.Equal(PendingChangeKind.Linked, change.Kind);
+        Assert.Empty(result.DeletedPaths);
+    }
+
+    [Fact]
+    public void A_symlink_present_unchanged_across_two_consecutive_diffs_is_not_added_deleted_or_changed_on_the_second_run()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var current = new Dictionary<string, CurrentFileState>
+        {
+            ["link"] = new("link", @"C:\target", 0, DateTimeOffset.MinValue, IsLinked: true),
+        };
+
+        var result = _differ.Diff([Entry("link", 0, now, isLink: true)], current, NoFailures);
 
         Assert.Empty(result.Pending);
         Assert.Empty(result.DeletedPaths);

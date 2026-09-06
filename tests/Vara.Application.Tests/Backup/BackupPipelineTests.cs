@@ -267,6 +267,46 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
+    public void Two_consecutive_runs_over_a_source_containing_a_symlink_record_the_link_and_cause_no_false_deletion()
+    {
+        var filePath = Path.Combine(_root, "regular.txt");
+        File.WriteAllText(filePath, "hello");
+        var fileEntry = new ScannedEntry("regular.txt", filePath, 5, File.GetLastWriteTimeUtc(filePath), false, null);
+        var linkEntry = new ScannedEntry("link", Path.Combine(_root, "link"), 0, DateTimeOffset.MinValue, true, @"C:\target");
+
+        var repository = new FakeSnapshotRepository();
+        var contentStore = new FakeContentStore();
+
+        var firstRun = new BackupPipeline(
+                new FakeFileSystemScanner([fileEntry, linkEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .Run(SimpleProfile(_root));
+
+        Assert.Equal(1, firstRun.Stats.FilesAdded);
+        Assert.Equal(0, firstRun.Stats.FilesDeleted);
+        Assert.Empty(firstRun.FailedPaths);
+
+        // Second run: the same source is rescanned unchanged (same regular file, same
+        // still-present symlink). Neither should be misclassified as deleted, and the
+        // already-tracked link shouldn't be re-recorded.
+        var secondRun = new BackupPipeline(
+                new FakeFileSystemScanner([fileEntry, linkEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .Run(SimpleProfile(_root));
+
+        Assert.Equal(0, secondRun.Stats.FilesAdded);
+        Assert.Equal(0, secondRun.Stats.FilesChanged);
+        Assert.Equal(0, secondRun.Stats.FilesDeleted);
+        Assert.Empty(secondRun.FailedPaths);
+
+        var linkHistory = repository.GetFileHistory("link");
+        var linkRecord = Assert.Single(linkHistory);
+        Assert.Equal(FileChangeKind.Linked, linkRecord.ChangeKind);
+        Assert.Equal(@"C:\target", linkRecord.ContentHash);
+
+        var fileHistory = repository.GetFileHistory("regular.txt");
+        Assert.DoesNotContain(fileHistory, r => r.ChangeKind == FileChangeKind.Deleted);
+    }
+
+    [Fact]
     public void Running_twice_against_an_unchanged_source_performs_zero_content_transfer_the_second_time()
     {
         var path = Path.Combine(_root, "a.txt");

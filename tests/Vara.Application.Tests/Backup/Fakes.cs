@@ -396,7 +396,8 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
             if (latest.ChangeKind != FileChangeKind.Deleted)
             {
                 result[latest.RelativePath] = new CurrentFileState(
-                    latest.RelativePath, latest.ContentHash, latest.Size, latest.SourceModifiedAt, latest.QuickHash, latest.QuickHashScheme);
+                    latest.RelativePath, latest.ContentHash, latest.Size, latest.SourceModifiedAt, latest.QuickHash, latest.QuickHashScheme,
+                    latest.ChangeKind == FileChangeKind.Linked);
             }
         }
 
@@ -412,7 +413,8 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
             if (latest.ChangeKind != FileChangeKind.Deleted)
             {
                 result[latest.RelativePath] = new CurrentFileState(
-                    latest.RelativePath, latest.ContentHash, latest.Size, latest.SourceModifiedAt, latest.QuickHash, latest.QuickHashScheme);
+                    latest.RelativePath, latest.ContentHash, latest.Size, latest.SourceModifiedAt, latest.QuickHash, latest.QuickHashScheme,
+                    latest.ChangeKind == FileChangeKind.Linked);
             }
         }
 

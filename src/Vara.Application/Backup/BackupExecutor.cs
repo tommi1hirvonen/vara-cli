@@ -44,9 +44,9 @@ public sealed class BackupExecutor(IContentStore contentStore, ISnapshotReposito
         var failedPaths = new List<string>();
         var reportLock = new object();
 
-        foreach (var operation in plan.Operations.Where(o => o.Kind is PlannedOperationKind.Move or PlannedOperationKind.Delete))
+        foreach (var operation in plan.Operations.Where(o => o.Kind is PlannedOperationKind.Move or PlannedOperationKind.Delete or PlannedOperationKind.Link))
         {
-            ExecuteMoveOrDelete(operation, snapshotId, recordedAt, counts, failedPaths, reportLock);
+            ExecuteMetadataOnlyOperation(operation, snapshotId, recordedAt, counts, failedPaths, reportLock);
         }
 
         // Fired exactly once here, unconditionally - even when there are no Move/Delete
@@ -66,7 +66,7 @@ public sealed class BackupExecutor(IContentStore contentStore, ISnapshotReposito
         return new ExecutionOutcome(counts.BytesTransferred, counts.Added, counts.Changed, counts.Moved, counts.Deleted, counts.Failed, failedPaths);
     }
 
-    private void ExecuteMoveOrDelete(PlannedOperation operation, long snapshotId, DateTimeOffset recordedAt, Counts counts, List<string> failedPaths, object reportLock)
+    private void ExecuteMetadataOnlyOperation(PlannedOperation operation, long snapshotId, DateTimeOffset recordedAt, Counts counts, List<string> failedPaths, object reportLock)
     {
         try
         {
@@ -83,7 +83,7 @@ public sealed class BackupExecutor(IContentStore contentStore, ISnapshotReposito
                     operation.QuickHash, operation.QuickHashScheme);
                 counts.Moved++;
             }
-            else
+            else if (operation.Kind == PlannedOperationKind.Delete)
             {
                 contentStore.RemoveFromMirror(operation.RelativePath, operation.KnownContentHash!);
                 repository.RecordFileVersion(
@@ -91,6 +91,16 @@ public sealed class BackupExecutor(IContentStore contentStore, ISnapshotReposito
                     operation.Size, operation.SourceModifiedAt, FileChangeKind.Deleted, recordedAt,
                     operation.QuickHash, operation.QuickHashScheme);
                 counts.Deleted++;
+            }
+            else
+            {
+                // Link: no content store I/O at all - the target is never followed or
+                // copied. KnownContentHash already carries the link's target path
+                // (BackupPlanner), so this is a pure manifest write.
+                repository.RecordFileVersion(
+                    snapshotId, operation.RelativePath, null, operation.KnownContentHash ?? string.Empty,
+                    operation.Size, operation.SourceModifiedAt, FileChangeKind.Linked, recordedAt,
+                    operation.QuickHash, operation.QuickHashScheme);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

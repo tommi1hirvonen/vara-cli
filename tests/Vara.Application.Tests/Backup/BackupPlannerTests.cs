@@ -66,6 +66,21 @@ public class BackupPlannerTests : IDisposable
     }
 
     [Fact]
+    public void A_linked_entry_produces_a_metadata_only_link_operation_carrying_the_target_path()
+    {
+        var entry = new ScannedEntry("link", @"C:\src\link", 0, DateTimeOffset.MinValue, true, @"C:\target");
+        var diff = new DiffResult([new PendingChange(entry, PendingChangeKind.Linked)], []);
+
+        var plan = _planner.Plan(diff, new Dictionary<string, CurrentFileState>());
+
+        var operation = Assert.Single(plan.Operations);
+        Assert.Equal(PlannedOperationKind.Link, operation.Kind);
+        Assert.Equal("link", operation.RelativePath);
+        Assert.Equal(@"C:\target", operation.KnownContentHash);
+        Assert.Equal(0, plan.TotalBytesToTransfer);
+    }
+
+    [Fact]
     public void A_moved_file_is_detected_via_matching_hash_and_excluded_from_the_byte_total()
     {
         var content = "identical content, relocated";
