@@ -14,11 +14,19 @@ namespace Vara.Cli.Composition;
 /// </summary>
 public sealed class ProfileServiceFactory(IHasher hasher)
 {
-    public ProfileServices CreateFor(Profile profile)
+    /// <param name="createIfMissing">
+    /// When <see langword="true"/> (the default), eagerly creates the profile's
+    /// <c>.vara\</c> backing storage (manifest database, versions/temp directories) if it
+    /// doesn't already exist - the behavior every call site had before the
+    /// fix-readonly-command-side-effects change. Pass <see langword="false"/> for
+    /// read-only commands so that resolving services for a profile that has never
+    /// completed a backup run does not itself create that storage as a side effect.
+    /// </param>
+    public ProfileServices CreateFor(Profile profile, bool createIfMissing = true)
     {
         var dbPath = Path.Combine(profile.TargetRoot, ".vara", "profile.db");
-        var repository = new SqliteSnapshotRepository(dbPath);
-        var contentStore = new FileSystemContentStore(profile.TargetRoot, hasher);
+        var repository = new SqliteSnapshotRepository(dbPath, createIfMissing);
+        var contentStore = new FileSystemContentStore(profile.TargetRoot, hasher, createIfMissing);
         var runLock = new FileRunLock();
 
         return new ProfileServices(repository, contentStore, runLock);

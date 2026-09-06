@@ -26,16 +26,30 @@ public sealed class FileSystemContentStore : IContentStore
     private bool? _supportsHardlinks;
     private bool _forceNextHardlinkFailureForTesting;
 
-    public FileSystemContentStore(string targetRoot, IHasher hasher)
+    /// <param name="createIfMissing">
+    /// When <see langword="true"/> (the default), eagerly creates the mirror, versions,
+    /// and temp directories under <paramref name="targetRoot"/> if they don't already
+    /// exist. When <see langword="false"/>, no directory is created - used by read-only
+    /// commands (see the fix-readonly-command-side-effects change) so that resolving a
+    /// content store for a profile that has never completed a backup run does not itself
+    /// materialize its <c>.vara\</c> structure as a side effect. A read-only caller
+    /// should only ever reach members that read existing content (for example
+    /// <see cref="OpenRead"/>, <see cref="ExtractTo"/>), which - for a profile with no
+    /// recorded state - are never invoked in the first place.
+    /// </param>
+    public FileSystemContentStore(string targetRoot, IHasher hasher, bool createIfMissing = true)
     {
         _mirrorRoot = targetRoot;
         _versionsRoot = Path.Combine(targetRoot, ".vara", "versions");
         _tempRoot = Path.Combine(targetRoot, ".vara", "tmp");
         _hasher = hasher;
 
-        Directory.CreateDirectory(_mirrorRoot);
-        Directory.CreateDirectory(_versionsRoot);
-        Directory.CreateDirectory(_tempRoot);
+        if (createIfMissing)
+        {
+            Directory.CreateDirectory(_mirrorRoot);
+            Directory.CreateDirectory(_versionsRoot);
+            Directory.CreateDirectory(_tempRoot);
+        }
     }
 
     public bool SupportsHardlinks =>

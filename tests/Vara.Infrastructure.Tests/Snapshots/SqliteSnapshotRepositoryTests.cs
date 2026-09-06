@@ -690,4 +690,65 @@ public class SqliteSnapshotRepositoryTests : IDisposable
         command.CommandText = "SELECT COUNT(*) FROM file_versions";
         return Convert.ToInt32(command.ExecuteScalar());
     }
+
+    // fix-readonly-command-side-effects: createIfMissing behavior.
+
+    [Fact]
+    public void Default_constructor_still_eagerly_creates_the_database_file()
+    {
+        Assert.False(File.Exists(_dbPath));
+
+        using var repository = new SqliteSnapshotRepository(_dbPath);
+
+        Assert.True(File.Exists(_dbPath));
+    }
+
+    [Fact]
+    public void CreateIfMissing_false_does_not_create_the_database_file_when_absent()
+    {
+        Assert.False(File.Exists(_dbPath));
+
+        using var repository = new SqliteSnapshotRepository(_dbPath, createIfMissing: false);
+
+        Assert.False(File.Exists(_dbPath));
+    }
+
+    [Fact]
+    public void CreateIfMissing_false_reports_no_recorded_state_when_the_database_is_absent()
+    {
+        using var repository = new SqliteSnapshotRepository(_dbPath, createIfMissing: false);
+
+        Assert.Empty(repository.ListSnapshots());
+        Assert.Null(repository.GetLastCompletedSnapshot());
+        Assert.Empty(repository.GetCurrentState());
+        Assert.Empty(repository.GetStateAsOf(DateTimeOffset.UtcNow));
+        Assert.Empty(repository.GetTombstones(null));
+        Assert.Empty(repository.GetMoveOrigins());
+        Assert.Empty(repository.GetFileHistory("a.txt"));
+        Assert.Null(repository.FindVersionAsOf("a.txt", DateTimeOffset.UtcNow));
+        Assert.Empty(repository.GetAllReferencedContentHashes());
+    }
+
+    [Fact]
+    public void CreateIfMissing_false_throws_on_a_write_member_when_the_database_is_absent()
+    {
+        using var repository = new SqliteSnapshotRepository(_dbPath, createIfMissing: false);
+
+        Assert.Throws<InvalidOperationException>(() => repository.BeginSnapshot(DateTimeOffset.UtcNow));
+    }
+
+    [Fact]
+    public void CreateIfMissing_false_still_opens_normally_when_the_database_already_exists()
+    {
+        using (var seed = new SqliteSnapshotRepository(_dbPath))
+        {
+            var snapshotId = seed.BeginSnapshot(DateTimeOffset.UtcNow);
+            seed.CompleteSnapshot(snapshotId, DateTimeOffset.UtcNow, SnapshotStats.Empty);
+        }
+
+        SqliteConnection.ClearAllPools();
+        using var repository = new SqliteSnapshotRepository(_dbPath, createIfMissing: false);
+
+        Assert.Single(repository.ListSnapshots());
+    }
 }

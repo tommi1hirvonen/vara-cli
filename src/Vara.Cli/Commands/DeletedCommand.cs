@@ -35,7 +35,7 @@ public static class DeletedCommand
             return ErrorReporting.Run(() =>
             {
                 var profile = profileResolver.ResolveForBrowsing(profileName, configPath);
-                using var services = serviceFactory.CreateFor(profile);
+                using var services = serviceFactory.CreateFor(profile, createIfMissing: false);
                 var history = new SnapshotHistoryService(services.Repository, services.ContentStore);
 
                 var resolvedDirectory = string.IsNullOrWhiteSpace(directory)

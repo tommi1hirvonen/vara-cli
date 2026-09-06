@@ -16,11 +16,28 @@ namespace Vara.Infrastructure.Snapshots;
 /// </summary>
 public sealed class SqliteSnapshotRepository : ISnapshotRepository
 {
-    private readonly SqliteConnection _connection;
+    private readonly SqliteConnection? _connection;
     private SqliteTransaction? _activeBatchTransaction;
 
-    public SqliteSnapshotRepository(string databasePath)
+    /// <summary>
+    /// Opens (or creates) the manifest at <paramref name="databasePath"/>. When
+    /// <paramref name="createIfMissing"/> is <see langword="false"/> and no database file
+    /// already exists there, no directory or file is created - the repository instead
+    /// starts in an "empty" mode where every read member reports the profile has no
+    /// recorded state (matching what a freshly-created, never-written-to database would
+    /// report), and any write member throws <see cref="InvalidOperationException"/>. This
+    /// lets read-only callers (see the fix-readonly-command-side-effects change) resolve a
+    /// repository for a profile that has never completed a backup run without creating
+    /// <c>.vara\profile.db</c> as a side effect.
+    /// </summary>
+    public SqliteSnapshotRepository(string databasePath, bool createIfMissing = true)
     {
+        if (!createIfMissing && !File.Exists(databasePath))
+        {
+            _connection = null;
+            return;
+        }
+
         var directory = Path.GetDirectoryName(databasePath);
         if (!string.IsNullOrEmpty(directory))
         {
@@ -29,9 +46,20 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
 
         _connection = new SqliteConnection($"Data Source={databasePath}");
         _connection.Open();
-        ConfigurePragmas();
-        InitializeSchema();
+        ConfigurePragmas(_connection);
+        InitializeSchema(_connection);
     }
+
+    /// <summary>
+    /// The open connection, for members that require a real (non-empty-mode) repository.
+    /// Throws if this repository was constructed with <c>createIfMissing: false</c> against
+    /// a profile with no recorded state - no read-only caller should ever reach a write
+    /// member in that case.
+    /// </summary>
+    private SqliteConnection RequireConnection() => _connection
+        ?? throw new InvalidOperationException(
+            "This profile has no recorded backup state, so its manifest cannot be written to " +
+            "without first running a backup.");
 
     /// <summary>
     /// WAL journaling lets the single writer commit without exclusively locking the
@@ -42,16 +70,16 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
     /// decision). WAL mode persists in the database file itself, so this only needs to
     /// be requested once; <c>synchronous</c> is connection-scoped and is set every open.
     /// </summary>
-    private void ConfigurePragmas()
+    private static void ConfigurePragmas(SqliteConnection connection)
     {
-        using var command = _connection.CreateCommand();
+        using var command = connection.CreateCommand();
         command.CommandText = "PRAGMA journal_mode = 'wal'; PRAGMA synchronous = 'normal';";
         command.ExecuteNonQuery();
     }
 
-    private void InitializeSchema()
+    private void InitializeSchema(SqliteConnection connection)
     {
-        using (var command = _connection.CreateCommand())
+        using (var command = connection.CreateCommand())
         {
             command.CommandText = """
                 CREATE TABLE IF NOT EXISTS snapshots (
@@ -88,7 +116,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
             command.ExecuteNonQuery();
         }
 
-        MigrateFileVersionsCollationIfNeeded();
+        MigrateFileVersionsCollationIfNeeded(connection);
     }
 
     /// <summary>
@@ -101,9 +129,9 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
     /// so it is a no-op - and safe to call on every startup - for already-migrated or
     /// brand-new databases.
     /// </summary>
-    private void MigrateFileVersionsCollationIfNeeded()
+    private static void MigrateFileVersionsCollationIfNeeded(SqliteConnection connection)
     {
-        using (var check = _connection.CreateCommand())
+        using (var check = connection.CreateCommand())
         {
             check.CommandText = "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'file_versions'";
             var tableSql = check.ExecuteScalar() as string;
@@ -113,8 +141,8 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
             }
         }
 
-        using var transaction = _connection.BeginTransaction();
-        using (var migrate = _connection.CreateCommand())
+        using var transaction = connection.BeginTransaction();
+        using (var migrate = connection.CreateCommand())
         {
             migrate.Transaction = transaction;
             migrate.CommandText = """
@@ -152,11 +180,11 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
         transaction.Commit();
     }
 
-    public void Dispose() => _connection.Dispose();
+    public void Dispose() => _connection?.Dispose();
 
     public void ReconcileIncompleteSnapshots()
     {
-        using var command = _connection.CreateCommand();
+        using var command = RequireConnection().CreateCommand();
         command.CommandText = """
             UPDATE snapshots
             SET status = $failed, completed_at = COALESCE(completed_at, $now)
@@ -170,7 +198,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
 
     public long BeginSnapshot(DateTimeOffset startedAt)
     {
-        using var command = _connection.CreateCommand();
+        using var command = RequireConnection().CreateCommand();
         command.CommandText = """
             INSERT INTO snapshots (started_at, status) VALUES ($startedAt, $status);
             SELECT last_insert_rowid();
@@ -192,7 +220,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
         string? quickHash = null,
         int? quickHashScheme = null)
     {
-        using var command = _connection.CreateCommand();
+        using var command = RequireConnection().CreateCommand();
         command.Transaction = _activeBatchTransaction;
         command.CommandText = """
             INSERT INTO file_versions
@@ -232,7 +260,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
             throw new InvalidOperationException("A manifest batch is already active on this repository.");
         }
 
-        _activeBatchTransaction = _connection.BeginTransaction();
+        _activeBatchTransaction = RequireConnection().BeginTransaction();
         return new ManifestBatch(this);
     }
 
@@ -250,7 +278,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
         // Fold the just-committed writes back into the main database file so a plain
         // copy of it (without the -wal/-shm sidecar files) is self-contained again
         // between runs - see design.md's WAL-checkpoint decision.
-        using var checkpoint = _connection.CreateCommand();
+        using var checkpoint = RequireConnection().CreateCommand();
         checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
         checkpoint.ExecuteNonQuery();
     }
@@ -301,7 +329,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
 
     private void UpdateSnapshotOutcome(long snapshotId, DateTimeOffset completedAt, SnapshotStatus status, SnapshotStats stats)
     {
-        using var command = _connection.CreateCommand();
+        using var command = RequireConnection().CreateCommand();
         command.Transaction = _activeBatchTransaction;
         command.CommandText = """
             UPDATE snapshots
@@ -324,6 +352,11 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
 
     public IReadOnlyDictionary<string, CurrentFileState> GetCurrentState()
     {
+        if (_connection is null)
+        {
+            return new Dictionary<string, CurrentFileState>(StringComparer.OrdinalIgnoreCase);
+        }
+
         using var command = _connection.CreateCommand();
         command.CommandText = """
             SELECT fv.relative_path, fv.content_hash, fv.size, fv.source_modified_at, fv.quick_hash, fv.quick_hash_scheme, fv.change_kind
@@ -357,6 +390,11 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
 
     public IReadOnlyDictionary<string, CurrentFileState> GetStateAsOf(DateTimeOffset asOf)
     {
+        if (_connection is null)
+        {
+            return new Dictionary<string, CurrentFileState>(StringComparer.OrdinalIgnoreCase);
+        }
+
         using var command = _connection.CreateCommand();
         command.CommandText = """
             SELECT fv.relative_path, fv.content_hash, fv.size, fv.source_modified_at, fv.quick_hash, fv.quick_hash_scheme, fv.change_kind
@@ -392,6 +430,11 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
 
     public IReadOnlyList<FileVersionRecord> GetTombstones(DateTimeOffset? asOf)
     {
+        if (_connection is null)
+        {
+            return [];
+        }
+
         using var command = _connection.CreateCommand();
         command.CommandText = asOf is null
             ? """
@@ -433,6 +476,11 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
 
     public IReadOnlyDictionary<string, string> GetMoveOrigins()
     {
+        if (_connection is null)
+        {
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
         using var command = _connection.CreateCommand();
         command.CommandText = """
             SELECT fv.relative_path, fv.previous_relative_path
@@ -460,6 +508,11 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
 
     public IReadOnlyList<Snapshot> ListSnapshots()
     {
+        if (_connection is null)
+        {
+            return [];
+        }
+
         using var command = _connection.CreateCommand();
         command.CommandText = $"{SnapshotColumns} FROM snapshots ORDER BY id DESC";
 
@@ -475,6 +528,11 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
 
     public Snapshot? GetLastCompletedSnapshot()
     {
+        if (_connection is null)
+        {
+            return null;
+        }
+
         using var command = _connection.CreateCommand();
         command.CommandText = $"{SnapshotColumns} FROM snapshots WHERE status = $complete ORDER BY id DESC LIMIT 1";
         command.Parameters.AddWithValue("$complete", nameof(SnapshotStatus.Complete));
@@ -519,9 +577,10 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
 
     public void DeleteSnapshot(long snapshotId)
     {
-        using var transaction = _connection.BeginTransaction();
+        var connection = RequireConnection();
+        using var transaction = connection.BeginTransaction();
 
-        using (var deleteVersions = _connection.CreateCommand())
+        using (var deleteVersions = connection.CreateCommand())
         {
             deleteVersions.Transaction = transaction;
             deleteVersions.CommandText = "DELETE FROM file_versions WHERE snapshot_id = $id";
@@ -529,7 +588,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
             deleteVersions.ExecuteNonQuery();
         }
 
-        using (var deleteSnapshot = _connection.CreateCommand())
+        using (var deleteSnapshot = connection.CreateCommand())
         {
             deleteSnapshot.Transaction = transaction;
             deleteSnapshot.CommandText = "DELETE FROM snapshots WHERE id = $id";
@@ -547,8 +606,9 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
             return 0;
         }
 
+        var connection = RequireConnection();
         var idList = string.Join(",", snapshotIds);
-        using var transaction = _connection.BeginTransaction();
+        using var transaction = connection.BeginTransaction();
 
         // Delete only rows that are NOT the current (latest, non-deleted) row for their
         // path - a row still representing live state is preserved even if its snapshot
@@ -557,7 +617,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
         // MAX(id) for its path across ALL rows (including deletion tombstones) - only
         // then, if that row itself isn't a deletion, is it protected. Excluding deleted
         // rows before computing MAX(id) would wrongly protect a stale pre-deletion row.
-        using (var deleteRows = _connection.CreateCommand())
+        using (var deleteRows = connection.CreateCommand())
         {
             deleteRows.Transaction = transaction;
             deleteRows.CommandText = $"""
@@ -577,7 +637,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
         }
 
         int removedCount;
-        using (var deleteSnapshots = _connection.CreateCommand())
+        using (var deleteSnapshots = connection.CreateCommand())
         {
             deleteSnapshots.Transaction = transaction;
             deleteSnapshots.CommandText = $"""
@@ -595,6 +655,11 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
 
     public IReadOnlySet<string> GetAllReferencedContentHashes()
     {
+        if (_connection is null)
+        {
+            return new HashSet<string>();
+        }
+
         using var command = _connection.CreateCommand();
         command.CommandText = "SELECT DISTINCT content_hash FROM file_versions";
 
@@ -610,6 +675,11 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
 
     private List<FileVersionRecord> QueryRowsForPath(string relativePath)
     {
+        if (_connection is null)
+        {
+            return [];
+        }
+
         using var command = _connection.CreateCommand();
         command.CommandText = """
             SELECT id, snapshot_id, relative_path, previous_relative_path, content_hash, size, source_modified_at, change_kind, recorded_at, quick_hash, quick_hash_scheme

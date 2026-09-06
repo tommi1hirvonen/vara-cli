@@ -804,4 +804,29 @@ public class FileSystemContentStoreTests : IDisposable
 
         Assert.False(store.TargetExists(path));
     }
+
+    // fix-readonly-command-side-effects: createIfMissing behavior.
+
+    [Fact]
+    public void Default_constructor_still_eagerly_creates_the_vara_directories()
+    {
+        Assert.False(Directory.Exists(_targetRoot));
+
+        _ = CreateStore();
+
+        Assert.True(Directory.Exists(_targetRoot));
+        Assert.True(Directory.Exists(Path.Combine(_targetRoot, ".vara", "versions")));
+        Assert.True(Directory.Exists(Path.Combine(_targetRoot, ".vara", "tmp")));
+    }
+
+    [Fact]
+    public void CreateIfMissing_false_does_not_create_any_directory_when_absent()
+    {
+        Assert.False(Directory.Exists(_targetRoot));
+
+        _ = new FileSystemContentStore(_targetRoot, _hasher, createIfMissing: false);
+
+        Assert.False(Directory.Exists(_targetRoot));
+        Assert.False(Directory.Exists(Path.Combine(_targetRoot, ".vara")));
+    }
 }
