@@ -124,7 +124,11 @@ Each profile MAY define a tiered retention policy consisting of the number of da
 - **THEN** the system reports a validation error identifying the profile, the field name, and the invalid value, and performs no action for that profile
 
 ### Requirement: Malformed configuration file detection
-The system SHALL distinguish a structurally malformed profile configuration file from one that legitimately defines zero profiles. When the file is structurally malformed, the system SHALL report a configuration error identifying the file and the structural problem, rather than silently treating it as defining zero profiles.
+The system SHALL distinguish a syntactically invalid or structurally malformed profile configuration file from one that legitimately defines zero profiles. When the file's contents cannot be parsed as valid YAML, or parse as valid YAML but are structurally malformed, the system SHALL report a configuration error identifying the file and the problem, rather than allowing the parse failure to propagate as an unhandled exception or silently treating the file as defining zero profiles.
+
+#### Scenario: Configuration file contains a YAML syntax error
+- **WHEN** the configuration file's contents cannot be parsed as valid YAML (for example, due to a hand-editing mistake such as inconsistent indentation or an unclosed quote)
+- **THEN** the system reports a configuration error identifying the file and stating that its contents could not be parsed as YAML, rather than allowing the raw YAML parser exception to propagate, and performs no action
 
 #### Scenario: Configuration file root is not a mapping
 - **WHEN** the configuration file's YAML root node is not a mapping (for example, it is a sequence or a scalar)
