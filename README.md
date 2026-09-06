@@ -212,7 +212,7 @@ omitting both presents a selectable list of versions instead of erroring.
 
 ## How it works
 
-Each profile's target root contains the live mirror directly, plus a hidden `.vara\`
+Each profile's target root contains the live mirror directly, plus a `.vara\`
 folder:
 
 ```
