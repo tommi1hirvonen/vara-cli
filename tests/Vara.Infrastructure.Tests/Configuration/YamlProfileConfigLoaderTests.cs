@@ -418,6 +418,25 @@ public class YamlProfileConfigLoaderTests
         Assert.Equal("broken", ex.ProfileName);
     }
 
+    [Fact]
+    public void Profile_with_two_overlapping_sources_throws_a_validation_error_naming_the_profile()
+    {
+        var path = WriteTempConfig(
+            """
+            profiles:
+              - name: broken
+                target: 'D:\backup'
+                sources:
+                  - path: 'C:\Users\me'
+                  - path: 'C:\Users\me\Documents'
+            """);
+
+        var ex = Assert.Throws<ProfileValidationException>(() => _loader.LoadProfiles(path));
+        Assert.Equal("broken", ex.ProfileName);
+        Assert.Contains(@"C:\Users\me", ex.Reason);
+        Assert.Contains(@"C:\Users\me\Documents", ex.Reason);
+    }
+
     private static string WriteTempConfig(string yaml)
     {
         var path = Path.Combine(Path.GetTempPath(), $"vara-test-{Guid.NewGuid():N}.yml");

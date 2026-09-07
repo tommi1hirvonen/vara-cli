@@ -105,7 +105,7 @@ public sealed class YamlProfileConfigLoader : IProfileConfigLoader
         {
             return new Profile(name, target, sources, retention, concurrency);
         }
-        catch (ArgumentException ex) when (ex.ParamName == "targetRoot")
+        catch (ArgumentException ex) when (ex.ParamName is "targetRoot" or "sources")
         {
             throw new ProfileValidationException(name, ex.Message);
         }

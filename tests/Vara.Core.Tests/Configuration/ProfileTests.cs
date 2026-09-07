@@ -116,6 +116,58 @@ public class ProfileTests
     {
         Assert.Throws<ArgumentException>(() => new Profile("files", target, [ValidSource()], null));
     }
+
+    [Fact]
+    public void Constructing_with_two_identical_source_paths_throws()
+    {
+        var sources = new[] { new Source(@"C:\data"), new Source(@"C:\data") };
+
+        Assert.Throws<ArgumentException>(() => new Profile("files", @"D:\backup", sources, null));
+    }
+
+    [Fact]
+    public void Constructing_with_a_source_nested_inside_another_source_throws()
+    {
+        var sources = new[] { new Source(@"C:\Users\me"), new Source(@"C:\Users\me\Documents") };
+
+        Assert.Throws<ArgumentException>(() => new Profile("files", @"D:\backup", sources, null));
+    }
+
+    [Fact]
+    public void Constructing_with_sources_differing_only_in_case_and_trailing_separator_throws()
+    {
+        var sources = new[] { new Source(@"C:\Data\"), new Source(@"c:\data") };
+
+        Assert.Throws<ArgumentException>(() => new Profile("files", @"D:\backup", sources, null));
+    }
+
+    [Fact]
+    public void Constructing_with_multiple_non_overlapping_sources_succeeds()
+    {
+        var sources = new[] { new Source(@"C:\data"), new Source(@"C:\other"), new Source(@"E:\stuff") };
+
+        var profile = new Profile("files", @"D:\backup", sources, null);
+
+        Assert.Equal(3, profile.Sources.Count);
+    }
+
+    [Fact]
+    public void Constructing_with_a_non_adjacent_overlapping_pair_of_sources_throws()
+    {
+        var sources = new[] { new Source(@"C:\data"), new Source(@"C:\other"), new Source(@"C:\data\nested") };
+
+        Assert.Throws<ArgumentException>(() => new Profile("files", @"D:\backup", sources, null));
+    }
+
+    [Fact]
+    public void Constructing_with_overlapping_sources_and_source_overlap_validation_disabled_succeeds()
+    {
+        var sources = new[] { new Source(@"C:\data"), new Source(@"C:\data\nested") };
+
+        var profile = new Profile("files", @"D:\backup", sources, null, validateSourceOverlap: false);
+
+        Assert.Equal(2, profile.Sources.Count);
+    }
 }
 
 public class SourceTests

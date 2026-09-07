@@ -10,7 +10,8 @@ public sealed record Profile
 {
     /// <param name="validateSourceOverlap">
     /// When <see langword="true"/> (the default), rejects a <paramref name="targetRoot"/> that is
-    /// equal to, an ancestor of, or a descendant of any of <paramref name="sources"/>' paths. Pass
+    /// equal to, an ancestor of, or a descendant of any of <paramref name="sources"/>' paths, and
+    /// rejects any of <paramref name="sources"/>' paths that overlap each other in the same way. Pass
     /// <see langword="false"/> only for the synthetic placeholder profile built by
     /// <c>ProfileResolver.TryResolveFromWorkingDirectory</c>, whose single placeholder
     /// <see cref="Source"/> is intentionally the same directory as the target root.
@@ -46,6 +47,19 @@ public sealed record Profile
                     throw new ArgumentException(
                         $"Target root '{targetRoot}' overlaps source path '{source.Path}'. A profile's target must not be the same as, contain, or be contained by any of its own sources.",
                         nameof(targetRoot));
+                }
+            }
+
+            for (var i = 0; i < sources.Count; i++)
+            {
+                for (var j = i + 1; j < sources.Count; j++)
+                {
+                    if (PathsOverlap(sources[i].Path, sources[j].Path))
+                    {
+                        throw new ArgumentException(
+                            $"Source path '{sources[i].Path}' overlaps source path '{sources[j].Path}'. A profile's sources must not be the same as, contain, or be contained by any of its own other sources.",
+                            nameof(sources));
+                    }
                 }
             }
         }
