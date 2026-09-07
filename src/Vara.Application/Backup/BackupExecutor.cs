@@ -147,6 +147,28 @@ public sealed class BackupExecutor(IContentStore contentStore, ISnapshotReposito
                 (hash, size) = contentStore.StoreFromStream(signature.ReplayFromStart(), onBytesTransferred);
             }
 
+            // Re-stat the source right after the read completes - and before placing
+            // anything at the mirror path - and compare against what was observed at scan
+            // time. A mismatch means the file was modified after being scanned but before
+            // (or while) its content was actually captured above, so the content just read
+            // can no longer be trusted as "the file as of SourceModifiedAt" - treat the
+            // whole operation as failed and let the next run's incremental scan pick it up
+            // again, rather than placing that content at the mirror path or recording a
+            // manifest entry under stale metadata (detect-torn-reads-after-transfer
+            // change's design.md). Uses a plain FileInfo stat, the same mechanism the
+            // scanner itself uses (DirectoryFileSystemScanner.ToEntry).
+            var postTransferInfo = new FileInfo(operation.SourceAbsolutePath!);
+            if (postTransferInfo.Length != operation.Size || postTransferInfo.LastWriteTimeUtc != operation.SourceModifiedAt)
+            {
+                lock (reportLock)
+                {
+                    counts.Failed++;
+                    failedPaths.Add(operation.RelativePath);
+                }
+
+                return;
+            }
+
             contentStore.PlaceAtMirrorPath(hash, operation.RelativePath, onBytesTransferred, operation.PreviousContentHash);
 
             lock (reportLock)

@@ -28,12 +28,19 @@ public class BackupExecutorTests : IDisposable
         return path;
     }
 
+    // The executor now re-stats the source file after transfer and compares against the
+    // scan-time values (detect-torn-reads-after-transfer change), so tests for a file that
+    // is expected to transfer successfully must supply its actual on-disk modification time
+    // here rather than an arbitrary DateTimeOffset.UtcNow, or the post-transfer check would
+    // (correctly) treat it as modified-during-transfer and fail the operation.
+    private static DateTimeOffset ScanTimeModifiedAt(string path) => new FileInfo(path).LastWriteTimeUtc;
+
     [Fact]
     public void Executing_an_add_stores_content_places_it_in_the_mirror_and_records_it()
     {
         var path = WriteFile("new.txt", "hello world");
         var plan = new BackupPlan(
-            [new PlannedOperation(PlannedOperationKind.Add, "new.txt", null, path, 11, DateTimeOffset.UtcNow, null)], 11);
+            [new PlannedOperation(PlannedOperationKind.Add, "new.txt", null, path, 11, ScanTimeModifiedAt(path), null)], 11);
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
@@ -52,7 +59,7 @@ public class BackupExecutorTests : IDisposable
         var path = WriteFile("large.txt", content);
         var size = new FileInfo(path).Length;
         var plan = new BackupPlan(
-            [new PlannedOperation(PlannedOperationKind.Add, "large.txt", null, path, size, DateTimeOffset.UtcNow, null)], size);
+            [new PlannedOperation(PlannedOperationKind.Add, "large.txt", null, path, size, ScanTimeModifiedAt(path), null)], size);
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
@@ -68,7 +75,7 @@ public class BackupExecutorTests : IDisposable
     {
         var path = WriteFile("new.txt", "hello world");
         var plan = new BackupPlan(
-            [new PlannedOperation(PlannedOperationKind.Add, "new.txt", null, path, 11, DateTimeOffset.UtcNow, null)], 11);
+            [new PlannedOperation(PlannedOperationKind.Add, "new.txt", null, path, 11, ScanTimeModifiedAt(path), null)], 11);
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
@@ -90,7 +97,7 @@ public class BackupExecutorTests : IDisposable
         // executor records the file normally and does not treat it as failed.
         var path = WriteFile("over-linked.txt", "content whose blob hit the hard-link cap");
         var plan = new BackupPlan(
-            [new PlannedOperation(PlannedOperationKind.Add, "over-linked.txt", null, path, 41, DateTimeOffset.UtcNow, null)], 41);
+            [new PlannedOperation(PlannedOperationKind.Add, "over-linked.txt", null, path, 40, ScanTimeModifiedAt(path), null)], 40);
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
@@ -111,8 +118,8 @@ public class BackupExecutorTests : IDisposable
 
         var plan = new BackupPlan(
             [
-                new PlannedOperation(PlannedOperationKind.Add, "locked.txt", null, lockedPath, 15, DateTimeOffset.UtcNow, null),
-                new PlannedOperation(PlannedOperationKind.Add, "ok.txt", null, okPath, 17, DateTimeOffset.UtcNow, null),
+                new PlannedOperation(PlannedOperationKind.Add, "locked.txt", null, lockedPath, 15, ScanTimeModifiedAt(lockedPath), null),
+                new PlannedOperation(PlannedOperationKind.Add, "ok.txt", null, okPath, new FileInfo(okPath).Length, ScanTimeModifiedAt(okPath), null),
             ],
             32);
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
@@ -232,7 +239,7 @@ public class BackupExecutorTests : IDisposable
         // (protect-hardlinked-mirror-files change's design.md).
         var path = WriteFile("changed.txt", "new content");
         var plan = new BackupPlan(
-            [new PlannedOperation(PlannedOperationKind.Change, "changed.txt", null, path, 11, DateTimeOffset.UtcNow, null, PreviousContentHash: "old-hash")],
+            [new PlannedOperation(PlannedOperationKind.Change, "changed.txt", null, path, 11, ScanTimeModifiedAt(path), null, PreviousContentHash: "old-hash")],
             11);
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
@@ -257,7 +264,7 @@ public class BackupExecutorTests : IDisposable
             [
                 new PlannedOperation(PlannedOperationKind.Move, @"Documents\report.pdf", @"Downloads\report.pdf", null, 100, DateTimeOffset.UtcNow, "hash-1"),
                 new PlannedOperation(PlannedOperationKind.Delete, "gone.txt", null, null, 10, DateTimeOffset.UtcNow, "hash-2"),
-                new PlannedOperation(PlannedOperationKind.Add, "new.txt", null, addPath, 11, DateTimeOffset.UtcNow, null),
+                new PlannedOperation(PlannedOperationKind.Add, "new.txt", null, addPath, 11, ScanTimeModifiedAt(addPath), null),
             ],
             11);
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
@@ -286,7 +293,7 @@ public class BackupExecutorTests : IDisposable
     public void The_transfer_phase_starting_callback_fires_even_with_no_move_delete_operations()
     {
         var addPath = WriteFile("new.txt", "hello world");
-        var plan = new BackupPlan([new PlannedOperation(PlannedOperationKind.Add, "new.txt", null, addPath, 11, DateTimeOffset.UtcNow, null)], 11);
+        var plan = new BackupPlan([new PlannedOperation(PlannedOperationKind.Add, "new.txt", null, addPath, 11, ScanTimeModifiedAt(addPath), null)], 11);
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
@@ -351,7 +358,7 @@ public class BackupExecutorTests : IDisposable
         var plan = new BackupPlan(
             [
                 new PlannedOperation(PlannedOperationKind.Move, @"Documents\report.pdf", @"Downloads\report.pdf", null, 100, DateTimeOffset.UtcNow, "hash-1"),
-                new PlannedOperation(PlannedOperationKind.Add, "ok.txt", null, okPath, 17, DateTimeOffset.UtcNow, null),
+                new PlannedOperation(PlannedOperationKind.Add, "ok.txt", null, okPath, new FileInfo(okPath).Length, ScanTimeModifiedAt(okPath), null),
             ],
             17);
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
@@ -376,7 +383,7 @@ public class BackupExecutorTests : IDisposable
         var plan = new BackupPlan(
             [
                 new PlannedOperation(PlannedOperationKind.Delete, "gone.txt", null, null, 10, DateTimeOffset.UtcNow, "hash-1"),
-                new PlannedOperation(PlannedOperationKind.Add, "ok.txt", null, okPath, 17, DateTimeOffset.UtcNow, null),
+                new PlannedOperation(PlannedOperationKind.Add, "ok.txt", null, okPath, new FileInfo(okPath).Length, ScanTimeModifiedAt(okPath), null),
             ],
             17);
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
@@ -409,7 +416,7 @@ public class BackupExecutorTests : IDisposable
         var plan = new BackupPlan(
             [
                 new PlannedOperation(PlannedOperationKind.Add, @"\\srv\share\new.txt", null, escapingAddPath, 17, DateTimeOffset.UtcNow, null),
-                new PlannedOperation(PlannedOperationKind.Add, "ok.txt", null, okPath, 17, DateTimeOffset.UtcNow, null),
+                new PlannedOperation(PlannedOperationKind.Add, "ok.txt", null, okPath, new FileInfo(okPath).Length, ScanTimeModifiedAt(okPath), null),
             ],
             34);
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
@@ -453,7 +460,7 @@ public class BackupExecutorTests : IDisposable
         var plan = new BackupPlan(
             [
                 new PlannedOperation(PlannedOperationKind.Move, @"Documents\report.pdf", @"Downloads\report.pdf", null, 100, DateTimeOffset.UtcNow, "hash-1"),
-                new PlannedOperation(PlannedOperationKind.Add, "ok.txt", null, okPath, 17, DateTimeOffset.UtcNow, null),
+                new PlannedOperation(PlannedOperationKind.Add, "ok.txt", null, okPath, new FileInfo(okPath).Length, ScanTimeModifiedAt(okPath), null),
             ],
             17);
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
@@ -479,7 +486,7 @@ public class BackupExecutorTests : IDisposable
             var path = WriteFile($"file-{i}.txt", content);
             var size = new FileInfo(path).Length;
             expectedBytes += size;
-            operations.Add(new PlannedOperation(PlannedOperationKind.Add, $"file-{i}.txt", null, path, size, DateTimeOffset.UtcNow, null));
+            operations.Add(new PlannedOperation(PlannedOperationKind.Add, $"file-{i}.txt", null, path, size, ScanTimeModifiedAt(path), null));
         }
 
         var plan = new BackupPlan(operations, expectedBytes);
@@ -510,7 +517,7 @@ public class BackupExecutorTests : IDisposable
             var path = WriteFile($"file-{i}.txt", content);
             var size = new FileInfo(path).Length;
             expectedBytes += size;
-            operations.Add(new PlannedOperation(PlannedOperationKind.Add, $"file-{i}.txt", null, path, size, DateTimeOffset.UtcNow, null));
+            operations.Add(new PlannedOperation(PlannedOperationKind.Add, $"file-{i}.txt", null, path, size, ScanTimeModifiedAt(path), null));
         }
 
         var plan = new BackupPlan(operations, expectedBytes);
@@ -539,7 +546,7 @@ public class BackupExecutorTests : IDisposable
             var path = WriteFile($"file-{i}.txt", content);
             var size = new FileInfo(path).Length;
             expectedBytes += size;
-            operations.Add(new PlannedOperation(PlannedOperationKind.Add, $"file-{i}.txt", null, path, size, DateTimeOffset.UtcNow, null));
+            operations.Add(new PlannedOperation(PlannedOperationKind.Add, $"file-{i}.txt", null, path, size, ScanTimeModifiedAt(path), null));
         }
 
         var plan = new BackupPlan(operations, expectedBytes);
@@ -565,7 +572,7 @@ public class BackupExecutorTests : IDisposable
             var path = WriteFile($"file-{i}.txt", content);
             var size = new FileInfo(path).Length;
             expectedBytes += size;
-            operations.Add(new PlannedOperation(PlannedOperationKind.Add, $"file-{i}.txt", null, path, size, DateTimeOffset.UtcNow, null));
+            operations.Add(new PlannedOperation(PlannedOperationKind.Add, $"file-{i}.txt", null, path, size, ScanTimeModifiedAt(path), null));
         }
 
         var plan = new BackupPlan(operations, expectedBytes);
@@ -598,7 +605,7 @@ public class BackupExecutorTests : IDisposable
     {
         var path = WriteFile("new.txt", "hello world");
         var plan = new BackupPlan(
-            [new PlannedOperation(PlannedOperationKind.Add, "new.txt", null, path, 11, DateTimeOffset.UtcNow, null)], 11);
+            [new PlannedOperation(PlannedOperationKind.Add, "new.txt", null, path, 11, ScanTimeModifiedAt(path), null)], 11);
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
@@ -619,5 +626,121 @@ public class BackupExecutorTests : IDisposable
         // not data loss or corruption (backup-execution spec's batching requirement).
         Assert.Empty(_repository.GetFileHistory("new.txt"));
         Assert.Empty(_repository.GetCurrentState());
+    }
+
+    [Fact]
+    public void A_file_modified_between_scan_and_transfer_is_recorded_as_failed_with_no_manifest_entry()
+    {
+        var path = WriteFile("torn.txt", "original content as of scan time");
+        var scanTimeSize = new FileInfo(path).Length;
+        var scanTimeModifiedAt = ScanTimeModifiedAt(path);
+        var plan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Add, "torn.txt", null, path, scanTimeSize, scanTimeModifiedAt, null)],
+            scanTimeSize);
+
+        // Simulate the file being edited by another process after it was scanned (its stat
+        // captured above) but before its content is actually read during transfer below -
+        // both its size and modification time now diverge from the scan-time values baked
+        // into the plan.
+        File.WriteAllText(path, "content changed after scan, before transfer completed");
+        File.SetLastWriteTimeUtc(path, scanTimeModifiedAt.UtcDateTime.AddMinutes(5));
+
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+
+        Assert.Equal(1, outcome.FilesFailed);
+        Assert.Equal(["torn.txt"], outcome.FailedPaths);
+        Assert.Equal(0, outcome.FilesAdded);
+        Assert.Empty(_repository.GetFileHistory("torn.txt"));
+        Assert.False(_contentStore.Mirror.ContainsKey("torn.txt"));
+    }
+
+    [Fact]
+    public void A_file_modified_during_transfer_is_re_selected_by_incremental_change_detection_on_the_next_run()
+    {
+        // First run: a file is scanned, then edited (torn read) before its content is
+        // actually read during transfer, so the operation fails and no manifest row is
+        // written for it (previous test). This test confirms the natural consequence:
+        // since the manifest's current state for this path is untouched, a subsequent
+        // scan of the file's now-current on-disk state still differs from that recorded
+        // state, so BackupDiffer selects it again.
+        var path = WriteFile("torn.txt", "original content as of scan time");
+        var scanTimeSize = new FileInfo(path).Length;
+        var scanTimeModifiedAt = ScanTimeModifiedAt(path);
+        var plan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Add, "torn.txt", null, path, scanTimeSize, scanTimeModifiedAt, null)],
+            scanTimeSize);
+
+        File.WriteAllText(path, "content changed after scan, before transfer completed");
+        File.SetLastWriteTimeUtc(path, scanTimeModifiedAt.UtcDateTime.AddMinutes(5));
+
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        Assert.Equal(1, outcome.FilesFailed);
+
+        // Second run: scan observes the file's current (post-edit) state; diff it against
+        // the manifest's current state, which is still empty for this path since the
+        // failed operation above never recorded anything.
+        var currentOnDiskInfo = new FileInfo(path);
+        var scannedEntry = new ScannedEntry("torn.txt", path, currentOnDiskInfo.Length, currentOnDiskInfo.LastWriteTimeUtc, IsLink: false, LinkTarget: null);
+        var diffResult = new BackupDiffer().Diff([scannedEntry], _repository.GetCurrentState(), []);
+
+        var pending = Assert.Single(diffResult.Pending);
+        Assert.Equal("torn.txt", pending.Entry.RelativePath);
+        Assert.Equal(PendingChangeKind.Added, pending.Kind);
+    }
+
+    [Fact]
+    public void An_unmodified_during_transfer_file_still_records_its_manifest_entry_with_the_scan_time_modification_time()
+    {
+        var path = WriteFile("stable.txt", "content that is not touched during its own transfer");
+        var scanTimeSize = new FileInfo(path).Length;
+        var scanTimeModifiedAt = ScanTimeModifiedAt(path);
+        var plan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Add, "stable.txt", null, path, scanTimeSize, scanTimeModifiedAt, null)],
+            scanTimeSize);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+
+        Assert.Equal(1, outcome.FilesAdded);
+        Assert.Empty(outcome.FailedPaths);
+        Assert.True(_contentStore.Mirror.ContainsKey("stable.txt"));
+        var record = Assert.Single(_repository.GetFileHistory("stable.txt"));
+        Assert.Equal(scanTimeModifiedAt, record.SourceModifiedAt);
+    }
+
+    [Fact]
+    public void A_source_file_deleted_immediately_after_being_read_is_recorded_as_failed()
+    {
+        var path = WriteFile("vanishing.txt", "will vanish right after being read");
+        var size = new FileInfo(path).Length;
+        var plan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Add, "vanishing.txt", null, path, size, ScanTimeModifiedAt(path), null)],
+            size);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        // onBytesTransferred fires from within StoreFromStream, once the content has
+        // already been fully read - deleting the source here simulates the re-stat call
+        // itself throwing (FileNotFoundException, an IOException) rather than observing a
+        // mismatch.
+        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, onBytesTransferred: _ =>
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        });
+
+        Assert.Equal(1, outcome.FilesFailed);
+        Assert.Equal(["vanishing.txt"], outcome.FailedPaths);
+        Assert.Equal(0, outcome.FilesAdded);
+        Assert.Empty(_repository.GetFileHistory("vanishing.txt"));
+        Assert.False(_contentStore.Mirror.ContainsKey("vanishing.txt"));
     }
 }
