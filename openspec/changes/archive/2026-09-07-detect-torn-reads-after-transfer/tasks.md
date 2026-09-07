@@ -28,6 +28,7 @@
 
 ## 3. Verification
 
-- [x] 3.1 Manually run a backup against a test file that is edited by a separate process mid-run
+- [ ] 3.1 Manually run a backup against a test file that is edited by a separate process mid-run
       (or simulate via a short delay + edit script) and confirm the run reports it as a failed
-      path, and a following run successfully captures its latest content
+      path, and a following run successfully captures its latest content (skipped by user
+      decision; equivalent behavior is covered by automated tests 2.1/2.2)
