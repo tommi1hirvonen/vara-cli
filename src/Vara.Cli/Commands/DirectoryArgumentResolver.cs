@@ -12,7 +12,7 @@ namespace Vara.Cli.Commands;
 /// </summary>
 internal static class DirectoryArgumentResolver
 {
-    public static string Resolve(string mirrorRoot, string rawInput, ISnapshotRepository repository)
+    public static string Resolve(string mirrorRoot, string rawInput, ISnapshotRepository repository, Func<string, bool> isWithinMirror)
     {
         bool DirectoryTracked(string candidate)
         {
@@ -27,7 +27,7 @@ internal static class DirectoryArgumentResolver
                 || repository.GetTombstones(null).Any(r => r.RelativePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
         }
 
-        return SnapshotPathResolver.TryResolve(mirrorRoot, rawInput, DirectoryTracked, out var resolved) ? resolved : rawInput;
+        return SnapshotPathResolver.TryResolve(mirrorRoot, rawInput, DirectoryTracked, isWithinMirror, out var resolved) ? resolved : rawInput;
     }
 
     private static string NormalizePrefix(string path)

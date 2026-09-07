@@ -29,6 +29,12 @@ public static class SnapshotPathResolver
     /// Returns whether a candidate mirror-relative path has any recorded history - typically
     /// backed by <c>ISnapshotRepository.GetFileHistory(candidate).Count > 0</c>.
     /// </param>
+    /// <param name="isWithinMirror">
+    /// Returns whether an absolute path resolves inside the mirror root, reparse points
+    /// (symlinks/junctions) included - the caller's <c>IContentStore.IsWithinMirror</c>. This is
+    /// the single shared implementation of "is this path inside the mirror"; this type no
+    /// longer computes its own lexical-only copy of that check.
+    /// </param>
     /// <param name="resolvedPath">
     /// The resolved mirror-relative path, when this method returns <c>true</c>; otherwise
     /// <see cref="string.Empty"/>.
@@ -42,6 +48,7 @@ public static class SnapshotPathResolver
         string mirrorRoot,
         string rawInput,
         Func<string, bool> hasHistory,
+        Func<string, bool> isWithinMirror,
         out string resolvedPath,
         string? currentDirectory = null)
     {
@@ -67,7 +74,13 @@ public static class SnapshotPathResolver
             return false;
         }
 
-        var candidate = IsWithinMirror(mirrorRoot, absolute, out var mirrorRelative)
+        // isWithinMirror is reparse-aware (it may say "yes" for a path reached only through a
+        // symlink/junction whose real target lies inside the mirror, even though the literal
+        // path string does not start with the mirror root); TryStripMirrorRootPrefix stays
+        // purely lexical. When the two disagree - contained, but no literal prefix to strip -
+        // fall through to the absolute-source-path interpretation rather than fabricating an
+        // incorrect mirror-relative path from a prefix strip that doesn't apply.
+        var candidate = isWithinMirror(absolute) && TryStripMirrorRootPrefix(mirrorRoot, absolute, out var mirrorRelative)
             ? mirrorRelative
             : AbsolutePathMirrorMapper.ToMirrorPath(absolute);
 
@@ -82,13 +95,13 @@ public static class SnapshotPathResolver
     }
 
     /// <summary>
-    /// Whether <paramref name="absolutePath"/> falls within <paramref name="mirrorRoot"/>, and
-    /// if so, the mirror-relative remainder. Mirrors the ordinal, case-insensitive,
-    /// trailing-separator-safe prefix check <c>FileSystemContentStore.IsWithinMirror</c>
-    /// already uses (see that type's doc comments) - duplicated here in small form rather
-    /// than shared, since <c>Vara.Application</c> does not depend on <c>Vara.Infrastructure</c>.
+    /// Whether <paramref name="absolutePath"/> lexically starts with <paramref name="mirrorRoot"/>
+    /// (or equals it), and if so, the mirror-relative remainder. Purely a lexical prefix-strip -
+    /// intentionally not reparse-aware (see this type's design notes on the "yes but can't strip"
+    /// case) - kept separate from the reparse-aware containment decision made via the injected
+    /// <c>isWithinMirror</c> predicate in <see cref="TryResolve"/>.
     /// </summary>
-    private static bool IsWithinMirror(string mirrorRoot, string absolutePath, out string mirrorRelative)
+    private static bool TryStripMirrorRootPrefix(string mirrorRoot, string absolutePath, out string mirrorRelative)
     {
         var resolvedMirrorRoot = Path.GetFullPath(mirrorRoot);
         var mirrorRootWithSeparator = resolvedMirrorRoot.EndsWith(Path.DirectorySeparatorChar)

@@ -41,7 +41,7 @@ public static class BrowseCommand
                 using var services = serviceFactory.CreateFor(profile, createIfMissing: false);
                 var history = new SnapshotHistoryService(services.Repository, services.ContentStore);
 
-                var resolvedDirectory = DirectoryArgumentResolver.Resolve(profile.TargetRoot, directory, services.Repository);
+                var resolvedDirectory = DirectoryArgumentResolver.Resolve(profile.TargetRoot, directory, services.Repository, services.ContentStore.IsWithinMirror);
                 var asOf = at is null ? (DateTimeOffset?)null : DateTimeOptionParser.Parse("--at", at);
 
                 var entries = history.ListDirectory(resolvedDirectory, asOf, includeDeleted);

@@ -418,17 +418,22 @@ public sealed class FileSystemContentStore : IContentStore
             Directory.CreateDirectory(directory);
         }
 
-        // CopyWithProgress opens its destination with FileMode.CreateNew, so an existing
-        // destination file is deleted first to preserve this method's previous
-        // File.Copy(overwrite: true) semantics (already gated by SnapshotHistoryService's
-        // GuardDestination, which only lets execution reach here for an existing destination
-        // when the caller explicitly authorized overwriting it).
-        if (File.Exists(destinationAbsolutePath))
-        {
-            File.Delete(destinationAbsolutePath);
-        }
+        // Mirrors PlaceAtMirrorPath's stage-then-atomically-rename pattern: copy to a fresh
+        // name under _tempRoot first, and only replace the destination via File.Move(overwrite:
+        // true) once that copy has fully succeeded. An existing destination is never deleted up
+        // front - if the copy is interrupted (disk full, process killed, permission error), the
+        // previous destination content is left completely untouched instead of being destroyed
+        // ahead of a write that never completes.
+        var stagingPath = Path.Combine(_tempRoot, Guid.NewGuid().ToString("N"));
+        CopyWithProgress(blobPath, stagingPath, onBytesCopied);
 
-        CopyWithProgress(blobPath, destinationAbsolutePath, onBytesCopied);
+        // File.Move(overwrite: true) throws UnauthorizedAccessException against a read-only
+        // destination (verified empirically for PlaceAtMirrorPath's equivalent case) - an
+        // extracted destination is never marked read-only by this codebase, but a destination
+        // outside the mirror could still carry that attribute for reasons outside Vara's
+        // control, so it's cleared first the same way PlaceAtMirrorPath already does.
+        ClearReadOnlyIfPresent(destinationAbsolutePath);
+        File.Move(stagingPath, destinationAbsolutePath, overwrite: true);
     }
 
     public void RemoveExtractedFile(string absolutePath)
@@ -443,22 +448,24 @@ public sealed class FileSystemContentStore : IContentStore
 
     /// <summary>
     /// Whether <paramref name="candidate"/> resolves to <paramref name="root"/> itself, or to a
-    /// location inside it. Both paths are resolved via <see cref="Path.GetFullPath(string)"/>
-    /// before comparison (so a relative, `..`-laden, or differently-separated candidate is
-    /// normalized first), and the comparison is case-insensitive and trailing-separator-safe,
-    /// consistent with the case-insensitive, case-preserving semantics of the filesystems this
-    /// tool targets. Shared by <see cref="IsWithinMirror"/> (restore-destination containment) and
-    /// <see cref="ResolveMirrorPath"/> (mirror-write containment), so the containment rule itself
-    /// is defined in exactly one place.
+    /// location inside it. Both paths are first resolved to their real, reparse-point-following
+    /// final location via <see cref="Kernel32.ResolveRealPath"/> (falling back to plain
+    /// <see cref="Path.GetFullPath(string)"/> normalization internally when no ancestor can be
+    /// opened), so a relative, `..`-laden, differently-separated, or symlink/junction-routed
+    /// candidate is normalized and resolved first. The comparison itself is case-insensitive and
+    /// trailing-separator-safe, consistent with the case-insensitive, case-preserving semantics
+    /// of the filesystems this tool targets. Shared by <see cref="IsWithinMirror"/>
+    /// (restore-destination containment) and <see cref="ResolveMirrorPath"/> (mirror-write
+    /// containment), so the containment rule itself is defined in exactly one place.
     /// </summary>
     private static bool IsPathWithinRoot(string root, string candidate)
     {
-        var resolvedRoot = Path.GetFullPath(root);
+        var resolvedRoot = Kernel32.ResolveRealPath(root);
         var rootWithSeparator = resolvedRoot.EndsWith(Path.DirectorySeparatorChar)
             ? resolvedRoot
             : resolvedRoot + Path.DirectorySeparatorChar;
 
-        var resolvedCandidate = Path.GetFullPath(candidate);
+        var resolvedCandidate = Kernel32.ResolveRealPath(candidate);
         return resolvedCandidate.Equals(resolvedRoot, StringComparison.OrdinalIgnoreCase)
             || resolvedCandidate.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase);
     }

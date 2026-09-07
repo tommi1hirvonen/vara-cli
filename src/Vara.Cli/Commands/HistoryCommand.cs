@@ -32,6 +32,7 @@ public static class HistoryCommand
                     profile.TargetRoot,
                     path,
                     candidate => services.Repository.GetFileHistory(candidate).Count > 0,
+                    services.ContentStore.IsWithinMirror,
                     out var candidatePath)
                     ? candidatePath
                     : path;

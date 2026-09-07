@@ -91,7 +91,7 @@ public static class RestoreCommand
 
                 if (recursive)
                 {
-                    RunRecursiveRestore(history, profile.TargetRoot, path, at, outPath, inPlace, force, console, ref cancelled);
+                    RunRecursiveRestore(history, profile.TargetRoot, path, at, outPath, inPlace, force, console, services.ContentStore.IsWithinMirror, ref cancelled);
                     return;
                 }
 
@@ -99,6 +99,7 @@ public static class RestoreCommand
                     profile.TargetRoot,
                     path,
                     candidate => services.Repository.GetFileHistory(candidate).Count > 0,
+                    services.ContentStore.IsWithinMirror,
                     out var resolvedPath)
                     ? resolvedPath
                     : path;
@@ -281,12 +282,14 @@ public static class RestoreCommand
         bool inPlace,
         bool force,
         IAnsiConsole console,
+        Func<string, bool> isWithinMirror,
         ref bool cancelled)
     {
         var resolvedPath = SnapshotPathResolver.TryResolve(
             mirrorRoot,
             path,
             candidate => IsDirectoryTracked(history, candidate),
+            isWithinMirror,
             out var candidatePath)
             ? candidatePath
             : path;

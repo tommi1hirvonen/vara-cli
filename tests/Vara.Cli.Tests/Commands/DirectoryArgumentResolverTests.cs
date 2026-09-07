@@ -43,7 +43,7 @@ public class DirectoryArgumentResolverTests
         };
         var repository = new StubRepository(current);
 
-        var resolved = DirectoryArgumentResolver.Resolve(@"D:\Backups\Profile1", @"C:\Users\john\Projects\src", repository);
+        var resolved = DirectoryArgumentResolver.Resolve(@"D:\Backups\Profile1", @"C:\Users\john\Projects\src", repository, IsWithinMirror);
 
         Assert.Equal(@"C\Users\john\Projects\src", resolved);
     }
@@ -53,7 +53,7 @@ public class DirectoryArgumentResolverTests
     {
         var repository = new StubRepository(new Dictionary<string, CurrentFileState>());
 
-        var resolved = DirectoryArgumentResolver.Resolve(@"D:\Backups\Profile1", "never-tracked-dir", repository);
+        var resolved = DirectoryArgumentResolver.Resolve(@"D:\Backups\Profile1", "never-tracked-dir", repository, IsWithinMirror);
 
         Assert.Equal("never-tracked-dir", resolved);
     }
@@ -63,8 +63,15 @@ public class DirectoryArgumentResolverTests
     {
         var repository = new StubRepository(new Dictionary<string, CurrentFileState>());
 
-        var resolved = DirectoryArgumentResolver.Resolve(@"D:\Backups\Profile1", ".", repository);
+        var resolved = DirectoryArgumentResolver.Resolve(@"D:\Backups\Profile1", ".", repository, IsWithinMirror);
 
         Assert.Equal(".", resolved);
     }
+
+    /// <summary>Plain lexical containment check standing in for the reparse-aware
+    /// <c>IContentStore.IsWithinMirror</c> a real caller passes - equivalent for these tests
+    /// since none of them exercise a symlink/junction.</summary>
+    private static bool IsWithinMirror(string absolutePath) =>
+        absolutePath.Equals(@"D:\Backups\Profile1", StringComparison.OrdinalIgnoreCase)
+        || absolutePath.StartsWith(@"D:\Backups\Profile1\", StringComparison.OrdinalIgnoreCase);
 }

@@ -16,6 +16,7 @@ public class SnapshotPathResolverTests
             MirrorRoot,
             @"C\Users\john\file.txt",
             tracked.Contains,
+            IsWithinMirror,
             out var resolvedPath,
             currentDirectory: @"C:\Windows");
 
@@ -32,6 +33,7 @@ public class SnapshotPathResolverTests
             MirrorRoot,
             "file.txt",
             tracked.Contains,
+            IsWithinMirror,
             out var resolvedPath,
             currentDirectory: MirrorRoot + @"\C\Users\john");
 
@@ -48,6 +50,7 @@ public class SnapshotPathResolverTests
             MirrorRoot,
             MirrorRoot + @"\C\Users\john\file.txt",
             tracked.Contains,
+            IsWithinMirror,
             out var resolvedPath,
             currentDirectory: @"C:\Windows");
 
@@ -64,6 +67,7 @@ public class SnapshotPathResolverTests
             MirrorRoot,
             @"src\main.py",
             tracked.Contains,
+            IsWithinMirror,
             out var resolvedPath,
             currentDirectory: @"C:\Users\john\Projects");
 
@@ -80,6 +84,7 @@ public class SnapshotPathResolverTests
             MirrorRoot,
             @"C:\Users\john\Projects\src\main.py",
             tracked.Contains,
+            IsWithinMirror,
             out var resolvedPath,
             currentDirectory: @"C:\Windows");
 
@@ -96,10 +101,41 @@ public class SnapshotPathResolverTests
             MirrorRoot,
             @"C:\Users\john\nonexistent.txt",
             tracked.Contains,
+            IsWithinMirror,
             out var resolvedPath,
             currentDirectory: @"C:\Windows");
 
         Assert.False(resolved);
         Assert.Equal(string.Empty, resolvedPath);
     }
+
+    [Fact]
+    public void When_isWithinMirror_reports_containment_but_the_literal_prefix_cannot_be_stripped_it_falls_through_to_the_source_path_transform()
+    {
+        // Simulates the reparse-point case: a fake isWithinMirror reports "yes, contained" for
+        // an absolute path that does not share MirrorRoot's literal string prefix at all (as a
+        // real caller's IContentStore.IsWithinMirror could, for a path reached only through a
+        // symlink/junction whose real target lies inside the mirror). TryResolve must not
+        // fabricate an incorrect mirror-relative path from a prefix strip that doesn't apply -
+        // it should fall through to the absolute-source-path interpretation instead.
+        var tracked = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { @"C\Users\john\Projects\src\main.py" };
+
+        var resolved = SnapshotPathResolver.TryResolve(
+            MirrorRoot,
+            @"C:\Users\john\Projects\src\main.py",
+            tracked.Contains,
+            isWithinMirror: static _ => true,
+            out var resolvedPath,
+            currentDirectory: @"C:\Windows");
+
+        Assert.True(resolved);
+        Assert.Equal(@"C\Users\john\Projects\src\main.py", resolvedPath);
+    }
+
+    /// <summary>Plain lexical containment check standing in for the reparse-aware
+    /// <c>IContentStore.IsWithinMirror</c> a real caller passes - equivalent for these tests
+    /// since none of them exercise a symlink/junction.</summary>
+    private static bool IsWithinMirror(string absolutePath) =>
+        absolutePath.Equals(MirrorRoot, StringComparison.OrdinalIgnoreCase)
+        || absolutePath.StartsWith(MirrorRoot + @"\", StringComparison.OrdinalIgnoreCase);
 }

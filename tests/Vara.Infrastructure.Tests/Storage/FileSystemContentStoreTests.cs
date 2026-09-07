@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using Vara.Core.Abstractions;
 using Vara.Infrastructure.Hashing;
@@ -470,6 +471,37 @@ public class FileSystemContentStoreTests : IDisposable
     }
 
     [Fact]
+    public void ExtractTo_leaves_the_original_destination_content_intact_when_the_copy_is_interrupted()
+    {
+        // Regression coverage for the atomic-restore-writes requirement: a copy that fails
+        // partway through (simulated here via an onBytesCopied callback that throws, the same
+        // technique the proposal's design.md calls out) must not have deleted the previous
+        // destination content first - the old File.Delete-then-copy implementation would have
+        // left the destination empty/missing at this point.
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        const int contentLength = 5 * 1024 * 1024;
+        var (hash, _) = store.StoreFromStream(LargeContent(contentLength));
+        var destination = Path.Combine(Path.GetTempPath(), $"vara-extract-{Guid.NewGuid():N}.txt");
+        const string originalContent = "stale content that must survive an interrupted restore";
+        File.WriteAllText(destination, originalContent);
+
+        try
+        {
+            Assert.ThrowsAny<Exception>(() => store.ExtractTo(
+                hash,
+                destination,
+                onBytesCopied: _ => throw new IOException("Simulated copy failure for testing.")));
+
+            Assert.Equal(originalContent, File.ReadAllText(destination));
+        }
+        finally
+        {
+            File.Delete(destination);
+        }
+    }
+
+    [Fact]
     public void ExtractTo_reports_incremental_progress_for_a_large_file()
     {
         var store = CreateStore();
@@ -886,6 +918,47 @@ public class FileSystemContentStoreTests : IDisposable
         var siblingWithSharedPrefix = _targetRoot + "-sibling";
 
         Assert.False(store.IsWithinMirror(Path.Combine(siblingWithSharedPrefix, "file.txt")));
+    }
+
+    [Fact]
+    public void IsWithinMirror_reports_true_for_a_path_reached_only_through_a_junction_into_the_mirror()
+    {
+        // A junction sitting entirely outside the mirror root, but whose target lands inside
+        // it: lexically, a path through the junction never starts with the mirror root string,
+        // so this exercises the reparse-point-following containment check specifically (the
+        // lexical-only check this replaces would have returned false here).
+        var store = CreateStore();
+        var mirrorSubdirectory = Path.Combine(_targetRoot, "sub");
+        Directory.CreateDirectory(mirrorSubdirectory);
+
+        var outsideDirectory = Path.Combine(Path.GetTempPath(), $"vara-outside-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outsideDirectory);
+        var junctionPath = Path.Combine(outsideDirectory, "linked-into-mirror");
+
+        try
+        {
+            CreateJunction(junctionPath, mirrorSubdirectory);
+
+            Assert.True(store.IsWithinMirror(Path.Combine(junctionPath, "file.txt")));
+        }
+        finally
+        {
+            Directory.Delete(junctionPath, recursive: false);
+            Directory.Delete(outsideDirectory, recursive: true);
+        }
+    }
+
+    private static void CreateJunction(string junctionPath, string targetPath)
+    {
+        var startInfo = new ProcessStartInfo("cmd.exe", $"/c mklink /J \"{junctionPath}\" \"{targetPath}\"")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        using var process = Process.Start(startInfo)!;
+        process.WaitForExit();
+        Assert.Equal(0, process.ExitCode);
     }
 
     [Fact]
