@@ -8,6 +8,15 @@ public enum SnapshotStatus
     Running,
     Complete,
     Failed,
+
+    /// <summary>
+    /// The run was deliberately stopped via a single Ctrl+C (a graceful cancellation
+    /// that completed a forced checkpoint before exiting), distinct from
+    /// <see cref="Failed"/> (a crash, power loss, or a second Ctrl+C forcing immediate
+    /// termination) - see backup-execution's "Graceful cancellation via Ctrl+C"
+    /// requirement.
+    /// </summary>
+    Cancelled,
 }
 
 /// <summary>

@@ -50,10 +50,19 @@ public interface ISnapshotRepository : IDisposable
     void FailSnapshot(long snapshotId, DateTimeOffset failedAt, SnapshotStats stats);
 
     /// <summary>
+    /// Marks a snapshot as deliberately cancelled (a graceful Ctrl+C stop that completed
+    /// its forced checkpoint) with whatever statistics were gathered - distinct from
+    /// <see cref="FailSnapshot"/>, per backup-execution's "Graceful cancellation via
+    /// Ctrl+C" requirement.
+    /// </summary>
+    void CancelSnapshot(long snapshotId, DateTimeOffset cancelledAt, SnapshotStats stats);
+
+    /// <summary>
     /// Begins a batch scope grouping subsequent <see cref="RecordFileVersion"/>,
-    /// <see cref="CompleteSnapshot"/>, and <see cref="FailSnapshot"/> calls into one
-    /// commit, instead of each committing independently (backup-execution spec's
-    /// "Manifest writes are batched per snapshot" requirement). <see cref="BeginSnapshot"/>
+    /// <see cref="CompleteSnapshot"/>, <see cref="FailSnapshot"/>, and
+    /// <see cref="CancelSnapshot"/> calls into periodic checkpoint commits, instead of
+    /// each committing independently (backup-execution spec's "Manifest writes are
+    /// checkpointed periodically during a run" requirement). <see cref="BeginSnapshot"/>
     /// is unaffected and always commits immediately, so an interrupted run is still
     /// discoverable as <see cref="Snapshots.SnapshotStatus.Running"/> on next startup.
     /// Only one batch may be active at a time.

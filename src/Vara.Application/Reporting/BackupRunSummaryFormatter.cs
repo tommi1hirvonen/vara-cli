@@ -12,7 +12,8 @@ public static class BackupRunSummaryFormatter
     public static string Format(BackupRunResult result)
     {
         var builder = new StringBuilder();
-        builder.AppendLine($"Snapshot #{result.SnapshotId} completed in {FormatDuration(result.Elapsed)}");
+        var headlineVerb = result.Cancelled ? "cancelled after" : "completed in";
+        builder.AppendLine($"Snapshot #{result.SnapshotId} {headlineVerb} {FormatDuration(result.Elapsed)}");
         builder.AppendLine($"  Added:       {result.Stats.FilesAdded}");
         builder.AppendLine($"  Changed:     {result.Stats.FilesChanged}");
         builder.AppendLine($"  Moved:       {result.Stats.FilesMoved}");

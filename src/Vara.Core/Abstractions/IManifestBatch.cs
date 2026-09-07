@@ -3,17 +3,23 @@ namespace Vara.Core.Abstractions;
 /// <summary>
 /// A batch scope, obtained from <see cref="ISnapshotRepository.BeginManifestBatch"/>, that
 /// groups the manifest writes made while it is active (via <see cref="ISnapshotRepository.RecordFileVersion"/>,
-/// <see cref="ISnapshotRepository.CompleteSnapshot"/>, and <see cref="ISnapshotRepository.FailSnapshot"/>)
-/// into a single durable commit, rather than each call committing independently.
-/// Disposing without calling <see cref="Commit"/> discards every write made during the
-/// batch - as if the run had been interrupted before this point (backup-execution spec's
-/// "Manifest writes are batched per snapshot" requirement).
+/// <see cref="ISnapshotRepository.CompleteSnapshot"/>, <see cref="ISnapshotRepository.FailSnapshot"/>, and
+/// <see cref="ISnapshotRepository.CancelSnapshot"/>) into a bounded number of durable commits -
+/// periodic checkpoints - rather than each write committing independently or the whole
+/// run committing only once. Disposing without a final call to <see cref="Commit"/>
+/// discards only the writes made since the most recent checkpoint (or since the batch
+/// began, if <see cref="Commit"/> was never called) - as if the run had been interrupted
+/// at that point (backup-execution spec's "Manifest writes are checkpointed periodically
+/// during a run" requirement).
 /// </summary>
 public interface IManifestBatch : IDisposable
 {
     /// <summary>
-    /// Makes all writes performed during this batch durable. Must be called at most once;
-    /// disposing after a successful commit is a no-op.
+    /// Makes every write performed since the batch began (or since the previous
+    /// <see cref="Commit"/> call) durable, then keeps the batch open so further writes can
+    /// still be made and later committed - each call is a checkpoint, not necessarily the
+    /// batch's final commit. Callable repeatedly. Calling after <see cref="IDisposable.Dispose"/>
+    /// throws <see cref="ObjectDisposedException"/>.
     /// </summary>
     void Commit();
 }

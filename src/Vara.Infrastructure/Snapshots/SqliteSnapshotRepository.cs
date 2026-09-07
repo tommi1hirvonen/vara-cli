@@ -11,8 +11,10 @@ namespace Vara.Infrastructure.Snapshots;
 /// the rationale (small, stable schema; set-based queries; Native AOT safety).
 /// Opens with <c>journal_mode=WAL</c>/<c>synchronous=NORMAL</c> and supports an
 /// explicit <see cref="BeginManifestBatch"/> scope so a caller can group many
-/// <see cref="RecordFileVersion"/> (and outcome) writes into one commit instead of
-/// paying a fsync per call - see the batch-manifest-writes change's design.md.
+/// <see cref="RecordFileVersion"/> (and outcome) writes into a bounded number of
+/// periodic checkpoint commits instead of paying a fsync per call - see the
+/// batch-manifest-writes change's design.md and the add-backup-checkpoints-and-cancellation
+/// change's design.md for the periodic-checkpoint follow-up.
 /// </summary>
 public sealed class SqliteSnapshotRepository : ISnapshotRepository
 {
@@ -247,6 +249,9 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
     public void FailSnapshot(long snapshotId, DateTimeOffset failedAt, SnapshotStats stats) =>
         UpdateSnapshotOutcome(snapshotId, failedAt, SnapshotStatus.Failed, stats);
 
+    public void CancelSnapshot(long snapshotId, DateTimeOffset cancelledAt, SnapshotStats stats) =>
+        UpdateSnapshotOutcome(snapshotId, cancelledAt, SnapshotStatus.Cancelled, stats);
+
     /// <summary>
     /// See <see cref="ISnapshotRepository.BeginManifestBatch"/>. Backed by a real SQLite
     /// transaction: <see cref="RecordFileVersion"/> and <see cref="UpdateSnapshotOutcome"/>
@@ -264,7 +269,14 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
         return new ManifestBatch(this);
     }
 
-    private void CommitActiveBatch()
+    /// <summary>
+    /// Commits the active transaction as a checkpoint, then immediately reopens a fresh
+    /// one on the same connection so subsequent writes keep attaching to an active
+    /// transaction - each call is a checkpoint, not necessarily the batch's final commit
+    /// (periodic-checkpointing follow-up to the original batch-manifest-writes change;
+    /// see design.md).
+    /// </summary>
+    private void CheckpointActiveBatch()
     {
         if (_activeBatchTransaction is null)
         {
@@ -273,14 +285,17 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
 
         _activeBatchTransaction.Commit();
         _activeBatchTransaction.Dispose();
-        _activeBatchTransaction = null;
 
         // Fold the just-committed writes back into the main database file so a plain
         // copy of it (without the -wal/-shm sidecar files) is self-contained again
         // between runs - see design.md's WAL-checkpoint decision.
-        using var checkpoint = RequireConnection().CreateCommand();
-        checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
-        checkpoint.ExecuteNonQuery();
+        using (var checkpoint = RequireConnection().CreateCommand())
+        {
+            checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+            checkpoint.ExecuteNonQuery();
+        }
+
+        _activeBatchTransaction = RequireConnection().BeginTransaction();
     }
 
     private void DiscardActiveBatch()
@@ -296,34 +311,31 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
     }
 
     /// <summary>
-    /// Disposing without a prior <see cref="Commit"/> rolls back the transaction, discarding
-    /// every write made during the batch - modeling (or recovering cleanly from) an
-    /// interrupted run per the backup-execution spec's batching requirement.
+    /// Disposing without a final <see cref="Commit"/> rolls back only the transaction
+    /// currently active (i.e. the writes made since the most recent checkpoint, or since
+    /// the batch began if none has committed yet) - earlier checkpoints already committed
+    /// durably and are unaffected. Models (or recovers cleanly from) an interruption per
+    /// the backup-execution spec's periodic-checkpointing requirement.
     /// </summary>
     private sealed class ManifestBatch(SqliteSnapshotRepository owner) : IManifestBatch
     {
-        private bool _finished;
+        private bool _disposed;
 
         public void Commit()
         {
-            if (_finished)
-            {
-                return;
-            }
-
-            owner.CommitActiveBatch();
-            _finished = true;
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            owner.CheckpointActiveBatch();
         }
 
         public void Dispose()
         {
-            if (_finished)
+            if (_disposed)
             {
                 return;
             }
 
             owner.DiscardActiveBatch();
-            _finished = true;
+            _disposed = true;
         }
     }
 

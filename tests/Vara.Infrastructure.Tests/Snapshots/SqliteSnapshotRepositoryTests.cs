@@ -682,6 +682,102 @@ public class SqliteSnapshotRepositoryTests : IDisposable
         Assert.Throws<InvalidOperationException>(() => Repository.BeginManifestBatch());
     }
 
+    [Fact]
+    public void Calling_Commit_more_than_once_checkpoints_each_time_and_keeps_the_batch_open()
+    {
+        // Periodic checkpointing (add-backup-checkpoints-and-cancellation's design.md):
+        // Commit() is now a checkpoint, not necessarily the batch's final commit - each
+        // call must durably commit whatever was written since the previous call, while
+        // still accepting further writes.
+        var now = DateTimeOffset.UtcNow;
+        var snapshotId = Repository.BeginSnapshot(now);
+
+        using var batch = Repository.BeginManifestBatch();
+
+        Repository.RecordFileVersion(snapshotId, "a.txt", null, "hash-1", 10, now, FileChangeKind.Added, now);
+        batch.Commit();
+        Assert.Equal(1, CountFileVersionRowsViaSeparateConnection());
+
+        Repository.RecordFileVersion(snapshotId, "b.txt", null, "hash-2", 20, now, FileChangeKind.Added, now);
+        Assert.Equal(1, CountFileVersionRowsViaSeparateConnection()); // second row not yet committed
+
+        batch.Commit();
+        Assert.Equal(2, CountFileVersionRowsViaSeparateConnection()); // both checkpoints are durable
+    }
+
+    [Fact]
+    public void Disposing_after_a_checkpoint_only_discards_writes_made_since_that_checkpoint()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var snapshotId = Repository.BeginSnapshot(now);
+
+        using (var batch = Repository.BeginManifestBatch())
+        {
+            Repository.RecordFileVersion(snapshotId, "a.txt", null, "hash-1", 10, now, FileChangeKind.Added, now);
+            batch.Commit(); // checkpoint: "a.txt" is now durable
+
+            Repository.RecordFileVersion(snapshotId, "b.txt", null, "hash-2", 20, now, FileChangeKind.Added, now);
+            // No further Commit() - models an interruption after the checkpoint but
+            // before the next one; only "b.txt" should be discarded.
+        }
+
+        using var reopened = new SqliteSnapshotRepository(_dbPath);
+        var history = reopened.GetFileHistory("a.txt");
+        Assert.Single(history);
+        Assert.Empty(reopened.GetFileHistory("b.txt"));
+    }
+
+    [Fact]
+    public void Calling_Commit_after_Dispose_throws()
+    {
+        Repository.BeginSnapshot(DateTimeOffset.UtcNow);
+        var batch = Repository.BeginManifestBatch();
+        batch.Dispose();
+
+        Assert.Throws<ObjectDisposedException>(batch.Commit);
+    }
+
+    [Fact]
+    public void CancelSnapshot_records_the_Cancelled_status_and_round_trips_it()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var snapshotId = Repository.BeginSnapshot(now);
+
+        using (var batch = Repository.BeginManifestBatch())
+        {
+            Repository.CancelSnapshot(snapshotId, now, new SnapshotStats(5, 1, 0, 0, 0, 0));
+            batch.Commit();
+        }
+
+        var snapshot = Repository.ListSnapshots().Single(s => s.Id == snapshotId);
+        Assert.Equal(SnapshotStatus.Cancelled, snapshot.Status);
+
+        // Persisted via nameof(...) as a plain string column (no schema migration) -
+        // a fresh repository instance re-reading the same file must see the same value.
+        using var reopened = new SqliteSnapshotRepository(_dbPath);
+        var reopenedSnapshot = reopened.ListSnapshots().Single(s => s.Id == snapshotId);
+        Assert.Equal(SnapshotStatus.Cancelled, reopenedSnapshot.Status);
+    }
+
+    [Fact]
+    public void ReconcileIncompleteSnapshots_does_not_touch_an_already_Cancelled_snapshot()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var snapshotId = Repository.BeginSnapshot(now);
+
+        using (var batch = Repository.BeginManifestBatch())
+        {
+            Repository.CancelSnapshot(snapshotId, now, SnapshotStats.Empty);
+            batch.Commit();
+        }
+
+        using var reopened = new SqliteSnapshotRepository(_dbPath);
+        reopened.ReconcileIncompleteSnapshots();
+
+        var snapshot = reopened.ListSnapshots().Single(s => s.Id == snapshotId);
+        Assert.Equal(SnapshotStatus.Cancelled, snapshot.Status); // still Cancelled, not overwritten to Failed
+    }
+
     private int CountFileVersionRowsViaSeparateConnection()
     {
         using var connection = new SqliteConnection($"Data Source={_dbPath}");

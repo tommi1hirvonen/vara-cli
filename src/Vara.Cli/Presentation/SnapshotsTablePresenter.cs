@@ -52,6 +52,10 @@ public static class SnapshotsTablePresenter
     {
         SnapshotStatus.Complete => OutcomeStyle.Success,
         SnapshotStatus.Failed => OutcomeStyle.Error,
+        // Cancelled reuses the partial-failure/warning style, not the hard-error style:
+        // a graceful Ctrl+C stop is an expected, self-healing outcome rather than a
+        // crash - see the add-backup-checkpoints-and-cancellation change's design.md.
+        SnapshotStatus.Cancelled => OutcomeStyle.PartialFailure,
         _ => OutcomeStyle.Neutral,
     };
 }

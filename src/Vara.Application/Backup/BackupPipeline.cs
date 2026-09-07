@@ -1,3 +1,4 @@
+using System.Threading;
 using Vara.Core.Abstractions;
 using Vara.Core.Backup;
 using Vara.Core.Configuration;
@@ -26,7 +27,16 @@ public sealed class BackupPipeline(
     private readonly TextWriter _diagnostics = diagnostics ?? Console.Error;
 
 
-    public BackupRunResult Run(Profile profile, IProgress<BackupProgress>? progress = null)
+    /// <param name="cancellationToken">
+    /// Cooperative "stop starting new work" signal, set by a graceful Ctrl+C stop (see
+    /// <c>Vara.Cli.Program</c>'s <c>Console.CancelKeyPress</c> handler). When requested,
+    /// <see cref="BackupExecutor"/> finishes whatever operations are already in flight
+    /// and starts no new ones; this method then forces an immediate checkpoint covering
+    /// everything completed so far and records the snapshot as <see cref="SnapshotStatus.Cancelled"/>
+    /// instead of <see cref="SnapshotStatus.Complete"/> - see backup-execution's
+    /// "Graceful cancellation via Ctrl+C" requirement and design.md.
+    /// </param>
+    public BackupRunResult Run(Profile profile, IProgress<BackupProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         using (runLock)
         {
@@ -45,12 +55,14 @@ public sealed class BackupPipeline(
             // BeginSnapshot above commits immediately (outside the batch) so an
             // interrupted run is still discoverable as Running on next startup. Everything
             // from here on - the executor's per-file manifest writes plus the trailing
-            // outcome update - is grouped into one batch commit per the
-            // "Manifest writes are batched per snapshot" requirement, instead of paying a
-            // durable commit for every file. A crash before Commit() rolls the whole batch
-            // back; ReconcileIncompleteSnapshots then finds the snapshot still Running on
-            // the next startup, and the next run's incremental scan re-detects and
-            // re-records any affected paths (self-healing, not data loss - see design.md).
+            // outcome update - is grouped into periodic checkpoint commits per the
+            // "Manifest writes are checkpointed periodically during a run" requirement,
+            // instead of paying a durable commit for every file, or deferring to a single
+            // commit for the whole run. A crash between checkpoints rolls back only the
+            // writes made since the most recent one; ReconcileIncompleteSnapshots then
+            // finds the snapshot still Running on the next startup, and the next run's
+            // incremental scan re-detects and re-records any affected paths (self-healing,
+            // not data loss - see design.md).
             using var manifestBatch = repository.BeginManifestBatch();
 
             try
@@ -100,7 +112,9 @@ public sealed class BackupPipeline(
                         var total = Interlocked.Add(ref bytesSoFar, transferred);
                         progress?.Report(new BackupProgress(total, progressTotalBytes));
                     },
-                    onTransferPhaseStarting: () => progress?.Report(new BackupProgress(0, progressTotalBytes)));
+                    onTransferPhaseStarting: () => progress?.Report(new BackupProgress(0, progressTotalBytes)),
+                    manifestBatch: manifestBatch,
+                    cancellationToken: cancellationToken);
 
                 // BackupDiffer.Diff above fully enumerates scanResult.Entries, so
                 // scanResult.Failures is guaranteed complete by this point. Scan-time
@@ -112,6 +126,19 @@ public sealed class BackupPipeline(
                     outcome.BytesTransferred, outcome.FilesAdded, outcome.FilesChanged, outcome.FilesMoved, outcome.FilesDeleted,
                     outcome.FilesFailed + scanResult.Failures.Count);
                 var completedAt = DateTimeOffset.UtcNow;
+
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    // Graceful stop: the executor above finished in-flight operations and
+                    // started no new ones. Recording Cancelled (rather than Complete) here
+                    // and forcing a checkpoint commit are both done before returning, so a
+                    // single Ctrl+C never leaves the snapshot Running for
+                    // ReconcileIncompleteSnapshots to later mark Failed instead.
+                    repository.CancelSnapshot(snapshotId, completedAt, stats);
+                    manifestBatch.Commit();
+                    return new BackupRunResult(snapshotId, startedAt, completedAt, stats, failedPaths, Cancelled: true);
+                }
+
                 repository.CompleteSnapshot(snapshotId, completedAt, stats);
                 manifestBatch.Commit();
 

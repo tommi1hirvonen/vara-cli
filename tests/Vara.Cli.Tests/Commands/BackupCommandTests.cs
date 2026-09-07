@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using System.Threading;
 using Vara.Application.Backup;
 using Vara.Application.Profiles;
 using Vara.Cli.Commands;
@@ -14,11 +15,11 @@ namespace Vara.Cli.Tests.Commands;
 
 public class BackupCommandTests
 {
-    private static BackupRunResult MakeResult(IReadOnlyList<string> failedPaths)
+    private static BackupRunResult MakeResult(IReadOnlyList<string> failedPaths, bool cancelled = false)
     {
         var startedAt = new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero);
         var stats = SnapshotStats.Empty with { FilesFailed = failedPaths.Count };
-        return new BackupRunResult(1, startedAt, startedAt.AddSeconds(1), stats, failedPaths);
+        return new BackupRunResult(1, startedAt, startedAt.AddSeconds(1), stats, failedPaths, cancelled);
     }
 
     [Fact]
@@ -33,6 +34,14 @@ public class BackupCommandTests
     public void ResolveOutcome_is_partial_failure_when_one_or_more_files_failed()
     {
         var result = MakeResult(["some/failed/path.txt"]);
+
+        Assert.Equal(BackupProgressOutcome.PartialFailure, BackupCommand.ResolveOutcome(result));
+    }
+
+    [Fact]
+    public void ResolveOutcome_is_partial_failure_when_cancelled_even_with_no_failed_paths()
+    {
+        var result = MakeResult([], cancelled: true);
 
         Assert.Equal(BackupProgressOutcome.PartialFailure, BackupCommand.ResolveOutcome(result));
     }
@@ -76,7 +85,7 @@ public class BackupCommandExitCodeTests : IDisposable
         public ScanResult Scan(IReadOnlyList<Source> sources) => new([], failures ?? []);
     }
 
-    private System.CommandLine.Command CreateCommand(IFileSystemScanner scanner)
+    private System.CommandLine.Command CreateCommand(IFileSystemScanner scanner, CancellationToken cancellationToken = default)
     {
         var profile = new Profile("test-profile", _targetRoot, [new Source(_sourceRoot)], null);
         var hasher = new XxHash128Hasher();
@@ -84,7 +93,8 @@ public class BackupCommandExitCodeTests : IDisposable
             new ProfileResolver(new SingleProfileConfigLoader(profile)),
             new ProfileServiceFactory(hasher),
             scanner,
-            hasher);
+            hasher,
+            cancellationToken);
     }
 
     [Fact]
@@ -119,5 +129,17 @@ public class BackupCommandExitCodeTests : IDisposable
         var exitCode = command.Parse(["--profile", "no-such-profile"]).Invoke();
 
         Assert.Equal(ExitCodes.HardError, exitCode);
+    }
+
+    [Fact]
+    public void A_gracefully_cancelled_run_returns_exit_code_partial_failure_not_success()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var command = CreateCommand(new FakeFileSystemScanner(), cts.Token);
+
+        var exitCode = command.Parse(["--profile", "test-profile"]).Invoke();
+
+        Assert.Equal(ExitCodes.PartialFailure, exitCode);
     }
 }

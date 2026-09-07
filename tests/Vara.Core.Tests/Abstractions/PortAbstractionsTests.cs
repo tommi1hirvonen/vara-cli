@@ -101,6 +101,7 @@ public class PortAbstractionsTests
         }
 
         public void FailSnapshot(long snapshotId, DateTimeOffset failedAt, SnapshotStats stats) { }
+        public void CancelSnapshot(long snapshotId, DateTimeOffset cancelledAt, SnapshotStats stats) { }
         public IManifestBatch BeginManifestBatch() => new NoOpManifestBatch();
         public IReadOnlyDictionary<string, CurrentFileState> GetCurrentState() => new Dictionary<string, CurrentFileState>();
         public IReadOnlyDictionary<string, CurrentFileState> GetStateAsOf(DateTimeOffset asOf) => new Dictionary<string, CurrentFileState>();

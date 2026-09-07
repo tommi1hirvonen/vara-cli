@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.Threading;
 using Spectre.Console;
 using Vara.Application.Backup;
 using Vara.Application.Profiles;
@@ -11,7 +12,7 @@ namespace Vara.Cli.Commands;
 
 public static class BackupCommand
 {
-    public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory, IFileSystemScanner scanner, IHasher hasher)
+    public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory, IFileSystemScanner scanner, IHasher hasher, CancellationToken cancellationToken = default)
     {
         var profileOption = new Option<string>("--profile") { Description = "The profile to back up.", Required = true };
         var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
@@ -33,8 +34,8 @@ public static class BackupCommand
                 var console = AnsiConsole.Console;
 
                 result = OutputMode.IsLiveCapable(console)
-                    ? RunWithLiveDisplay(pipeline, profile, console)
-                    : RunWithPlainOutput(pipeline, profile, console);
+                    ? RunWithLiveDisplay(pipeline, profile, console, cancellationToken)
+                    : RunWithPlainOutput(pipeline, profile, console, cancellationToken);
 
                 console.WriteLine();
                 BackupOutcomeReporter.Report(console, result);
@@ -43,11 +44,12 @@ public static class BackupCommand
             // A hard error (ExitCodes.HardError) always wins: it means result was never
             // assigned (or the run didn't finish), so it must not be downgraded to the
             // partial-failure code. Only a run that completed (ExitCodes.Success) but
-            // recorded failed paths is promoted, per the cli-presentation delta's
-            // "Outcome severity determines process exit code" requirement - previously
-            // ErrorReporting.Run's own exit code was returned unconditionally, so a
-            // completed-with-failures run always reported success (exit 0) to the caller.
-            if (exitCode == ExitCodes.Success && result.FailedPaths.Count > 0)
+            // recorded failed paths - or was gracefully cancelled via Ctrl+C - is
+            // promoted, per the cli-presentation delta's "Outcome severity determines
+            // process exit code" requirement - previously ErrorReporting.Run's own exit
+            // code was returned unconditionally, so a completed-with-failures run always
+            // reported success (exit 0) to the caller.
+            if (exitCode == ExitCodes.Success && (result.FailedPaths.Count > 0 || result.Cancelled))
             {
                 exitCode = ExitCodes.PartialFailure;
             }
@@ -63,7 +65,7 @@ public static class BackupCommand
     // design.md's "one unified column" decision. Progress()'s own AutoRefresh (unlike
     // Live, which has none) is what keeps throughput/ETA advancing during a stall - no
     // manual heartbeat timer is needed any more.
-    private static BackupRunResult RunWithLiveDisplay(BackupPipeline pipeline, Vara.Core.Configuration.Profile profile, IAnsiConsole console)
+    private static BackupRunResult RunWithLiveDisplay(BackupPipeline pipeline, Vara.Core.Configuration.Profile profile, IAnsiConsole console, CancellationToken cancellationToken)
     {
         // Bounded per design.md's "bounded timeout ... best-effort" decision: long enough
         // to cover the handful of reports racing the final one in practice, short enough
@@ -132,7 +134,7 @@ public static class BackupCommand
                 // thrown before transfer begins (e.g. during scanning/diffing/planning).
                 try
                 {
-                    result = pipeline.Run(profile, progress);
+                    result = pipeline.Run(profile, progress, cancellationToken);
                     progress.TryDrain(drainTimeout);
 
                     var outcome = ResolveOutcome(result);
@@ -154,20 +156,21 @@ public static class BackupCommand
     /// <summary>
     /// Maps a completed run's result to the outcome the live progress bar's final
     /// color should reflect - a clean success (bar turns green) or a success with
-    /// partial failures (bar turns/stays amber), per the progress-reporting delta's
-    /// "Progress bar reflects run outcome severity" requirement. A hard error (the run
-    /// throwing before completing) is handled separately, in <see cref="RunWithLiveDisplay"/>'s
-    /// catch block, since no <see cref="BackupRunResult"/> exists in that case.
+    /// partial failures, including a gracefully cancelled run (bar turns/stays amber),
+    /// per the progress-reporting delta's "Progress bar reflects run outcome severity"
+    /// requirement. A hard error (the run throwing before completing) is handled
+    /// separately, in <see cref="RunWithLiveDisplay"/>'s catch block, since no
+    /// <see cref="BackupRunResult"/> exists in that case.
     /// Internal and pure so it can be unit tested directly, without needing a real
     /// <see cref="BackupPipeline"/>/<see cref="Progress"/> run.
     /// </summary>
     internal static BackupProgressOutcome ResolveOutcome(BackupRunResult result) =>
-        result.FailedPaths.Count == 0 ? BackupProgressOutcome.Success : BackupProgressOutcome.PartialFailure;
+        result.FailedPaths.Count == 0 && !result.Cancelled ? BackupProgressOutcome.Success : BackupProgressOutcome.PartialFailure;
 
     // Non-interactive/redirected path: plain, uncolored, appended lines with no
     // in-place redraw, per the cli-presentation delta's "Non-interactive or
     // color-incapable output falls back to plain text" requirement.
-    private static BackupRunResult RunWithPlainOutput(BackupPipeline pipeline, Vara.Core.Configuration.Profile profile, IAnsiConsole console)
+    private static BackupRunResult RunWithPlainOutput(BackupPipeline pipeline, Vara.Core.Configuration.Profile profile, IAnsiConsole console, CancellationToken cancellationToken)
     {
         var calculator = new BackupProgressCalculator();
         var displayGate = new ProgressDisplayGate();
@@ -184,7 +187,7 @@ public static class BackupCommand
         }
 
         var progress = new Progress<BackupProgress>(p => displayGate.Report(p, Render));
-        return pipeline.Run(profile, progress);
+        return pipeline.Run(profile, progress, cancellationToken);
     }
 }
 

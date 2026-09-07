@@ -20,6 +20,7 @@ public class DirectoryArgumentResolverTests
         public void RecordFileVersion(long snapshotId, string relativePath, string? previousRelativePath, string contentHash, long size, DateTimeOffset sourceModifiedAt, FileChangeKind changeKind, DateTimeOffset recordedAt, string? quickHash = null, int? quickHashScheme = null) => throw new NotSupportedException();
         public void CompleteSnapshot(long snapshotId, DateTimeOffset completedAt, SnapshotStats stats) => throw new NotSupportedException();
         public void FailSnapshot(long snapshotId, DateTimeOffset failedAt, SnapshotStats stats) => throw new NotSupportedException();
+        public void CancelSnapshot(long snapshotId, DateTimeOffset cancelledAt, SnapshotStats stats) => throw new NotSupportedException();
         public IManifestBatch BeginManifestBatch() => throw new NotSupportedException();
         public IReadOnlyDictionary<string, CurrentFileState> GetCurrentState() => current;
         public IReadOnlyDictionary<string, CurrentFileState> GetStateAsOf(DateTimeOffset asOf) => throw new NotSupportedException();

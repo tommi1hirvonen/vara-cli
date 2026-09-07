@@ -44,6 +44,7 @@ public class SnapshotsTablePresenterTests
     [InlineData(SnapshotStatus.Complete, "\u001b[1;38;5;121m")] // bold PaleGreen1
     [InlineData(SnapshotStatus.Failed, "\u001b[1;38;5;131m")] // bold IndianRed
     [InlineData(SnapshotStatus.Running, "\u001b[1;38;5;153m")] // bold LightSkyBlue1
+    [InlineData(SnapshotStatus.Cancelled, "\u001b[1;38;5;186m")] // bold LightGoldenrod2 (same warning style as a partial failure)
     public void Status_cell_is_colored_per_outcome_severity(SnapshotStatus status, string expectedEscapeCode)
     {
         var console = new TestConsole { EmitAnsiSequences = true };

@@ -92,7 +92,8 @@ public sealed record BackupRunResult(
     DateTimeOffset StartedAt,
     DateTimeOffset CompletedAt,
     SnapshotStats Stats,
-    IReadOnlyList<string> FailedPaths)
+    IReadOnlyList<string> FailedPaths,
+    bool Cancelled = false)
 {
     public TimeSpan Elapsed => CompletedAt - StartedAt;
 }

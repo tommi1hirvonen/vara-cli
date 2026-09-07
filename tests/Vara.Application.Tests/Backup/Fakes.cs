@@ -274,6 +274,11 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
     /// failure state.</summary>
     public Exception? ThrowOnNextCommit { get; set; }
 
+    /// <summary>When set, invoked once at the end of every <see cref="RecordFileVersion"/>
+    /// call - used by cancellation tests to deterministically trigger cancellation
+    /// partway through a sequential (Move/Delete/Link) run.</summary>
+    public Action? OnRecordFileVersion { get; set; }
+
     public void Dispose() { }
 
     public void ReconcileIncompleteSnapshots()
@@ -312,6 +317,8 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
         {
             _fileVersions.Add(record);
         }
+
+        OnRecordFileVersion?.Invoke();
     }
 
     public void CompleteSnapshot(long snapshotId, DateTimeOffset completedAt, SnapshotStats stats) =>
@@ -319,6 +326,9 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
 
     public void FailSnapshot(long snapshotId, DateTimeOffset failedAt, SnapshotStats stats) =>
         SetOutcome(snapshotId, failedAt, SnapshotStatus.Failed, stats);
+
+    public void CancelSnapshot(long snapshotId, DateTimeOffset cancelledAt, SnapshotStats stats) =>
+        SetOutcome(snapshotId, cancelledAt, SnapshotStatus.Cancelled, stats);
 
     private void SetOutcome(long snapshotId, DateTimeOffset at, SnapshotStatus status, SnapshotStats stats)
     {
@@ -365,12 +375,15 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
         }
 
         CommitCount++;
-        DiscardBatchState();
+
+        // Reopen: clear the pending buffers but keep the batch active, mirroring the
+        // real repository's "commit and immediately begin a new transaction" checkpoint
+        // behavior - a commit is a checkpoint, not necessarily the batch's final one.
+        _pendingFileVersions = null;
+        _pendingOutcomes = null;
     }
 
-    private void DiscardBatch() => DiscardBatchState();
-
-    private void DiscardBatchState()
+    private void DiscardBatch()
     {
         _pendingFileVersions = null;
         _pendingOutcomes = null;
@@ -379,14 +392,11 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
 
     private sealed class FakeManifestBatch(FakeSnapshotRepository owner) : IManifestBatch
     {
-        private bool _finished;
+        private bool _disposed;
 
         public void Commit()
         {
-            if (_finished)
-            {
-                return;
-            }
+            ObjectDisposedException.ThrowIf(_disposed, this);
 
             if (owner.ThrowOnNextCommit is { } exception)
             {
@@ -395,18 +405,17 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
             }
 
             owner.CommitBatch();
-            _finished = true;
         }
 
         public void Dispose()
         {
-            if (_finished)
+            if (_disposed)
             {
                 return;
             }
 
             owner.DiscardBatch();
-            _finished = true;
+            _disposed = true;
         }
     }
 

@@ -1,3 +1,4 @@
+using System.Threading;
 using Vara.Application.Backup;
 using Vara.Core.Abstractions;
 using Xunit;
@@ -598,6 +599,109 @@ public class BackupExecutorTests : IDisposable
         {
             Assert.Single(_repository.GetFileHistory($"file-{i}.txt"));
         }
+    }
+
+    [Fact]
+    public void Periodic_checkpoints_commit_multiple_times_during_one_run_when_a_manifest_batch_is_supplied()
+    {
+        // add-backup-checkpoints-and-cancellation's design.md "Checkpoint trigger"
+        // decision: a zero interval means every completed operation is immediately due
+        // for a checkpoint, so multiple commits (not one final whole-run commit) is the
+        // observable difference from the pre-existing batch-manifest-writes behavior.
+        const int fileCount = 5;
+        var operations = new List<PlannedOperation>();
+        long expectedBytes = 0;
+
+        for (var i = 0; i < fileCount; i++)
+        {
+            var content = $"content of file {i}";
+            var path = WriteFile($"file-{i}.txt", content);
+            var size = new FileInfo(path).Length;
+            expectedBytes += size;
+            operations.Add(new PlannedOperation(PlannedOperationKind.Add, $"file-{i}.txt", null, path, size, ScanTimeModifiedAt(path), null));
+        }
+
+        var plan = new BackupPlan(operations, expectedBytes);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher, checkpointInterval: TimeSpan.Zero);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        using var batch = _repository.BeginManifestBatch();
+        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, manifestBatch: batch);
+
+        Assert.Equal(fileCount, outcome.FilesAdded);
+        Assert.True(_repository.CommitCount > 1, $"Expected more than one checkpoint commit, got {_repository.CommitCount}.");
+
+        // Every row is already durable via the executor's own periodic checkpoints,
+        // even before the caller makes its own final Commit() call.
+        for (var i = 0; i < fileCount; i++)
+        {
+            Assert.Single(_repository.GetFileHistory($"file-{i}.txt"));
+        }
+    }
+
+    [Fact]
+    public void No_checkpointing_occurs_when_no_manifest_batch_is_supplied()
+    {
+        // Existing callers that omit manifestBatch (e.g. every other test in this file)
+        // must see unchanged behavior: no checkpoint commits at all.
+        var path = WriteFile("new.txt", "hello world");
+        var plan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Add, "new.txt", null, path, 11, ScanTimeModifiedAt(path), null)], 11);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher, checkpointInterval: TimeSpan.Zero);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+
+        Assert.Equal(0, _repository.CommitCount);
+    }
+
+    [Fact]
+    public void Cooperative_cancellation_lets_the_current_operation_finish_but_starts_no_further_ones()
+    {
+        // Three Delete operations: the executor's sequential Move/Delete/Link loop
+        // processes these one at a time, so cancelling right after the first one
+        // finishes is deterministic (unlike the parallel transfer loop).
+        var plan = new BackupPlan(
+            [
+                new PlannedOperation(PlannedOperationKind.Delete, "a.txt", null, null, 0, DateTimeOffset.UtcNow, "hash-a"),
+                new PlannedOperation(PlannedOperationKind.Delete, "b.txt", null, null, 0, DateTimeOffset.UtcNow, "hash-b"),
+                new PlannedOperation(PlannedOperationKind.Delete, "c.txt", null, null, 0, DateTimeOffset.UtcNow, "hash-c"),
+            ],
+            0);
+
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+        using var cts = new CancellationTokenSource();
+
+        // Request cancellation as soon as the first operation's manifest row has been
+        // recorded, modeling a Ctrl+C landing right after "a.txt" finishes but before
+        // "b.txt" starts.
+        _repository.OnRecordFileVersion = () => cts.Cancel();
+
+        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, cancellationToken: cts.Token);
+
+        Assert.Equal(1, outcome.FilesDeleted);
+        Assert.Single(_repository.GetFileHistory("a.txt"));
+        Assert.Empty(_repository.GetFileHistory("b.txt"));
+        Assert.Empty(_repository.GetFileHistory("c.txt"));
+    }
+
+    [Fact]
+    public void Cooperative_cancellation_requested_before_starting_skips_every_operation()
+    {
+        var path = WriteFile("new.txt", "hello world");
+        var plan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Add, "new.txt", null, path, 11, ScanTimeModifiedAt(path), null)], 11);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, cancellationToken: cts.Token);
+
+        Assert.Equal(0, outcome.FilesAdded);
+        Assert.False(_contentStore.Mirror.ContainsKey("new.txt"));
+        Assert.Empty(_repository.GetFileHistory("new.txt"));
     }
 
     [Fact]

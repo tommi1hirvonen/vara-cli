@@ -1,3 +1,4 @@
+using System.Threading;
 using Vara.Application.Backup;
 using Vara.Core.Abstractions;
 using Vara.Core.Backup;
@@ -399,6 +400,58 @@ public class BackupPipelineTests : IDisposable
         // through the diagnostics channel, even though it never becomes the exception
         // the caller sees.
         Assert.Contains("commit failed while recording failure", diagnostics.ToString());
+    }
+
+    [Fact]
+    public void Cancellation_requested_before_execution_starts_still_records_a_Cancelled_snapshot()
+    {
+        // Models Ctrl+C pressed while still scanning/diffing - before any file
+        // operation has started (backup-execution's "Ctrl+C pressed before any file
+        // has been transferred" scenario).
+        var repository = new FakeSnapshotRepository();
+        var pipeline = new BackupPipeline(new FakeFileSystemScanner([]), new FakeHasher(), new FakeContentStore(), repository, new FakeRunLock());
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var result = pipeline.Run(SimpleProfile(_root), cancellationToken: cts.Token);
+
+        Assert.True(result.Cancelled);
+        var snapshot = Assert.Single(repository.ListSnapshots());
+        Assert.Equal(SnapshotStatus.Cancelled, snapshot.Status);
+    }
+
+    [Fact]
+    public void A_graceful_Ctrl_C_cancellation_stops_after_the_current_operation_and_records_the_snapshot_as_Cancelled()
+    {
+        var pathA = Path.Combine(_root, "a.txt");
+        var pathB = Path.Combine(_root, "b.txt");
+        File.WriteAllText(pathA, "hello");
+        File.WriteAllText(pathB, "world");
+        var entryA = new ScannedEntry("a.txt", pathA, 5, File.GetLastWriteTimeUtc(pathA), false, null);
+        var entryB = new ScannedEntry("b.txt", pathB, 5, File.GetLastWriteTimeUtc(pathB), false, null);
+
+        var repository = new FakeSnapshotRepository();
+        var contentStore = new FakeContentStore();
+
+        // First run: both files tracked normally (no cancellation).
+        new BackupPipeline(new FakeFileSystemScanner([entryA, entryB]), new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .Run(SimpleProfile(_root));
+
+        // Second run: both files removed from source, so the diff produces two Delete
+        // operations, processed sequentially via the executor's Move/Delete/Link loop -
+        // deterministic, unlike the parallel Add/Change transfer loop. Cancellation is
+        // requested as soon as the first delete's manifest row is recorded, modeling a
+        // Ctrl+C landing right after that operation finishes but before the next starts.
+        using var cts = new CancellationTokenSource();
+        repository.OnRecordFileVersion = () => cts.Cancel();
+
+        var secondRun = new BackupPipeline(new FakeFileSystemScanner([]), new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .Run(SimpleProfile(_root), cancellationToken: cts.Token);
+
+        Assert.True(secondRun.Cancelled);
+        Assert.Equal(1, secondRun.Stats.FilesDeleted);
+        var snapshot = repository.ListSnapshots().OrderByDescending(s => s.Id).First();
+        Assert.Equal(SnapshotStatus.Cancelled, snapshot.Status);
     }
 
     private sealed class ThrowingScanner : IFileSystemScanner
