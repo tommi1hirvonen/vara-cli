@@ -139,6 +139,73 @@ public class RetentionEvaluatorTests
     }
 
     [Fact]
+    public void Monthly_tier_buckets_by_UTC_calendar_date_not_the_stored_offset()
+    {
+        // UTC instant is 2026-01-31T21:30:00Z (January), but the local calendar
+        // date embedded in the offset reads as 2026-02-01 (February). The
+        // monthly tier must bucket this using the UTC date, i.e. January.
+        var straddling = new DateTimeOffset(2026, 2, 1, 0, 30, 0, TimeSpan.FromHours(3));
+        var earlierInJanuaryUtc = new DateTimeOffset(2026, 1, 31, 10, 0, 0, TimeSpan.Zero);
+        var snapshots = new List<Snapshot> { Completed(1, earlierInJanuaryUtc), Completed(2, straddling) };
+        var policy = new RetentionPolicy(keepDaily: 0, keepWeekly: 0, keepMonthly: 1, keepYearly: 0);
+
+        var retained = _evaluator.DetermineRetainedSnapshotIds(snapshots, policy);
+
+        // If the monthly tier read .Year/.Month directly off the offset, the
+        // straddling snapshot would land in its own February bucket and both
+        // snapshots would be retained. Bucketing by UTC date puts both in the
+        // same January bucket, so only the newest (id 2) is retained.
+        Assert.Equal(new HashSet<long> { 2 }, retained);
+    }
+
+    [Fact]
+    public void Yearly_tier_buckets_by_UTC_calendar_date_not_the_stored_offset()
+    {
+        // UTC instant is 2026-12-31T21:30:00Z (year 2026), but the local
+        // calendar date embedded in the offset reads as 2027-01-01. The yearly
+        // tier must bucket this using the UTC date, i.e. 2026.
+        var straddling = new DateTimeOffset(2027, 1, 1, 0, 30, 0, TimeSpan.FromHours(3));
+        var earlierInYearUtc = new DateTimeOffset(2026, 12, 31, 10, 0, 0, TimeSpan.Zero);
+        var snapshots = new List<Snapshot> { Completed(1, earlierInYearUtc), Completed(2, straddling) };
+        var policy = new RetentionPolicy(keepDaily: 0, keepWeekly: 0, keepMonthly: 0, keepYearly: 1);
+
+        var retained = _evaluator.DetermineRetainedSnapshotIds(snapshots, policy);
+
+        // If the yearly tier read .Year directly off the offset, the straddling
+        // snapshot would land in its own 2027 bucket and both snapshots would
+        // be retained. Bucketing by UTC date puts both in the same 2026
+        // bucket, so only the newest (id 2) is retained.
+        Assert.Equal(new HashSet<long> { 2 }, retained);
+    }
+
+    [Fact]
+    public void Daily_and_monthly_tiers_agree_on_the_newest_snapshot_for_a_period_they_both_cover()
+    {
+        // Both snapshots fall on the same UTC calendar day (2026-01-31) even
+        // though their stored offsets place their local calendar dates in
+        // different months (January vs February). Before the fix, the monthly
+        // tier bucketed by the offset's own .Year/.Month and could disagree
+        // with the UTC-based daily tier about which snapshot is "newest in
+        // the period". After the fix, both tiers agree.
+        var earlierUtc = new DateTimeOffset(2026, 1, 31, 5, 0, 0, TimeSpan.Zero); // UTC day 31, month Jan
+        var laterLocalNextMonth = new DateTimeOffset(2026, 2, 1, 0, 30, 0, TimeSpan.FromHours(3)); // UTC: 2026-01-31T21:30:00Z
+        var snapshots = new List<Snapshot> { Completed(1, earlierUtc), Completed(2, laterLocalNextMonth) };
+
+        var dailyPolicy = new RetentionPolicy(keepDaily: 1, keepWeekly: 0, keepMonthly: 0, keepYearly: 0);
+        var monthlyPolicy = new RetentionPolicy(keepDaily: 0, keepWeekly: 0, keepMonthly: 1, keepYearly: 0);
+
+        var dailyRetained = _evaluator.DetermineRetainedSnapshotIds(snapshots, dailyPolicy);
+        var monthlyRetained = _evaluator.DetermineRetainedSnapshotIds(snapshots, monthlyPolicy);
+
+        // Both snapshots share the same UTC day, so the daily tier retains
+        // only the newest of the two (id 2). Both snapshots also share the
+        // same UTC month, so the monthly tier must pick the same snapshot -
+        // not a different one due to offset-based bucketing.
+        Assert.Equal(new HashSet<long> { 2 }, dailyRetained);
+        Assert.Equal(new HashSet<long> { 2 }, monthlyRetained);
+    }
+
+    [Fact]
     public void Snapshots_not_retained_by_any_tier_are_eligible_for_removal()
     {
         var day1 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);

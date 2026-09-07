@@ -33,8 +33,8 @@ public sealed class RetentionEvaluator
 
         RetainNewestPerBucket(completed, policy.KeepDaily, s => Timestamp(s).UtcDateTime.Date, retained);
         RetainNewestPerBucket(completed, policy.KeepWeekly, s => WeekBucket(Timestamp(s)), retained);
-        RetainNewestPerBucket(completed, policy.KeepMonthly, s => new DateTime(Timestamp(s).Year, Timestamp(s).Month, 1), retained);
-        RetainNewestPerBucket(completed, policy.KeepYearly, s => new DateTime(Timestamp(s).Year, 1, 1), retained);
+        RetainNewestPerBucket(completed, policy.KeepMonthly, s => new DateTime(Timestamp(s).UtcDateTime.Year, Timestamp(s).UtcDateTime.Month, 1), retained);
+        RetainNewestPerBucket(completed, policy.KeepYearly, s => new DateTime(Timestamp(s).UtcDateTime.Year, 1, 1), retained);
 
         return retained;
     }
