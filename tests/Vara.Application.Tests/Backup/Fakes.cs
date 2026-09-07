@@ -208,6 +208,12 @@ internal sealed class FakeContentStore : IContentStore
     public void CleanupOrphanedTemp() { }
     public IReadOnlySet<string> ListAllStoredHashes() => _blobs.Keys.ToHashSet();
 
+    /// <summary>Test seam: overwrites an already-stored blob's bytes with different
+    /// content, without changing the hash key it's filed under - simulates target-side
+    /// bit rot/corruption for integrity-check tests, where a blob's on-disk bytes no
+    /// longer match the hash the manifest recorded for it.</summary>
+    public void CorruptBlob(string hash, string corruptedContent) => _blobs[hash] = System.Text.Encoding.UTF8.GetBytes(corruptedContent);
+
     public void ExtractTo(string hash, string destinationAbsolutePath, Action<long>? onBytesCopied = null)
     {
         if (!_blobs.TryGetValue(hash, out var bytes))
@@ -519,6 +525,7 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
     }
 
     public IReadOnlySet<string> GetAllReferencedContentHashes() => _fileVersions.Select(r => r.ContentHash).ToHashSet();
+    public IReadOnlyList<string> GetPathsForContentHash(string hash) => _fileVersions.Where(r => r.ContentHash == hash).Select(r => r.RelativePath).Distinct().ToList();
 }
 
 /// <summary>Fake scanner returning a pre-set, test-controlled list of entries (and, optionally, scan failures) regardless of the sources argument.</summary>

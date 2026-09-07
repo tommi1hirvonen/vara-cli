@@ -184,6 +184,7 @@ optional and rarely needed.
 | `vara show <path> (--at <date> \| --version <id>)` | Stream a historical version's content to stdout. |
 | `vara diff <path> (--left-at <date> \| --left-version <id>) (--right-at <date> \| --right-version <id>)` | Show a textual diff between two versions of a file. |
 | `vara prune --profile <name> [--yes]` | Apply the profile's tiered retention policy and garbage-collect unreferenced content. |
+| `vara check --profile <name> [--quick]` | Verify content physically stored in the target still matches the manifest across the full snapshot history; reports missing/corrupt/orphaned blobs. |
 
 The profile is always given via a `--profile` option, never a positional argument -
 including for `backup`, which took a positional `<profile>` in earlier versions. This
@@ -192,7 +193,9 @@ their profile to become optional, `System.CommandLine` could no longer redistrib
 single leftover positional token to the still-required `<path>` argument, so every
 command was made consistent by moving the profile to `--profile` instead.
 
-`--profile` is required for `backup` and `prune` (they mutate data), but optional for
+`--profile` is required for `backup` and `prune` (they mutate data) and for `check`
+(it always targets one explicit profile rather than falling back to directory-based
+resolution), but optional for
 the read-only browsing/restore commands (`snapshots`, `history`, `restore`, `show`,
 `diff`, `browse`, `deleted`): if omitted, Vara walks upward from the current directory
 looking for a `.vara\profile.db` file, the same way Git locates `.git` - so you can `cd`

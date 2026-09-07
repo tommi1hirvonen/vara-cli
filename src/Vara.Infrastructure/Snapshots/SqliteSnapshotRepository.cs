@@ -685,6 +685,27 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
         return result;
     }
 
+    public IReadOnlyList<string> GetPathsForContentHash(string hash)
+    {
+        if (_connection is null)
+        {
+            return [];
+        }
+
+        using var command = _connection.CreateCommand();
+        command.CommandText = "SELECT DISTINCT relative_path FROM file_versions WHERE content_hash = $hash";
+        command.Parameters.AddWithValue("$hash", hash);
+
+        var result = new List<string>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            result.Add(reader.GetString(0));
+        }
+
+        return result;
+    }
+
     private List<FileVersionRecord> QueryRowsForPath(string relativePath)
     {
         if (_connection is null)

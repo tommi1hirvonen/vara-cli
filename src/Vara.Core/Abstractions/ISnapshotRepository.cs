@@ -141,4 +141,14 @@ public interface ISnapshotRepository : IDisposable
     /// blobs are safe to garbage-collect after pruning.
     /// </summary>
     IReadOnlySet<string> GetAllReferencedContentHashes();
+
+    /// <summary>
+    /// Every distinct relative path with a file-version row recorded against
+    /// <paramref name="hash"/>, across all snapshots (not filtered to only-current
+    /// rows) - a historical-only reference is still worth surfacing, since a user
+    /// restoring an old version of a since-deleted file still needs to know that
+    /// version's blob is missing or corrupt. Used by the backup-integrity capability's
+    /// check command to map a problem hash back to an actionable file path.
+    /// </summary>
+    IReadOnlyList<string> GetPathsForContentHash(string hash);
 }

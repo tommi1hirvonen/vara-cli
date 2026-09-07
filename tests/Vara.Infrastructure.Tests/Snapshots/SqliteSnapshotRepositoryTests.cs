@@ -561,6 +561,33 @@ public class SqliteSnapshotRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void GetPathsForContentHash_returns_every_path_referencing_a_hash_including_a_historical_only_reference()
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        // Two distinct, currently-live paths sharing the same (deduplicated) content.
+        var s1 = Repository.BeginSnapshot(now);
+        Repository.RecordFileVersion(s1, "a.txt", null, "hash-shared", 10, now, FileChangeKind.Added, now);
+        Repository.RecordFileVersion(s1, "b.txt", null, "hash-shared", 10, now, FileChangeKind.Added, now);
+        Repository.CompleteSnapshot(s1, now, SnapshotStats.Empty);
+
+        // A path whose only reference to this hash is a historical (superseded) version:
+        // its current version references a different hash entirely.
+        var s2 = Repository.BeginSnapshot(now.AddMinutes(1));
+        Repository.RecordFileVersion(s2, "c.txt", null, "hash-shared", 10, now.AddMinutes(1), FileChangeKind.Added, now.AddMinutes(1));
+        Repository.CompleteSnapshot(s2, now.AddMinutes(1), SnapshotStats.Empty);
+
+        var s3 = Repository.BeginSnapshot(now.AddMinutes(2));
+        Repository.RecordFileVersion(s3, "c.txt", null, "hash-changed", 10, now.AddMinutes(2), FileChangeKind.Changed, now.AddMinutes(2));
+        Repository.CompleteSnapshot(s3, now.AddMinutes(2), SnapshotStats.Empty);
+
+        var paths = Repository.GetPathsForContentHash("hash-shared");
+
+        Assert.Equal(["a.txt", "b.txt", "c.txt"], paths.OrderBy(p => p, StringComparer.Ordinal));
+        Assert.Equal(["c.txt"], Repository.GetPathsForContentHash("hash-changed"));
+    }
+
+    [Fact]
     public void PruneSnapshots_preserves_the_current_row_for_a_still_live_path_even_if_its_snapshot_is_pruned()
     {
         var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);

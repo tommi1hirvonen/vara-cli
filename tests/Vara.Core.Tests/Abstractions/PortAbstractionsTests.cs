@@ -114,6 +114,7 @@ public class PortAbstractionsTests
         public void DeleteSnapshot(long snapshotId) { }
         public int PruneSnapshots(IReadOnlyList<long> snapshotIds) => 0;
         public IReadOnlySet<string> GetAllReferencedContentHashes() => new HashSet<string>();
+        public IReadOnlyList<string> GetPathsForContentHash(string hash) => [];
 
         private sealed class NoOpManifestBatch : IManifestBatch
         {
