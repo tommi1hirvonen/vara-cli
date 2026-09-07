@@ -1,3 +1,4 @@
+using System.Threading;
 using Microsoft.Data.Sqlite;
 using Vara.Application.Profiles;
 using Vara.Cli.Commands;
@@ -42,12 +43,13 @@ public class PruneCommandTests : IDisposable
         public string DefaultConfigPath => "unused";
     }
 
-    private System.CommandLine.Command CreateCommand(RetentionPolicy? retention)
+    private System.CommandLine.Command CreateCommand(RetentionPolicy? retention, CancellationToken cancellationToken = default)
     {
         var profile = new Profile("test-profile", _targetRoot, [new Source(_sourceRoot)], retention);
         return PruneCommand.Create(
             new ProfileResolver(new SingleProfileConfigLoader(profile)),
-            new ProfileServiceFactory(new XxHash128Hasher()));
+            new ProfileServiceFactory(new XxHash128Hasher()),
+            cancellationToken);
     }
 
     /// <summary>Seeds three completed snapshots directly into the profile's manifest, of
@@ -127,5 +129,23 @@ public class PruneCommandTests : IDisposable
 
         Assert.Equal(1, exitCode);
         Assert.Equal(3, CurrentSnapshotIds().Count);
+    }
+
+    [Fact]
+    public void A_gracefully_cancelled_run_with_yes_returns_exit_code_partial_failure_and_removes_nothing()
+    {
+        SeedThreeSnapshotsTwoEligible();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var command = CreateCommand(new RetentionPolicy(keepDaily: 1, keepWeekly: 0, keepMonthly: 0, keepYearly: 0), cts.Token);
+
+        // --yes bypasses the confirmation prompt entirely, reaching PruneService.Prune
+        // directly - the pre-cancelled token then causes it to skip retention
+        // evaluation/removal and garbage collection altogether, per the coarse
+        // cancellation-granularity decision in design.md.
+        var exitCode = command.Parse(["--profile", "test-profile", "--yes"]).Invoke();
+
+        Assert.Equal(ExitCodes.PartialFailure, exitCode);
+        Assert.Equal(3, CurrentSnapshotIds().Count); // nothing was removed
     }
 }

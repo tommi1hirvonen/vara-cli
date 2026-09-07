@@ -6,21 +6,23 @@ namespace Vara.Cli.Presentation;
 /// <summary>
 /// Reports a completed `vara check` run's outcome in the shared success/partial-failure
 /// styles, per the `cli-presentation` capability's "Outcome severity is visually
-/// distinct" requirement - mirroring <see cref="PruneOutcomeReporter"/>'s style, but
-/// severity here is driven purely by whether any missing or corrupt blob was found; an
-/// orphaned blob is informational only and never affects the reported severity. Only
-/// the summary headline carries the severity style, per the `cli-presentation`
-/// capability's "severity color applies to the outcome indicator only" requirement;
-/// affected-path detail lines for each finding render in the default style.
+/// distinct" requirement - mirroring <see cref="PruneOutcomeReporter"/>'s style. Severity
+/// is driven by whether any missing or corrupt blob was found, or the run was gracefully
+/// cancelled via Ctrl+C before every referenced blob was verified; an orphaned blob is
+/// informational only and never affects the reported severity. Only the summary headline
+/// carries the severity style, per the `cli-presentation` capability's "severity color
+/// applies to the outcome indicator only" requirement; affected-path detail lines for
+/// each finding render in the default style.
 /// </summary>
 public static class CheckOutcomeReporter
 {
     public static void Report(IAnsiConsole console, IntegrityCheckResult result)
     {
         var hasProblems = result.Missing.Count > 0 || result.Corrupt.Count > 0;
-        var headline = $"Checked {result.BlobsChecked} blob(s): {result.Missing.Count} missing, {result.Corrupt.Count} corrupt, {result.Orphaned.Count} orphaned.";
+        var cancelledClause = result.Cancelled ? " Check cancelled: stopped early." : string.Empty;
+        var headline = $"Checked {result.BlobsChecked} blob(s): {result.Missing.Count} missing, {result.Corrupt.Count} corrupt, {result.Orphaned.Count} orphaned.{cancelledClause}";
 
-        if (hasProblems)
+        if (hasProblems || result.Cancelled)
         {
             OutcomeStyle.WriteLinePartialFailure(console, headline);
         }

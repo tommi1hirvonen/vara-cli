@@ -1,3 +1,4 @@
+using System.Threading;
 using Vara.Application.Integrity;
 using Vara.Application.Tests.Backup;
 using Vara.Core.Snapshots;
@@ -152,5 +153,71 @@ public class IntegrityCheckServiceTests
         Assert.Empty(result.Missing);
         Assert.Empty(result.Corrupt);
         Assert.True(contentStore.HasContent(orphanHash)); // never deleted by the check
+    }
+
+    [Fact]
+    public void A_pre_cancelled_token_stops_before_verifying_any_blob()
+    {
+        var contentStore = new FakeContentStore();
+        var (hash, _) = contentStore.StoreFromStream(new MemoryStream("hello"u8.ToArray()));
+        contentStore.PlaceAtMirrorPath(hash, "a.txt");
+
+        var repository = new FakeSnapshotRepository();
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = repository.BeginSnapshot(now);
+        repository.RecordFileVersion(snapshot, "a.txt", null, hash, 5, now, FileChangeKind.Added, now);
+        repository.CompleteSnapshot(snapshot, now, SnapshotStats.Empty);
+
+        var service = new IntegrityCheckService(repository, contentStore, new FakeHasher());
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var result = service.Check(quick: false, cancellationToken: cts.Token);
+
+        Assert.True(result.Cancelled);
+        Assert.Equal(0, result.BlobsChecked);
+        Assert.Empty(result.Missing);
+        Assert.Empty(result.Corrupt);
+    }
+
+    [Fact]
+    public void Cancelling_mid_run_still_reports_problems_already_found_before_the_stop()
+    {
+        var contentStore = new FakeContentStore();
+        var repository = new FakeSnapshotRepository();
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = repository.BeginSnapshot(now);
+
+        // First referenced hash is missing (a real problem, found before cancellation);
+        // second is intact but never reached because cancellation stops the loop first.
+        repository.RecordFileVersion(snapshot, "a.txt", null, "hash-missing", 5, now, FileChangeKind.Added, now);
+        var (hashB, _) = contentStore.StoreFromStream(new MemoryStream("hello"u8.ToArray()));
+        repository.RecordFileVersion(snapshot, "b.txt", null, hashB, 5, now.AddSeconds(1), FileChangeKind.Added, now.AddSeconds(1));
+        repository.CompleteSnapshot(snapshot, now, SnapshotStats.Empty);
+
+        var service = new IntegrityCheckService(repository, contentStore, new FakeHasher());
+        using var cts = new CancellationTokenSource();
+
+        // Cancels as soon as the first blob has been checked, so the loop's next
+        // IsCancellationRequested check (before starting the second blob) stops it early.
+        var progress = new CancelAfterReport<IntegrityCheckProgress>(p => p.BlobsChecked == 1, cts);
+
+        var result = service.Check(quick: false, progress, cts.Token);
+
+        Assert.True(result.Cancelled);
+        Assert.Equal(1, result.BlobsChecked);
+        Assert.Single(result.Missing);
+    }
+
+    /// <summary>Test seam: an <see cref="IProgress{T}"/> that synchronously cancels <paramref name="cts"/> the first time <paramref name="shouldCancel"/> matches a reported value - unlike <see cref="Progress{T}"/>, which posts to a captured <see cref="SynchronizationContext"/> and would race the loop under test rather than observably cancelling before its next iteration.</summary>
+    private sealed class CancelAfterReport<T>(Func<T, bool> shouldCancel, CancellationTokenSource cts) : IProgress<T>
+    {
+        public void Report(T value)
+        {
+            if (shouldCancel(value))
+            {
+                cts.Cancel();
+            }
+        }
     }
 }

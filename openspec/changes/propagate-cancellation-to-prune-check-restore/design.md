@@ -49,14 +49,31 @@ existing call chain - no new abstraction.
 **Cancellation is reported as a successful, cancelled outcome, not an error.** This mirrors
 backup's existing distinction between a `Cancelled` snapshot status and a `Failed` one, and
 prune's existing "user declined the confirmation prompt" scenario, which already exits
-successfully while reporting cancellation rather than raising an error. Each command's action
-catches `OperationCanceledException` (thrown by `ThrowIfCancellationRequested()`) at the point
-where `BackupCommand` already does something equivalent, and renders the same
-cancelled-not-error outcome rather than letting it propagate to `ErrorReporting`'s catch-all.
+successfully while reporting cancellation rather than raising an error. Each affected service
+checks `cancellationToken.IsCancellationRequested` between units of work and stops by returning
+early with a `Cancelled` flag set on its result type - the same mechanism `BackupExecutor`/
+`BackupPipeline` already use - rather than throwing `OperationCanceledException`. Reusing this
+established in-codebase pattern (rather than introducing exception-based cancellation alongside
+it) keeps the two mechanisms consistent; each command's action reads the returned `Cancelled`
+flag and renders the same cancelled-not-error outcome instead of letting anything propagate to
+`ErrorReporting`'s catch-all.
+
+**Prune's cancellation granularity is coarser than a literal per-snapshot check.** Retention
+evaluation and snapshot removal (`repository.PruneSnapshots`) run as one atomic SQL transaction
+today, not a loop over individual snapshots - restructuring that into a per-snapshot loop so
+cancellation could take effect mid-removal would mean splitting one atomic transaction into many,
+a bigger and riskier change than this simplified-cancellation change intends. Per the user's
+explicit choice, `PruneService.Prune` instead checks the token once before that atomic step
+starts (skipping it entirely - removing no snapshots - if already cancelled) and then per-blob
+during the genuinely iterative garbage-collection loop, where a check between iterations fits
+naturally. The `retention-pruning` spec delta's requirement text and scenarios reflect this
+atomic-step-boundary granularity rather than a literal "between each snapshot" check.
 
 **Where each command checks the token:**
-- `prune`: between each snapshot considered for removal-eligibility, between each snapshot
-  actually removed, and between each blob garbage-collected.
+- `prune`: once before retention evaluation and snapshot removal start (that pair runs as one
+  atomic step - `repository.PruneSnapshots` is a single transaction - so a cancellation requested
+  before it starts skips it entirely rather than partially applying it), and between each blob
+  garbage-collected.
 - `check`: between each referenced blob verified.
 - `restore --recursive`: between each planned path written or removed (the directory-restore
   executor already iterates a precomputed `DirectoryRestorePlan`, so this is a check at the top

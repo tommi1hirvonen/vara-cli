@@ -1,3 +1,4 @@
+using System.Threading;
 using Vara.Application.History;
 using Vara.Application.Tests.Backup;
 using Vara.Core.Snapshots;
@@ -1128,6 +1129,90 @@ public class SnapshotHistoryServiceTests
 
             Assert.Equal("content a", File.ReadAllText(destinationA));
             Assert.False(File.Exists(linkDestination));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ExecuteDirectoryRestore_with_a_pre_cancelled_token_writes_and_removes_nothing_and_returns_true()
+    {
+        var contentStore = new FakeContentStore();
+        var (hashA, sizeA) = contentStore.StoreFromStream(new MemoryStream("content a"u8.ToArray()));
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"vara-dirrestore-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        var destinationA = Path.Combine(tempRoot, "a.txt");
+        var toRemove = Path.Combine(tempRoot, "stale.txt");
+        File.WriteAllText(toRemove, "should stay - cancelled before this removal ran");
+
+        try
+        {
+            var plan = new DirectoryRestorePlan(
+                ToWrite: [new DirectoryRestoreEntry(@"src\a.txt", hashA, sizeA, destinationA)],
+                ToRemove: [toRemove],
+                TotalBytes: sizeA,
+                Skipped: []);
+            var service = new SnapshotHistoryService(new FakeSnapshotRepository(), contentStore);
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            var stoppedEarly = service.ExecuteDirectoryRestore(plan, cancellationToken: cts.Token);
+
+            Assert.True(stoppedEarly);
+            Assert.False(File.Exists(destinationA));
+            Assert.True(File.Exists(toRemove));
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ExecuteDirectoryRestore_cancelled_between_writes_keeps_already_written_files_and_stops_before_the_rest()
+    {
+        var contentStore = new FakeContentStore();
+        var (hashA, sizeA) = contentStore.StoreFromStream(new MemoryStream("content a"u8.ToArray()));
+        var (hashB, sizeB) = contentStore.StoreFromStream(new MemoryStream("content b"u8.ToArray()));
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"vara-dirrestore-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        var destinationA = Path.Combine(tempRoot, "a.txt");
+        var destinationB = Path.Combine(tempRoot, "b.txt");
+
+        try
+        {
+            var plan = new DirectoryRestorePlan(
+                ToWrite:
+                [
+                    new DirectoryRestoreEntry(@"src\a.txt", hashA, sizeA, destinationA),
+                    new DirectoryRestoreEntry(@"src\b.txt", hashB, sizeB, destinationB),
+                ],
+                ToRemove: [],
+                TotalBytes: sizeA + sizeB,
+                Skipped: []);
+            var service = new SnapshotHistoryService(new FakeSnapshotRepository(), contentStore);
+            using var cts = new CancellationTokenSource();
+
+            // Cancels once the first file's bytes have been fully copied, so the loop's next
+            // IsCancellationRequested check (before starting the second file's write) stops it
+            // early - mirroring a real Ctrl+C landing between two file writes.
+            var bytesCopiedForA = 0L;
+            void OnBytesCopied(long bytes)
+            {
+                bytesCopiedForA += bytes;
+                if (bytesCopiedForA >= sizeA)
+                {
+                    cts.Cancel();
+                }
+            }
+
+            var stoppedEarly = service.ExecuteDirectoryRestore(plan, OnBytesCopied, cancellationToken: cts.Token);
+
+            Assert.True(stoppedEarly);
+            Assert.Equal("content a", File.ReadAllText(destinationA)); // already-applied write stays applied
+            Assert.False(File.Exists(destinationB)); // never started
         }
         finally
         {

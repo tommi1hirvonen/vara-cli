@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using System.Threading;
 using Vara.Application.Profiles;
 using Vara.Cli.Commands;
 using Vara.Cli.Composition;
@@ -38,13 +39,14 @@ public class CheckCommandTests : IDisposable
         public string DefaultConfigPath => "unused";
     }
 
-    private System.CommandLine.Command CreateCommand()
+    private System.CommandLine.Command CreateCommand(CancellationToken cancellationToken = default)
     {
         var profile = new Profile("test-profile", _targetRoot, [new Source(_sourceRoot)], null);
         return CheckCommand.Create(
             new ProfileResolver(new SingleProfileConfigLoader(profile)),
             new ProfileServiceFactory(_hasher),
-            _hasher);
+            _hasher,
+            cancellationToken);
     }
 
     /// <summary>Stores <paramref name="content"/> in the profile's real content store
@@ -122,5 +124,18 @@ public class CheckCommandTests : IDisposable
         // fails the run - proving --quick genuinely changed the outcome above.
         var fullExitCode = command.Parse(["--profile", "test-profile"]).Invoke();
         Assert.Equal(2, fullExitCode);
+    }
+
+    [Fact]
+    public void A_gracefully_cancelled_run_returns_exit_code_partial_failure_even_with_no_problems_found()
+    {
+        SeedReferencedBlob("a.txt", "hello world");
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        var command = CreateCommand(cts.Token);
+
+        var exitCode = command.Parse(["--profile", "test-profile"]).Invoke();
+
+        Assert.Equal(ExitCodes.PartialFailure, exitCode);
     }
 }

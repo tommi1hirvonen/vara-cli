@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.Threading;
 using Spectre.Console;
 using Vara.Application.Integrity;
 using Vara.Application.Profiles;
@@ -10,7 +11,7 @@ namespace Vara.Cli.Commands;
 
 public static class CheckCommand
 {
-    public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory, IHasher hasher)
+    public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory, IHasher hasher, CancellationToken cancellationToken = default)
     {
         var profileOption = new Option<string>("--profile") { Description = "The profile to check.", Required = true };
         var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
@@ -37,8 +38,8 @@ public static class CheckCommand
 
                 var console = AnsiConsole.Console;
                 result = OutputMode.IsLiveCapable(console)
-                    ? RunWithLiveDisplay(checkService, quick, console)
-                    : RunWithPlainOutput(checkService, quick, console);
+                    ? RunWithLiveDisplay(checkService, quick, console, cancellationToken)
+                    : RunWithPlainOutput(checkService, quick, console, cancellationToken);
 
                 CheckOutcomeReporter.Report(console, result);
             });
@@ -47,8 +48,10 @@ public static class CheckCommand
             // backup-integrity spec's "Check exits with a scriptable status"
             // requirement, any missing or corrupt blob promotes an otherwise-successful
             // run to the partial-failure code - an orphaned blob never does, since it is
-            // informational only.
-            if (exitCode == ExitCodes.Success && (result.Missing.Count > 0 || result.Corrupt.Count > 0))
+            // informational only. A run gracefully cancelled via Ctrl+C is promoted the
+            // same way, mirroring backup's own graceful-cancellation exit code, even when
+            // no problems were found before the stop.
+            if (exitCode == ExitCodes.Success && (result.Missing.Count > 0 || result.Corrupt.Count > 0 || result.Cancelled))
             {
                 exitCode = ExitCodes.PartialFailure;
             }
@@ -64,7 +67,7 @@ public static class CheckCommand
     // first IntegrityCheckProgress report - which only ever arrives once the
     // per-blob verification loop is about to start - swaps it for a count-based bar,
     // mirroring PruneCommand's own indeterminate-to-determinate swap.
-    private static IntegrityCheckResult RunWithLiveDisplay(IntegrityCheckService checkService, bool quick, IAnsiConsole console)
+    private static IntegrityCheckResult RunWithLiveDisplay(IntegrityCheckService checkService, bool quick, IAnsiConsole console, CancellationToken cancellationToken)
     {
         IntegrityCheckResult result = null!;
         console.Progress()
@@ -87,7 +90,7 @@ public static class CheckCommand
                 }
 
                 var progress = new Progress<IntegrityCheckProgress>(Render);
-                result = checkService.Check(quick, progress);
+                result = checkService.Check(quick, progress, cancellationToken);
 
                 // Ensures the final count is shown immediately rather than waiting for
                 // the next AutoRefresh timer tick, mirroring PruneCommand's own single
@@ -101,13 +104,13 @@ public static class CheckCommand
     // Non-interactive/redirected path: plain, appended lines with no in-place redraw,
     // per the cli-presentation delta's "Non-interactive or color-incapable output
     // falls back to plain text" requirement.
-    private static IntegrityCheckResult RunWithPlainOutput(IntegrityCheckService checkService, bool quick, IAnsiConsole console)
+    private static IntegrityCheckResult RunWithPlainOutput(IntegrityCheckService checkService, bool quick, IAnsiConsole console, CancellationToken cancellationToken)
     {
         console.WriteLine("Enumerating...");
 
         var progress = new Progress<IntegrityCheckProgress>(p =>
             console.WriteLine($"Checked {p.BlobsChecked} of {p.TotalBlobs} blobs."));
 
-        return checkService.Check(quick, progress);
+        return checkService.Check(quick, progress, cancellationToken);
     }
 }

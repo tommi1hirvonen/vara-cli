@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.Threading;
 using Spectre.Console;
 using Vara.Application.Backup;
 using Vara.Application.History;
@@ -13,7 +14,7 @@ namespace Vara.Cli.Commands;
 
 public static class RestoreCommand
 {
-    public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory)
+    public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory, CancellationToken cancellationToken = default)
     {
         var profileOption = new Option<string?>("--profile") { Description = "The profile to restore from. Optional when the current directory is inside a profile's target root." };
         var pathArgument = new Argument<string>("path") { Description = "The file (or, with --recursive, directory) to restore - a mirror-relative path, an absolute source path, or a path relative to the current directory." };
@@ -82,6 +83,7 @@ public static class RestoreCommand
             }
 
             var cancelled = false;
+            var gracefullyCancelled = false;
 
             var exitCode = ErrorReporting.Run(() =>
             {
@@ -91,7 +93,7 @@ public static class RestoreCommand
 
                 if (recursive)
                 {
-                    RunRecursiveRestore(history, profile.TargetRoot, path, at, outPath, inPlace, force, console, services.ContentStore.IsWithinMirror, ref cancelled);
+                    RunRecursiveRestore(history, profile.TargetRoot, path, at, outPath, inPlace, force, console, services.ContentStore.IsWithinMirror, cancellationToken, ref cancelled, ref gracefullyCancelled);
                     return;
                 }
 
@@ -172,6 +174,15 @@ public static class RestoreCommand
             {
                 OutcomeStyle.WriteLineNeutral(AnsiConsole.Console, "Restore cancelled: destination not overwritten.");
                 return 0;
+            }
+
+            // A gracefully cancelled recursive restore (via Ctrl+C, mid-run) reuses the same
+            // partial-failure exit code as backup's own graceful cancellation - it did not
+            // necessarily write/remove every planned path - distinct from success, and distinct
+            // from a hard error, since whatever was already applied is not corrupted or lost.
+            if (exitCode == ExitCodes.Success && gracefullyCancelled)
+            {
+                exitCode = ExitCodes.PartialFailure;
             }
 
             return exitCode;
@@ -282,7 +293,9 @@ public static class RestoreCommand
         bool force,
         IAnsiConsole console,
         Func<string, bool> isWithinMirror,
-        ref bool cancelled)
+        CancellationToken cancellationToken,
+        ref bool cancelled,
+        ref bool gracefullyCancelled)
     {
         var resolvedPath = SnapshotPathResolver.TryResolve(
             mirrorRoot,
@@ -298,16 +311,25 @@ public static class RestoreCommand
             : DateTimeOptionParser.Parse("--at", at);
 
         var plan = history.PlanDirectoryRestore(resolvedPath, asOf, outPath, inPlace);
+        var stoppedEarlyByCtrlC = false;
 
         void Execute()
         {
-            if (OutputMode.IsLiveCapable(console))
+            var stoppedEarly = OutputMode.IsLiveCapable(console)
+                ? RunDirectoryRestoreWithLiveDisplay(history, resolvedPath, plan, console, cancellationToken)
+                : RunDirectoryRestoreWithPlainOutput(history, plan, console, cancellationToken);
+
+            if (stoppedEarly)
             {
-                RunDirectoryRestoreWithLiveDisplay(history, resolvedPath, plan, console);
-            }
-            else
-            {
-                RunDirectoryRestoreWithPlainOutput(history, plan, console);
+                // Graceful Ctrl+C stop: whatever was already written/removed stays applied (see
+                // ExecuteDirectoryRestore's own cancellation checks) - reported distinctly from
+                // a completed restore, in the same warning style BackupOutcomeReporter/
+                // PruneOutcomeReporter already use for their own graceful cancellations.
+                stoppedEarlyByCtrlC = true;
+                OutcomeStyle.WriteLinePartialFailure(
+                    AnsiConsole.Console,
+                    $"Restore of directory '{resolvedPath}' cancelled: stopped early, some planned files may not have been written/removed.");
+                return;
             }
 
             var skippedClause = plan.Skipped.Count > 0 ? $", {plan.Skipped.Count} link(s) skipped" : string.Empty;
@@ -319,6 +341,7 @@ public static class RestoreCommand
         if (force)
         {
             Execute();
+            gracefullyCancelled = stoppedEarlyByCtrlC;
             return;
         }
 
@@ -342,6 +365,7 @@ public static class RestoreCommand
         if (confirmed)
         {
             Execute();
+            gracefullyCancelled = stoppedEarlyByCtrlC;
         }
         else
         {
@@ -385,13 +409,15 @@ public static class RestoreCommand
     // operation - onSizeResolved (invoked once, with the plan's total byte count, before any
     // file is written) sizes it up front, exactly as the single-file path does, per design.md's
     // "Progress reporting reuses RestoreProgressReporter unmodified" decision.
-    private static void RunDirectoryRestoreWithLiveDisplay(
+    private static bool RunDirectoryRestoreWithLiveDisplay(
         SnapshotHistoryService history,
         string directoryPath,
         DirectoryRestorePlan plan,
-        IAnsiConsole console)
+        IAnsiConsole console,
+        CancellationToken cancellationToken)
     {
         var displayGate = new ProgressDisplayGate();
+        var stoppedEarly = false;
 
         console.Progress()
             .Columns(new TaskDescriptionColumn(), new ProgressBarColumn(), new PercentageColumn(), new RemainingTimeColumn(), new TransferSpeedColumn())
@@ -407,16 +433,19 @@ public static class RestoreCommand
                 }
 
                 var reporter = new RestoreProgressReporter(displayGate, Render);
-                history.ExecuteDirectoryRestore(plan, reporter.OnBytesCopied, reporter.OnSizeResolved);
+                stoppedEarly = history.ExecuteDirectoryRestore(plan, reporter.OnBytesCopied, reporter.OnSizeResolved, cancellationToken);
             });
+
+        return stoppedEarly;
     }
 
     // Non-interactive/redirected path for a recursive directory restore - analogous to
     // RunWithPlainOutput's single-file equivalent.
-    private static void RunDirectoryRestoreWithPlainOutput(
+    private static bool RunDirectoryRestoreWithPlainOutput(
         SnapshotHistoryService history,
         DirectoryRestorePlan plan,
-        IAnsiConsole console)
+        IAnsiConsole console,
+        CancellationToken cancellationToken)
     {
         var calculator = new BackupProgressCalculator();
         var displayGate = new ProgressDisplayGate();
@@ -433,7 +462,7 @@ public static class RestoreCommand
         }
 
         var reporter = new RestoreProgressReporter(displayGate, Render);
-        history.ExecuteDirectoryRestore(plan, reporter.OnBytesCopied, reporter.OnSizeResolved);
+        return history.ExecuteDirectoryRestore(plan, reporter.OnBytesCopied, reporter.OnSizeResolved, cancellationToken);
     }
 }
 

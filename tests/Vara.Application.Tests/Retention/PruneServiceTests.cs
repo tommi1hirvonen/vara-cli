@@ -1,3 +1,4 @@
+using System.Threading;
 using Vara.Application.Retention;
 using Vara.Application.Tests.Backup;
 using Vara.Core.Backup;
@@ -63,6 +64,94 @@ public class PruneServiceTests
         Assert.Contains(currentSnapshot, repository.ListSnapshots().Select(s => s.Id));
         Assert.False(contentStore.HasContent(goneHash));
         Assert.True(contentStore.HasContent(keepHash));
+    }
+
+    [Fact]
+    public void Prune_with_a_pre_cancelled_token_removes_no_snapshots_and_garbage_collects_nothing()
+    {
+        var contentStore = new FakeContentStore();
+        var (goneHash, _) = contentStore.StoreFromStream(new MemoryStream("expired content"u8.ToArray()));
+
+        var repository = new FakeSnapshotRepository();
+        var day1 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var day2 = day1.AddDays(1);
+
+        var oldSnapshot = repository.BeginSnapshot(day1);
+        repository.RecordFileVersion(oldSnapshot, "expired.txt", null, goneHash, 10, day1, FileChangeKind.Deleted, day1);
+        repository.CompleteSnapshot(oldSnapshot, day1, SnapshotStats.Empty);
+
+        var newSnapshot = repository.BeginSnapshot(day2);
+        repository.CompleteSnapshot(newSnapshot, day2, SnapshotStats.Empty);
+
+        var policy = new RetentionPolicy(keepDaily: 1, keepWeekly: 0, keepMonthly: 0, keepYearly: 0);
+        var service = new PruneService(repository, contentStore, new FakeRunLock());
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var result = service.Prune(ProfileWithRetention(policy), cancellationToken: cts.Token);
+
+        Assert.Equal(0, result.SnapshotsRemoved);
+        Assert.Equal(0, result.BlobsRemoved);
+        Assert.True(result.Cancelled);
+        Assert.Equal(2, repository.ListSnapshots().Count); // neither snapshot was removed
+        Assert.True(contentStore.HasContent(goneHash)); // garbage collection never ran
+    }
+
+    [Fact]
+    public void Prune_cancelled_mid_garbage_collection_keeps_the_already_removed_snapshots_and_blob()
+    {
+        var contentStore = new FakeContentStore();
+        var (goneHash1, _) = contentStore.StoreFromStream(new MemoryStream("expired content 1"u8.ToArray()));
+        var (goneHash2, _) = contentStore.StoreFromStream(new MemoryStream("expired content 2"u8.ToArray()));
+
+        var repository = new FakeSnapshotRepository();
+        var day1 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var day2 = day1.AddDays(1);
+        var day3 = day1.AddDays(2);
+
+        var addedSnapshot1 = repository.BeginSnapshot(day1);
+        repository.RecordFileVersion(addedSnapshot1, "expired1.txt", null, goneHash1, 10, day1, FileChangeKind.Added, day1);
+        repository.CompleteSnapshot(addedSnapshot1, day1, SnapshotStats.Empty);
+
+        var deletedSnapshot1 = repository.BeginSnapshot(day2);
+        repository.RecordFileVersion(deletedSnapshot1, "expired1.txt", null, goneHash1, 10, day2, FileChangeKind.Deleted, day2);
+        repository.RecordFileVersion(deletedSnapshot1, "expired2.txt", null, goneHash2, 10, day2, FileChangeKind.Deleted, day2);
+        repository.CompleteSnapshot(deletedSnapshot1, day2, SnapshotStats.Empty);
+
+        var currentSnapshot = repository.BeginSnapshot(day3);
+        repository.CompleteSnapshot(currentSnapshot, day3, SnapshotStats.Empty);
+
+        var policy = new RetentionPolicy(keepDaily: 1, keepWeekly: 0, keepMonthly: 0, keepYearly: 0);
+        var service = new PruneService(repository, contentStore, new FakeRunLock());
+        using var cts = new CancellationTokenSource();
+
+        // Cancels after the first blob is reported removed, so the loop's next
+        // IsCancellationRequested check (before starting the second blob) stops it early -
+        // mirroring a real Ctrl+C landing between two blob deletions.
+        var progress = new CancelAfterReport<PruneProgress>(p => p.BlobsDeleted == 1, cts);
+
+        var result = service.Prune(ProfileWithRetention(policy), progress, cancellationToken: cts.Token);
+
+        Assert.Equal(2, result.SnapshotsRemoved); // snapshot removal is one atomic step - unaffected by GC cancellation
+        Assert.Equal(1, result.BlobsRemoved);
+        Assert.True(result.Cancelled);
+
+        // Exactly one of the two blobs was removed before cancellation stopped the loop;
+        // whichever one it was stays removed, and the other stays present.
+        var removedCount = new[] { goneHash1, goneHash2 }.Count(h => !contentStore.HasContent(h));
+        Assert.Equal(1, removedCount);
+    }
+
+    /// <summary>Test seam: an <see cref="IProgress{T}"/> that synchronously cancels <paramref name="cts"/> the first time <paramref name="shouldCancel"/> matches a reported value - unlike <see cref="Progress{T}"/>, which posts to a captured <see cref="SynchronizationContext"/> and would race the loop under test rather than observably cancelling before its next iteration.</summary>
+    private sealed class CancelAfterReport<T>(Func<T, bool> shouldCancel, CancellationTokenSource cts) : IProgress<T>
+    {
+        public void Report(T value)
+        {
+            if (shouldCancel(value))
+            {
+                cts.Cancel();
+            }
+        }
     }
 
     [Fact]

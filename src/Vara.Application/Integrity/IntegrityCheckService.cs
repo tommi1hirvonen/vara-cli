@@ -1,3 +1,4 @@
+using System.Threading;
 using Vara.Core.Abstractions;
 
 namespace Vara.Application.Integrity;
@@ -17,11 +18,18 @@ public sealed record IntegrityFinding(string ContentHash, IReadOnlyList<string> 
 /// <param name="Missing">Referenced blobs not physically present in the target's content store.</param>
 /// <param name="Corrupt">Referenced blobs present in the store but whose re-hashed content no longer matches the manifest. Always empty in quick mode, since quick mode never re-hashes.</param>
 /// <param name="Orphaned">Blobs physically present in the store but not referenced by any snapshot - informational only; <see cref="IntegrityCheckService.Check"/> never deletes these (that remains <c>vara prune</c>'s job).</param>
+/// <param name="Cancelled">
+/// <see langword="true"/> when a graceful Ctrl+C stop was requested before verification of every
+/// referenced blob completed, per the backup-integrity spec's "Graceful cancellation via Ctrl+C"
+/// requirement. <see cref="BlobsChecked"/> and the finding lists reflect only what was actually
+/// verified before the stop - already-found problems are not discarded on cancellation.
+/// </param>
 public sealed record IntegrityCheckResult(
     int BlobsChecked,
     IReadOnlyList<IntegrityFinding> Missing,
     IReadOnlyList<IntegrityFinding> Corrupt,
-    IReadOnlyList<string> Orphaned);
+    IReadOnlyList<string> Orphaned,
+    bool Cancelled = false);
 
 /// <summary>
 /// Reports progress of <see cref="IntegrityCheckService.Check"/>'s blob-verification
@@ -50,7 +58,14 @@ public sealed class IntegrityCheckService(ISnapshotRepository repository, IConte
     /// present in the store, without reading its content or recomputing its hash -
     /// trading full corruption detection for a faster presence-only check.
     /// </param>
-    public IntegrityCheckResult Check(bool quick, IProgress<IntegrityCheckProgress>? progress = null)
+    /// <param name="cancellationToken">
+    /// Cooperative "stop starting new work" signal, set by a graceful Ctrl+C stop (see
+    /// <c>Vara.Cli.Program</c>'s <c>Console.CancelKeyPress</c> handler), mirroring
+    /// <see cref="Vara.Application.Backup.BackupPipeline.Run"/>'s own parameter. Checked between
+    /// each referenced blob verified; whatever was already verified is reported normally - see
+    /// the backup-integrity spec's "Graceful cancellation via Ctrl+C" requirement.
+    /// </param>
+    public IntegrityCheckResult Check(bool quick, IProgress<IntegrityCheckProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         var referencedHashes = repository.GetAllReferencedContentHashes().ToList();
         var storedHashes = contentStore.ListAllStoredHashes();
@@ -63,8 +78,20 @@ public sealed class IntegrityCheckService(ISnapshotRepository repository, IConte
             progress?.Report(new IntegrityCheckProgress(0, referencedHashes.Count));
         }
 
+        var blobsChecked = 0;
+        var cancelled = false;
         for (var i = 0; i < referencedHashes.Count; i++)
         {
+            // Cooperative cancellation: stop starting verification of any further blob once a
+            // graceful Ctrl+C stop has been requested. Whatever has already been verified is
+            // allowed to finish (this loop is sequential, so nothing is "in flight" here beyond
+            // the current iteration) - mirroring BackupExecutor's own cancellation checks.
+            if (cancellationToken.IsCancellationRequested)
+            {
+                cancelled = true;
+                break;
+            }
+
             var hash = referencedHashes[i];
 
             if (!storedHashes.Contains(hash))
@@ -81,12 +108,13 @@ public sealed class IntegrityCheckService(ISnapshotRepository repository, IConte
                 }
             }
 
-            progress?.Report(new IntegrityCheckProgress(i + 1, referencedHashes.Count));
+            blobsChecked = i + 1;
+            progress?.Report(new IntegrityCheckProgress(blobsChecked, referencedHashes.Count));
         }
 
         var orphaned = storedHashes.Except(referencedHashes).ToList();
 
-        return new IntegrityCheckResult(referencedHashes.Count, missing, corrupt, orphaned);
+        return new IntegrityCheckResult(blobsChecked, missing, corrupt, orphaned, Cancelled: cancelled);
     }
 
     private IntegrityFinding BuildFinding(string hash)

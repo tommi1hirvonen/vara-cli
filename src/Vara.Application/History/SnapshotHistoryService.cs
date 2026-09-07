@@ -1,3 +1,4 @@
+using System.Threading;
 using Vara.Core.Abstractions;
 using Vara.Core.FileSystem;
 using Vara.Core.Snapshots;
@@ -477,19 +478,43 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
     /// <see cref="IContentStore.ExtractTo"/> call so a caller can render one
     /// continuously-advancing progress indicator across the whole operation.
     /// </summary>
-    public void ExecuteDirectoryRestore(DirectoryRestorePlan plan, Action<long>? onBytesCopied = null, Action<long>? onSizeResolved = null)
+    /// <param name="cancellationToken">
+    /// Cooperative "stop starting new work" signal, set by a graceful Ctrl+C stop (see
+    /// <c>Vara.Cli.Program</c>'s <c>Console.CancelKeyPress</c> handler). Checked between each
+    /// planned path written or removed; whatever was already applied stays applied - see the
+    /// snapshot-history spec's "Graceful cancellation of a directory restore via Ctrl+C"
+    /// requirement.
+    /// </param>
+    /// <returns><see langword="true"/> when the plan was only partially applied because a graceful Ctrl+C stop was requested before every planned path was written/removed; <see langword="false"/> when the whole plan was applied.</returns>
+    public bool ExecuteDirectoryRestore(DirectoryRestorePlan plan, Action<long>? onBytesCopied = null, Action<long>? onSizeResolved = null, CancellationToken cancellationToken = default)
     {
         onSizeResolved?.Invoke(plan.TotalBytes);
 
         foreach (var destination in plan.ToRemove)
         {
+            // Cooperative cancellation: stop starting any further planned removal/write once a
+            // graceful Ctrl+C stop has been requested. Whatever has already been applied stays
+            // applied (this loop is sequential, so nothing is "in flight" here beyond the
+            // current iteration) - mirroring BackupExecutor's own cancellation checks.
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return true;
+            }
+
             contentStore.RemoveExtractedFile(destination);
         }
 
         foreach (var entry in plan.ToWrite)
         {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return true;
+            }
+
             contentStore.ExtractTo(entry.ContentHash, entry.DestinationPath, onBytesCopied);
         }
+
+        return false;
     }
 
     /// <summary>

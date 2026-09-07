@@ -1,3 +1,4 @@
+using System.Threading;
 using Vara.Core.Abstractions;
 using Vara.Core.Backup;
 using Vara.Core.Configuration;
@@ -5,7 +6,15 @@ using Vara.Core.Configuration;
 namespace Vara.Application.Retention;
 
 /// <summary>The outcome of a prune run.</summary>
-public sealed record PruneResult(int SnapshotsRemoved, int BlobsRemoved);
+/// <param name="Cancelled">
+/// <see langword="true"/> when a graceful Ctrl+C stop was requested before or during this run,
+/// per the retention-pruning spec's "Graceful cancellation via Ctrl+C" requirement. Retention
+/// evaluation and snapshot removal are skipped entirely (rather than partially applied) when
+/// cancellation was already requested before they started; garbage collection stops before
+/// removing any further blob once requested mid-loop. Either way, whatever had already fully
+/// committed (a completed snapshot-removal step, or blobs already deleted) remains committed.
+/// </param>
+public sealed record PruneResult(int SnapshotsRemoved, int BlobsRemoved, bool Cancelled = false);
 
 /// <summary>
 /// Reports progress of <see cref="PruneService.Prune"/>'s blob-deletion (garbage
@@ -67,9 +76,22 @@ public sealed class PruneService(ISnapshotRepository repository, IContentStore c
     /// exactly as before this parameter existed - used for the <c>--yes</c> and zero-eligible
     /// paths, where nothing specific was ever confirmed.
     /// </param>
+    /// <param name="cancellationToken">
+    /// Cooperative "stop starting new work" signal, set by a graceful Ctrl+C stop (see
+    /// <c>Vara.Cli.Program</c>'s <c>Console.CancelKeyPress</c> handler), mirroring
+    /// <see cref="Vara.Application.Backup.BackupPipeline.Run"/>'s own parameter. Checked once
+    /// before retention evaluation/snapshot removal starts (that pair runs as a single atomic
+    /// step, so a cancellation already requested by then skips it entirely rather than
+    /// partially applying it), and again between each blob removed during garbage collection -
+    /// see the retention-pruning spec's "Graceful cancellation via Ctrl+C" requirement.
+    /// </param>
     /// <exception cref="RetentionPolicyNotConfiguredException">The profile has no retention policy configured.</exception>
     /// <exception cref="PruneAlreadyRunningException">Another run (backup or prune) is already in progress for this profile.</exception>
-    public PruneResult Prune(Profile profile, IProgress<PruneProgress>? progress = null, IReadOnlyList<long>? confirmedSnapshotIds = null)
+    public PruneResult Prune(
+        Profile profile,
+        IProgress<PruneProgress>? progress = null,
+        IReadOnlyList<long>? confirmedSnapshotIds = null,
+        CancellationToken cancellationToken = default)
     {
         if (profile.Retention is null)
         {
@@ -81,6 +103,14 @@ public sealed class PruneService(ISnapshotRepository repository, IContentStore c
             if (!runLock.TryAcquire(profile.Name, profile.TargetRoot))
             {
                 throw new PruneAlreadyRunningException(profile.Name, profile.TargetRoot);
+            }
+
+            if (cancellationToken.IsCancellationRequested)
+            {
+                // Graceful stop already requested before retention evaluation/snapshot removal -
+                // a single atomic step - ever started: skip it entirely (removing no snapshots)
+                // rather than starting and then having no way to stop it partway through.
+                return new PruneResult(SnapshotsRemoved: 0, BlobsRemoved: 0, Cancelled: true);
             }
 
             var snapshots = repository.ListSnapshots();
@@ -107,13 +137,26 @@ public sealed class PruneService(ISnapshotRepository repository, IContentStore c
                 progress?.Report(new PruneProgress(0, unreferencedHashes.Count));
             }
 
+            var blobsRemoved = 0;
+            var cancelledDuringGc = false;
             for (var i = 0; i < unreferencedHashes.Count; i++)
             {
+                // Cooperative cancellation: stop starting new blob deletions once a graceful
+                // Ctrl+C stop has been requested. Whatever has already been deleted stays
+                // deleted - this loop is sequential, so nothing is "in flight" beyond the
+                // current iteration - mirroring BackupExecutor's own cancellation checks.
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    cancelledDuringGc = true;
+                    break;
+                }
+
                 contentStore.DeleteContent(unreferencedHashes[i]);
-                progress?.Report(new PruneProgress(i + 1, unreferencedHashes.Count));
+                blobsRemoved++;
+                progress?.Report(new PruneProgress(blobsRemoved, unreferencedHashes.Count));
             }
 
-            return new PruneResult(snapshotsRemoved, unreferencedHashes.Count);
+            return new PruneResult(snapshotsRemoved, blobsRemoved, Cancelled: cancelledDuringGc);
         }
     }
 }

@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.Threading;
 using Spectre.Console;
 using Vara.Application.Profiles;
 using Vara.Application.Retention;
@@ -10,7 +11,7 @@ namespace Vara.Cli.Commands;
 
 public static class PruneCommand
 {
-    public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory)
+    public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory, CancellationToken cancellationToken = default)
     {
         var profileOption = new Option<string>("--profile") { Description = "The profile to prune.", Required = true };
         var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
@@ -24,6 +25,7 @@ public static class PruneCommand
             var yes = parseResult.GetValue(yesOption);
 
             var cancelled = false;
+            var gracefullyCancelled = false;
 
             var exitCode = ErrorReporting.Run(() =>
             {
@@ -35,9 +37,10 @@ public static class PruneCommand
                 {
                     var console = AnsiConsole.Console;
                     var result = OutputMode.IsLiveCapable(console)
-                        ? RunWithLiveDisplay(pruneService, profile, console, confirmedSnapshotIds)
-                        : RunWithPlainOutput(pruneService, profile, console, confirmedSnapshotIds);
+                        ? RunWithLiveDisplay(pruneService, profile, console, confirmedSnapshotIds, cancellationToken)
+                        : RunWithPlainOutput(pruneService, profile, console, confirmedSnapshotIds, cancellationToken);
                     PruneOutcomeReporter.Report(console, result);
+                    gracefullyCancelled = result.Cancelled;
                 }
 
                 var eligibleIds = pruneService.ListEligibleForRemoval(profile);
@@ -82,6 +85,15 @@ public static class PruneCommand
                 return 0;
             }
 
+            // A gracefully cancelled run (via Ctrl+C, mid-run) reuses the same partial-failure
+            // exit code as backup's own graceful cancellation, distinct from success - it did
+            // not necessarily finish everything it set out to do - and distinct from a hard
+            // error, since nothing already committed is corrupted or lost.
+            if (exitCode == ExitCodes.Success && gracefullyCancelled)
+            {
+                exitCode = ExitCodes.PartialFailure;
+            }
+
             return exitCode;
         });
 
@@ -98,7 +110,7 @@ public static class PruneCommand
     // callback only updates an in-memory ProgressTask.Value on every iteration and
     // never forces its own redraw, so Spectre's own AutoRefresh already bounds the
     // display's redraw rate.
-    private static PruneResult RunWithLiveDisplay(PruneService pruneService, Vara.Core.Configuration.Profile profile, IAnsiConsole console, IReadOnlyList<long>? confirmedSnapshotIds)
+    private static PruneResult RunWithLiveDisplay(PruneService pruneService, Vara.Core.Configuration.Profile profile, IAnsiConsole console, IReadOnlyList<long>? confirmedSnapshotIds, CancellationToken cancellationToken)
     {
         PruneResult result = null!;
         console.Progress()
@@ -121,7 +133,7 @@ public static class PruneCommand
                 }
 
                 var progress = new Progress<PruneProgress>(Render);
-                result = pruneService.Prune(profile, progress, confirmedSnapshotIds);
+                result = pruneService.Prune(profile, progress, confirmedSnapshotIds, cancellationToken);
 
                 // Ensures the final count is shown immediately rather than waiting for
                 // the next AutoRefresh timer tick, per design.md's "single explicit
@@ -135,13 +147,13 @@ public static class PruneCommand
     // Non-interactive/redirected path: plain, appended lines with no in-place redraw,
     // per the cli-presentation delta's "Non-interactive or color-incapable output
     // falls back to plain text" requirement.
-    private static PruneResult RunWithPlainOutput(PruneService pruneService, Vara.Core.Configuration.Profile profile, IAnsiConsole console, IReadOnlyList<long>? confirmedSnapshotIds)
+    private static PruneResult RunWithPlainOutput(PruneService pruneService, Vara.Core.Configuration.Profile profile, IAnsiConsole console, IReadOnlyList<long>? confirmedSnapshotIds, CancellationToken cancellationToken)
     {
         console.WriteLine("Evaluating...");
 
         var progress = new Progress<PruneProgress>(p =>
             console.WriteLine($"Removed {p.BlobsDeleted} of {p.TotalBlobs} blobs."));
 
-        return pruneService.Prune(profile, progress, confirmedSnapshotIds);
+        return pruneService.Prune(profile, progress, confirmedSnapshotIds, cancellationToken);
     }
 }
