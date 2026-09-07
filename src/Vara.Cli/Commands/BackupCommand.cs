@@ -22,7 +22,9 @@ public static class BackupCommand
             var profileName = parseResult.GetValue(profileOption)!;
             var configPath = parseResult.GetValue(configOption);
 
-            return ErrorReporting.Run(() =>
+            BackupRunResult result = null!;
+
+            var exitCode = ErrorReporting.Run(() =>
             {
                 var profile = profileResolver.Resolve(profileName, configPath);
                 using var services = serviceFactory.CreateFor(profile);
@@ -30,13 +32,27 @@ public static class BackupCommand
                 var pipeline = new BackupPipeline(scanner, hasher, services.ContentStore, services.Repository, services.RunLock);
                 var console = AnsiConsole.Console;
 
-                var result = OutputMode.IsLiveCapable(console)
+                result = OutputMode.IsLiveCapable(console)
                     ? RunWithLiveDisplay(pipeline, profile, console)
                     : RunWithPlainOutput(pipeline, profile, console);
 
                 console.WriteLine();
                 BackupOutcomeReporter.Report(console, result);
             });
+
+            // A hard error (ExitCodes.HardError) always wins: it means result was never
+            // assigned (or the run didn't finish), so it must not be downgraded to the
+            // partial-failure code. Only a run that completed (ExitCodes.Success) but
+            // recorded failed paths is promoted, per the cli-presentation delta's
+            // "Outcome severity determines process exit code" requirement - previously
+            // ErrorReporting.Run's own exit code was returned unconditionally, so a
+            // completed-with-failures run always reported success (exit 0) to the caller.
+            if (exitCode == ExitCodes.Success && result.FailedPaths.Count > 0)
+            {
+                exitCode = ExitCodes.PartialFailure;
+            }
+
+            return exitCode;
         });
 
         return command;

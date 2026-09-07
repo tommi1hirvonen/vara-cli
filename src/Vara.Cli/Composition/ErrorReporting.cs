@@ -23,7 +23,7 @@ public static class ErrorReporting
         try
         {
             action();
-            return 0;
+            return ExitCodes.Success;
         }
         catch (Exception ex) when (TryGetFriendlyMessage(ex, out var message))
         {
@@ -32,7 +32,7 @@ public static class ErrorReporting
             // raised the error. Written to standard error by default, so it stays
             // visible even when standard output is redirected.
             OutcomeStyle.WriteLineError(errorConsole ?? StandardError.Console, $"Error: {message}");
-            return 1;
+            return ExitCodes.HardError;
         }
         catch (Exception ex)
         {
@@ -53,7 +53,7 @@ public static class ErrorReporting
                 console.WriteLine(ex.StackTrace, new Style(Color.Grey));
             }
 
-            return 1;
+            return ExitCodes.HardError;
         }
     }
 
