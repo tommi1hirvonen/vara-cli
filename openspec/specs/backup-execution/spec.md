@@ -268,11 +268,19 @@ The system SHALL apply changes to the mirror and version store such that an inte
 - **THEN** every file present in the mirror afterward contains either its previous complete content or its new complete content, and the interrupted snapshot is recorded as incomplete rather than successful
 
 ### Requirement: Concurrent run prevention
-The system SHALL prevent two backup runs from executing concurrently against the same profile's target.
+The system SHALL prevent two backup runs from executing concurrently against the same profile's target. Because the lock is held per-target rather than per-profile, the system's reported message SHALL describe the target as busy rather than asserting that the requesting profile itself is the one already running, so the message remains accurate when two different profiles share the same target. WHEN the system cannot determine whether a run is already in progress because acquiring the lock failed for a reason other than the lock already being held (for example, a filesystem permission error opening the lock file), the system SHALL report a clear, distinct error identifying the problem rather than allowing an unhandled exception to propagate or reporting that a run is already in progress.
 
 #### Scenario: Second run started while one is in progress
 - **WHEN** a user starts a backup run for a profile while another run for the same profile is already in progress
-- **THEN** the system refuses to start the second run and reports that a run is already in progress
+- **THEN** the system refuses to start the second run and reports that a run is already in progress for that target
+
+#### Scenario: Second run started for a different profile sharing the same target
+- **WHEN** a user starts a backup run for a profile while another run for a different profile that shares the same target root is already in progress
+- **THEN** the system refuses to start the second run and reports that the target is already in use, without asserting that the second profile itself is the one running
+
+#### Scenario: Lock file inaccessible due to filesystem permissions
+- **WHEN** a user starts a backup run and the run lock file cannot be opened due to a filesystem permission error, rather than because another run already holds it
+- **THEN** the system reports a clear error identifying that the run lock could not be acquired due to a permission problem, rather than reporting that a run is already in progress or allowing an unhandled exception to propagate
 
 ### Requirement: Manifest writes are checkpointed periodically during a run
 The system SHALL commit a snapshot's file-version manifest writes in periodic checkpoints bounded by elapsed time, rather than as either one commit per write or one commit for the entire run, so that the amount of already-recorded work at risk from an interruption is bounded by the checkpoint interval and does not grow with the run's total duration. Each checkpoint commit MUST include every manifest row recorded since the previous checkpoint (or since the run began, for the first checkpoint) together with the snapshot's current progress, and MUST leave the manifest in a valid, uncorrupted state whether or not a later checkpoint in the same run ever commits. An interruption between checkpoints SHALL NOT corrupt the manifest or leave a partially-written row; any mirror content already written for files recorded in a checkpoint that never committed remains intact, and the affected paths are re-detected and re-recorded on a later run without error, including when the affected operation was a move whose mirror-side relocation had already completed before the interruption.
