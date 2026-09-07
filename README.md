@@ -181,6 +181,7 @@ optional and rarely needed.
 | `vara browse [directory] [--profile <name>] [--at <date>] [--deleted]` | List a mirror directory's contents, optionally as of a past date, optionally including deleted entries. |
 | `vara deleted [directory] [--profile <name>] [--since <date>]` | Report deleted files, most recently deleted first. |
 | `vara restore <path> (--out <dest> \| --in-place) (--at <date> \| --version <id>) [--force]` | Extract a historical version to a destination (or back to its original source location) without touching the live mirror. |
+| `vara restore <path> --recursive (--out <dest> \| --in-place) [--at <date>] [--force]` | Restore an entire directory (subtree) to its exact tracked state as of `--at`, or its current tracked state if `--at` is omitted; reports planned writes/removals and asks for one confirmation before applying them unless `--force` is given. Mutually exclusive with `--version`. |
 | `vara show <path> (--at <date> \| --version <id>)` | Stream a historical version's content to stdout. |
 | `vara diff <path> (--left-at <date> \| --left-version <id>) (--right-at <date> \| --right-version <id>)` | Show a textual diff between two versions of a file. |
 | `vara prune --profile <name> [--yes]` | Apply the profile's tiered retention policy and garbage-collect unreferenced content. |
@@ -210,8 +211,11 @@ path, an absolute source path (e.g. pasted from Explorer), or a path relative to
 current directory - Vara resolves whichever form matches recorded history.
 
 `restore` and `show` accept either `--version <id>` (from `history`'s output) or
-`--at <date>` (the version current as of that date); in an interactive session,
-omitting both presents a selectable list of versions instead of erroring.
+`--at <date>` (the version current as of that date). For single-file `restore`, in an
+interactive session, omitting both presents a selectable list of versions instead of
+erroring; `show` always requires one of the two and errors if both are omitted. This
+picker does not apply to `restore --recursive` - a directory restore has no single
+per-file version history to pick from.
 
 ## How it works
 
