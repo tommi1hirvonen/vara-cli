@@ -31,20 +31,22 @@ public static class PruneCommand
                 using var services = serviceFactory.CreateFor(profile);
                 var pruneService = new PruneService(services.Repository, services.ContentStore, services.RunLock);
 
-                void RunPrune()
+                void RunPrune(IReadOnlyList<long>? confirmedSnapshotIds)
                 {
                     var console = AnsiConsole.Console;
                     var result = OutputMode.IsLiveCapable(console)
-                        ? RunWithLiveDisplay(pruneService, profile, console)
-                        : RunWithPlainOutput(pruneService, profile, console);
+                        ? RunWithLiveDisplay(pruneService, profile, console, confirmedSnapshotIds)
+                        : RunWithPlainOutput(pruneService, profile, console, confirmedSnapshotIds);
                     PruneOutcomeReporter.Report(console, result);
                 }
 
-                var eligibleCount = pruneService.CountEligibleForRemoval(profile);
+                var eligibleIds = pruneService.ListEligibleForRemoval(profile);
 
-                if (eligibleCount == 0 || yes)
+                if (eligibleIds.Count == 0 || yes)
                 {
-                    RunPrune();
+                    // Nothing was shown to the user to confirm (either nothing is eligible, or
+                    // --yes bypassed the prompt entirely), so Prune evaluates eligibility fresh.
+                    RunPrune(confirmedSnapshotIds: null);
                     return;
                 }
 
@@ -53,18 +55,20 @@ public static class PruneCommand
                     // Non-interactive session, no --yes: refuse rather than silently
                     // deleting data or silently doing nothing. Reported as a normal
                     // error (exit 1) by ErrorReporting, directing the user to --yes.
-                    throw new PruneConfirmationRequiredException(profile.Name, eligibleCount);
+                    throw new PruneConfirmationRequiredException(profile.Name, eligibleIds.Count);
                 }
 
                 // Interactive session, no --yes: ask before pruning. The prompt goes to
                 // stderr so it's still visible even if stdout is redirected.
                 var confirmed = StandardError.Console.Confirm(
-                    $"This will permanently remove {eligibleCount} snapshot(s) and any content no longer referenced. Continue?",
+                    $"This will permanently remove {eligibleIds.Count} snapshot(s) and any content no longer referenced. Continue?",
                     defaultValue: false);
 
                 if (confirmed)
                 {
-                    RunPrune();
+                    // Pass exactly the ids shown at the prompt, so a snapshot that becomes
+                    // eligible only after this point is never removed by this run.
+                    RunPrune(confirmedSnapshotIds: eligibleIds);
                 }
                 else
                 {
@@ -94,7 +98,7 @@ public static class PruneCommand
     // callback only updates an in-memory ProgressTask.Value on every iteration and
     // never forces its own redraw, so Spectre's own AutoRefresh already bounds the
     // display's redraw rate.
-    private static PruneResult RunWithLiveDisplay(PruneService pruneService, Vara.Core.Configuration.Profile profile, IAnsiConsole console)
+    private static PruneResult RunWithLiveDisplay(PruneService pruneService, Vara.Core.Configuration.Profile profile, IAnsiConsole console, IReadOnlyList<long>? confirmedSnapshotIds)
     {
         PruneResult result = null!;
         console.Progress()
@@ -117,7 +121,7 @@ public static class PruneCommand
                 }
 
                 var progress = new Progress<PruneProgress>(Render);
-                result = pruneService.Prune(profile, progress);
+                result = pruneService.Prune(profile, progress, confirmedSnapshotIds);
 
                 // Ensures the final count is shown immediately rather than waiting for
                 // the next AutoRefresh timer tick, per design.md's "single explicit
@@ -131,13 +135,13 @@ public static class PruneCommand
     // Non-interactive/redirected path: plain, appended lines with no in-place redraw,
     // per the cli-presentation delta's "Non-interactive or color-incapable output
     // falls back to plain text" requirement.
-    private static PruneResult RunWithPlainOutput(PruneService pruneService, Vara.Core.Configuration.Profile profile, IAnsiConsole console)
+    private static PruneResult RunWithPlainOutput(PruneService pruneService, Vara.Core.Configuration.Profile profile, IAnsiConsole console, IReadOnlyList<long>? confirmedSnapshotIds)
     {
         console.WriteLine("Evaluating...");
 
         var progress = new Progress<PruneProgress>(p =>
             console.WriteLine($"Removed {p.BlobsDeleted} of {p.TotalBlobs} blobs."));
 
-        return pruneService.Prune(profile, progress);
+        return pruneService.Prune(profile, progress, confirmedSnapshotIds);
     }
 }

@@ -258,6 +258,149 @@ public class PruneServiceTests
         Assert.Equal(2, result.SnapshotsRemoved);
     }
 
+    [Fact]
+    public void ListEligibleForRemoval_returns_the_same_ids_that_Prune_would_otherwise_select()
+    {
+        var repository = new FakeSnapshotRepository();
+        var day1 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var day2 = day1.AddDays(1);
+        var day3 = day1.AddDays(2);
+
+        var oldSnapshot = repository.BeginSnapshot(day1);
+        repository.RecordFileVersion(oldSnapshot, "current.txt", null, "hash-1", 10, day1, FileChangeKind.Added, day1);
+        repository.CompleteSnapshot(oldSnapshot, day1, SnapshotStats.Empty);
+
+        var middleSnapshot = repository.BeginSnapshot(day2);
+        repository.RecordFileVersion(middleSnapshot, "current.txt", null, "hash-2", 10, day2, FileChangeKind.Changed, day2);
+        repository.CompleteSnapshot(middleSnapshot, day2, SnapshotStats.Empty);
+
+        var newestSnapshot = repository.BeginSnapshot(day3);
+        repository.RecordFileVersion(newestSnapshot, "current.txt", null, "hash-3", 10, day3, FileChangeKind.Changed, day3);
+        repository.CompleteSnapshot(newestSnapshot, day3, SnapshotStats.Empty);
+
+        var policy = new RetentionPolicy(keepDaily: 1, keepWeekly: 0, keepMonthly: 0, keepYearly: 0);
+        var service = new PruneService(repository, new FakeContentStore(), new FakeRunLock());
+
+        var listed = service.ListEligibleForRemoval(ProfileWithRetention(policy));
+
+        Assert.Equal([oldSnapshot, middleSnapshot], listed.OrderBy(id => id));
+
+        // Feeding the exact ids ListEligibleForRemoval reported back in as the confirmed
+        // set removes exactly those ids and nothing else - the two calls agree on
+        // "what's eligible" against the same, unmodified repository state.
+        var result = service.Prune(ProfileWithRetention(policy), confirmedSnapshotIds: listed);
+        Assert.Equal(2, result.SnapshotsRemoved);
+        Assert.Equal([newestSnapshot], repository.ListSnapshots().Select(s => s.Id));
+    }
+
+    [Fact]
+    public void Prune_with_confirmed_ids_never_removes_a_snapshot_that_became_eligible_only_after_confirmation()
+    {
+        var repository = new FakeSnapshotRepository();
+        var day1 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var day2 = day1.AddDays(1);
+
+        var oldSnapshot = repository.BeginSnapshot(day1);
+        repository.RecordFileVersion(oldSnapshot, "a.txt", null, "hash-1", 10, day1, FileChangeKind.Added, day1);
+        repository.CompleteSnapshot(oldSnapshot, day1, SnapshotStats.Empty);
+
+        var recentSnapshot = repository.BeginSnapshot(day2);
+        repository.RecordFileVersion(recentSnapshot, "a.txt", null, "hash-2", 10, day2, FileChangeKind.Changed, day2);
+        repository.CompleteSnapshot(recentSnapshot, day2, SnapshotStats.Empty);
+
+        // keepDaily: 1 retains only the newest daily bucket - today, that's recentSnapshot
+        // (day2), so it's the only one shown/confirmed. oldSnapshot is the confirmed set.
+        var policy = new RetentionPolicy(keepDaily: 1, keepWeekly: 0, keepMonthly: 0, keepYearly: 0);
+        var service = new PruneService(repository, new FakeContentStore(), new FakeRunLock());
+        var confirmedSnapshotIds = service.ListEligibleForRemoval(ProfileWithRetention(policy));
+        Assert.Equal([oldSnapshot], confirmedSnapshotIds);
+
+        // A concurrent backup completes between the prompt and the confirmed run,
+        // displacing recentSnapshot from "newest daily bucket" - recentSnapshot is now
+        // newly eligible too, but it was never shown to/confirmed by the user.
+        var day3 = day1.AddDays(2);
+        var newestSnapshot = repository.BeginSnapshot(day3);
+        repository.RecordFileVersion(newestSnapshot, "a.txt", null, "hash-3", 10, day3, FileChangeKind.Changed, day3);
+        repository.CompleteSnapshot(newestSnapshot, day3, SnapshotStats.Empty);
+
+        var result = service.Prune(ProfileWithRetention(policy), confirmedSnapshotIds: confirmedSnapshotIds);
+
+        Assert.Equal(1, result.SnapshotsRemoved); // only the confirmed oldSnapshot
+        var remainingIds = repository.ListSnapshots().Select(s => s.Id).ToHashSet();
+        Assert.DoesNotContain(oldSnapshot, remainingIds);
+        Assert.Contains(recentSnapshot, remainingIds); // newly eligible, but unconfirmed - deferred
+        Assert.Contains(newestSnapshot, remainingIds); // retained as newest
+    }
+
+    [Fact]
+    public void Prune_with_confirmed_ids_skips_a_confirmed_id_that_no_longer_exists_without_throwing()
+    {
+        var repository = new FakeSnapshotRepository();
+        var day1 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var day2 = day1.AddDays(1);
+        var day3 = day1.AddDays(2);
+
+        var oldestSnapshot = repository.BeginSnapshot(day1);
+        repository.RecordFileVersion(oldestSnapshot, "a.txt", null, "hash-1", 10, day1, FileChangeKind.Added, day1);
+        repository.CompleteSnapshot(oldestSnapshot, day1, SnapshotStats.Empty);
+
+        var otherEligibleSnapshot = repository.BeginSnapshot(day2);
+        repository.RecordFileVersion(otherEligibleSnapshot, "a.txt", null, "hash-2", 10, day2, FileChangeKind.Changed, day2);
+        repository.CompleteSnapshot(otherEligibleSnapshot, day2, SnapshotStats.Empty);
+
+        var newestSnapshot = repository.BeginSnapshot(day3);
+        repository.RecordFileVersion(newestSnapshot, "a.txt", null, "hash-3", 10, day3, FileChangeKind.Changed, day3);
+        repository.CompleteSnapshot(newestSnapshot, day3, SnapshotStats.Empty);
+
+        var policy = new RetentionPolicy(keepDaily: 1, keepWeekly: 0, keepMonthly: 0, keepYearly: 0);
+        var service = new PruneService(repository, new FakeContentStore(), new FakeRunLock());
+        var confirmedSnapshotIds = service.ListEligibleForRemoval(ProfileWithRetention(policy));
+        Assert.Equal([oldestSnapshot, otherEligibleSnapshot], confirmedSnapshotIds.OrderBy(id => id));
+
+        // Simulate oldestSnapshot having already been removed by some other means (e.g.
+        // a separate prune run) by the time this confirmed run actually executes.
+        repository.DeleteSnapshot(oldestSnapshot);
+
+        var result = service.Prune(ProfileWithRetention(policy), confirmedSnapshotIds: confirmedSnapshotIds);
+
+        Assert.Equal(1, result.SnapshotsRemoved); // only the still-present otherEligibleSnapshot
+        var remainingIds = repository.ListSnapshots().Select(s => s.Id).ToHashSet();
+        Assert.DoesNotContain(otherEligibleSnapshot, remainingIds);
+        Assert.Contains(newestSnapshot, remainingIds);
+    }
+
+    [Fact]
+    public void Prune_without_confirmed_ids_still_prunes_the_full_live_eligible_set_exactly_as_before()
+    {
+        var repository = new FakeSnapshotRepository();
+        var day1 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var day2 = day1.AddDays(1);
+        var day3 = day1.AddDays(2);
+
+        var oldSnapshot = repository.BeginSnapshot(day1);
+        repository.RecordFileVersion(oldSnapshot, "a.txt", null, "hash-1", 10, day1, FileChangeKind.Added, day1);
+        repository.CompleteSnapshot(oldSnapshot, day1, SnapshotStats.Empty);
+
+        var middleSnapshot = repository.BeginSnapshot(day2);
+        repository.RecordFileVersion(middleSnapshot, "a.txt", null, "hash-2", 10, day2, FileChangeKind.Changed, day2);
+        repository.CompleteSnapshot(middleSnapshot, day2, SnapshotStats.Empty);
+
+        var newestSnapshot = repository.BeginSnapshot(day3);
+        repository.RecordFileVersion(newestSnapshot, "a.txt", null, "hash-3", 10, day3, FileChangeKind.Changed, day3);
+        repository.CompleteSnapshot(newestSnapshot, day3, SnapshotStats.Empty);
+
+        // Mirrors the --yes / zero-eligible-preview paths, which never captured a
+        // confirmed set: omitting confirmedSnapshotIds must prune the entire live
+        // eligible set, unchanged from before this parameter was introduced.
+        var policy = new RetentionPolicy(keepDaily: 1, keepWeekly: 0, keepMonthly: 0, keepYearly: 0);
+        var service = new PruneService(repository, new FakeContentStore(), new FakeRunLock());
+
+        var result = service.Prune(ProfileWithRetention(policy));
+
+        Assert.Equal(2, result.SnapshotsRemoved);
+        Assert.Equal([newestSnapshot], repository.ListSnapshots().Select(s => s.Id));
+    }
+
     /// <summary>Synchronous <see cref="IProgress{T}"/> invoking an arbitrary callback on the
     /// reporting thread directly, mirroring BackupPipelineTests's CallbackProgress - Prune's
     /// deletion loop is single-threaded and strictly sequential, so no synchronization is

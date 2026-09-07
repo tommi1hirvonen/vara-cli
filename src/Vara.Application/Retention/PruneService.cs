@@ -25,16 +25,21 @@ public sealed class PruneService(ISnapshotRepository repository, IContentStore c
     private readonly RetentionEvaluator _evaluator = new();
 
     /// <summary>
-    /// Read-only preview of how many snapshots <see cref="Prune"/> would remove, without
+    /// Read-only preview of which snapshots <see cref="Prune"/> would remove, without
     /// acquiring the run lock or deleting anything. Meant to be called before <see cref="Prune"/>
-    /// so a caller (the CLI) can decide whether to prompt for confirmation. Because no lock is
-    /// held between this call and a subsequent <see cref="Prune"/> call, the count can be stale
-    /// by the time <see cref="Prune"/> actually runs - for example if a concurrent backup adds a
-    /// new snapshot in between. See design.md's "Preview/execute race" risk in the
-    /// <c>confirm-prune</c> change.
+    /// so a caller (the CLI) can decide whether to prompt for confirmation, and - if it does -
+    /// pass the returned ids back in as <see cref="Prune"/>'s <c>confirmedSnapshotIds</c> so only
+    /// what was actually shown to the user can be removed. Because no lock is held between this
+    /// call and a subsequent <see cref="Prune"/> call, the returned set can be stale by the time
+    /// <see cref="Prune"/> actually runs - for example if a concurrent backup adds a new snapshot
+    /// in between, or removes one of the returned ids by some other means. <see cref="Prune"/>
+    /// re-evaluates eligibility itself and only ever removes ids that are both confirmed and
+    /// still live-eligible, so a stale preview can only cause it to remove fewer snapshots than
+    /// shown, never more or different ones. See design.md's "Preview/execute race" risk in the
+    /// <c>confirm-prune</c> change and this change's design.md.
     /// </summary>
     /// <exception cref="RetentionPolicyNotConfiguredException">The profile has no retention policy configured.</exception>
-    public int CountEligibleForRemoval(Profile profile)
+    public IReadOnlyList<long> ListEligibleForRemoval(Profile profile)
     {
         if (profile.Retention is null)
         {
@@ -42,12 +47,29 @@ public sealed class PruneService(ISnapshotRepository repository, IContentStore c
         }
 
         var snapshots = repository.ListSnapshots();
-        return _evaluator.DetermineEligibleForRemoval(snapshots, profile.Retention).Count;
+        return _evaluator.DetermineEligibleForRemoval(snapshots, profile.Retention).Select(s => s.Id).ToList();
     }
 
+    /// <summary>
+    /// Thin wrapper around <see cref="ListEligibleForRemoval"/> for callers that only need the
+    /// count (e.g. for a confirmation prompt) and don't need to hold onto the concrete id set.
+    /// </summary>
+    /// <exception cref="RetentionPolicyNotConfiguredException">The profile has no retention policy configured.</exception>
+    public int CountEligibleForRemoval(Profile profile) => ListEligibleForRemoval(profile).Count;
+
+    /// <param name="confirmedSnapshotIds">
+    /// The specific snapshot ids a caller previously showed to and had confirmed by the user
+    /// (typically via <see cref="ListEligibleForRemoval"/>). When given, only the intersection of
+    /// these ids and the live eligible set is removed - a snapshot that becomes eligible only
+    /// after the confirmed set was captured is left alone for a subsequent prune run to pick up,
+    /// and a confirmed id no longer present or no longer eligible is silently skipped rather than
+    /// treated as an error. When omitted (the default), the full live eligible set is removed,
+    /// exactly as before this parameter existed - used for the <c>--yes</c> and zero-eligible
+    /// paths, where nothing specific was ever confirmed.
+    /// </param>
     /// <exception cref="RetentionPolicyNotConfiguredException">The profile has no retention policy configured.</exception>
     /// <exception cref="PruneAlreadyRunningException">Another run (backup or prune) is already in progress for this profile.</exception>
-    public PruneResult Prune(Profile profile, IProgress<PruneProgress>? progress = null)
+    public PruneResult Prune(Profile profile, IProgress<PruneProgress>? progress = null, IReadOnlyList<long>? confirmedSnapshotIds = null)
     {
         if (profile.Retention is null)
         {
@@ -64,6 +86,12 @@ public sealed class PruneService(ISnapshotRepository repository, IContentStore c
             var snapshots = repository.ListSnapshots();
             var eligible = _evaluator.DetermineEligibleForRemoval(snapshots, profile.Retention);
             var eligibleIds = eligible.Select(s => s.Id).ToList();
+
+            if (confirmedSnapshotIds is not null)
+            {
+                var confirmedSet = confirmedSnapshotIds.ToHashSet();
+                eligibleIds = eligibleIds.Where(confirmedSet.Contains).ToList();
+            }
 
             var snapshotsRemoved = repository.PruneSnapshots(eligibleIds);
 
