@@ -52,4 +52,16 @@ public class AbsolutePathMirrorMapperTests
     {
         Assert.Equal(@"Users\john\file.txt", AbsolutePathMirrorMapper.FromMirrorPath(@"Users\john\file.txt"));
     }
+
+    [Fact]
+    public void A_UNC_path_is_passed_through_unchanged()
+    {
+        // UNC source paths have no defined mirror-path mapping yet (see the
+        // enforce-mirror-path-containment change's proposal.md) - ToMirrorPath's leading
+        // "second character is a colon" check never matches a UNC path's leading "\\", so it
+        // falls through to the unchanged-passthrough branch. FileSystemContentStore's
+        // containment guard is what turns this unmapped path into a refused write, not this
+        // mapping step.
+        Assert.Equal(@"\\srv\share\file.txt", AbsolutePathMirrorMapper.ToMirrorPath(@"\\srv\share\file.txt"));
+    }
 }

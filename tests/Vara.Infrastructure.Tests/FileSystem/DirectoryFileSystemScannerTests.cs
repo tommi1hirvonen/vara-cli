@@ -238,6 +238,27 @@ public class DirectoryFileSystemScannerTests : IDisposable
         Assert.Equal(AbsolutePathMirrorMapper.ToMirrorPath(missingPath), failure.MirrorPath);
     }
 
+    [Fact]
+    public void A_UNC_source_path_completes_scanning_and_is_reported_with_its_mirror_path_unchanged()
+    {
+        // AbsolutePathMirrorMapper.ToMirrorPath has no defined mapping for a UNC path yet (see
+        // the enforce-mirror-path-containment change's proposal.md) - it passes it through
+        // unchanged. This confirms scanning a UNC source completes without throwing or hanging
+        // (an unreachable UNC host is treated the same as any other nonexistent source path),
+        // and that the failure's recorded MirrorPath is the UNC path itself, unmapped - exactly
+        // what would otherwise reach FileSystemContentStore's mirror-write containment guard if
+        // this source had instead produced a scanned entry.
+        const string uncSourcePath = @"\\vara-test-unreachable-host\share\file.txt";
+
+        var result = _scanner.Scan([new Source(uncSourcePath)]);
+        var entries = result.Entries.ToList();
+
+        Assert.Empty(entries);
+        var failure = Assert.Single(result.Failures);
+        Assert.Equal(ScanFailureReason.SourceUnavailable, failure.Reason);
+        Assert.Equal(uncSourcePath, failure.MirrorPath);
+    }
+
     /// <summary>Finds a drive letter with no filesystem currently mounted on it, for use with <see cref="Subst"/>.</summary>
     private static char FindUnusedDriveLetter()
     {

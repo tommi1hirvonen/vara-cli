@@ -150,7 +150,7 @@ public sealed class FileSystemContentStore : IContentStore
             throw new FileNotFoundException($"No stored content for hash '{hash}'.", blobPath);
         }
 
-        var mirrorPath = Path.Combine(_mirrorRoot, mirrorRelativePath);
+        var mirrorPath = ResolveMirrorPath(mirrorRelativePath);
         Directory.CreateDirectory(Path.GetDirectoryName(mirrorPath)!);
 
         var stagingPath = Path.Combine(_tempRoot, Guid.NewGuid().ToString("N"));
@@ -313,8 +313,8 @@ public sealed class FileSystemContentStore : IContentStore
     /// </summary>
     public void MoveMirrorEntry(string fromRelativePath, string toRelativePath)
     {
-        var fromPath = Path.Combine(_mirrorRoot, fromRelativePath);
-        var toPath = Path.Combine(_mirrorRoot, toRelativePath);
+        var fromPath = ResolveMirrorPath(fromRelativePath);
+        var toPath = ResolveMirrorPath(toRelativePath);
 
         if (!File.Exists(fromPath) && File.Exists(toPath))
         {
@@ -356,7 +356,7 @@ public sealed class FileSystemContentStore : IContentStore
 
     public void RemoveFromMirror(string mirrorRelativePath, string hash)
     {
-        var mirrorPath = Path.Combine(_mirrorRoot, mirrorRelativePath);
+        var mirrorPath = ResolveMirrorPath(mirrorRelativePath);
         if (File.Exists(mirrorPath))
         {
             // File.Delete throws UnauthorizedAccessException against a read-only target
@@ -439,16 +439,49 @@ public sealed class FileSystemContentStore : IContentStore
         }
     }
 
-    public bool IsWithinMirror(string absolutePath)
-    {
-        var resolvedMirrorRoot = Path.GetFullPath(_mirrorRoot);
-        var mirrorRootWithSeparator = resolvedMirrorRoot.EndsWith(Path.DirectorySeparatorChar)
-            ? resolvedMirrorRoot
-            : resolvedMirrorRoot + Path.DirectorySeparatorChar;
+    public bool IsWithinMirror(string absolutePath) => IsPathWithinRoot(_mirrorRoot, absolutePath);
 
-        var resolvedPath = Path.GetFullPath(absolutePath);
-        return resolvedPath.Equals(resolvedMirrorRoot, StringComparison.OrdinalIgnoreCase)
-            || resolvedPath.StartsWith(mirrorRootWithSeparator, StringComparison.OrdinalIgnoreCase);
+    /// <summary>
+    /// Whether <paramref name="candidate"/> resolves to <paramref name="root"/> itself, or to a
+    /// location inside it. Both paths are resolved via <see cref="Path.GetFullPath(string)"/>
+    /// before comparison (so a relative, `..`-laden, or differently-separated candidate is
+    /// normalized first), and the comparison is case-insensitive and trailing-separator-safe,
+    /// consistent with the case-insensitive, case-preserving semantics of the filesystems this
+    /// tool targets. Shared by <see cref="IsWithinMirror"/> (restore-destination containment) and
+    /// <see cref="ResolveMirrorPath"/> (mirror-write containment), so the containment rule itself
+    /// is defined in exactly one place.
+    /// </summary>
+    private static bool IsPathWithinRoot(string root, string candidate)
+    {
+        var resolvedRoot = Path.GetFullPath(root);
+        var rootWithSeparator = resolvedRoot.EndsWith(Path.DirectorySeparatorChar)
+            ? resolvedRoot
+            : resolvedRoot + Path.DirectorySeparatorChar;
+
+        var resolvedCandidate = Path.GetFullPath(candidate);
+        return resolvedCandidate.Equals(resolvedRoot, StringComparison.OrdinalIgnoreCase)
+            || resolvedCandidate.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Combines <see cref="_mirrorRoot"/> with <paramref name="mirrorRelativePath"/> and resolves
+    /// the result, refusing to return a path outside <see cref="_mirrorRoot"/> - the single
+    /// chokepoint every mirror-write method (<see cref="PlaceAtMirrorPath"/>,
+    /// <see cref="MoveMirrorEntry"/>, <see cref="RemoveFromMirror"/>) funnels through before
+    /// touching disk, so a mirror-relative path that cannot be safely mapped (for example, a UNC
+    /// source path that <see cref="Vara.Core.FileSystem.AbsolutePathMirrorMapper"/> currently
+    /// passes through unchanged, or a corrupted relative path containing `..` segments) can never
+    /// cause a write outside the target root.
+    /// </summary>
+    private string ResolveMirrorPath(string mirrorRelativePath)
+    {
+        var combined = Path.Combine(_mirrorRoot, mirrorRelativePath);
+        if (!IsPathWithinRoot(_mirrorRoot, combined))
+        {
+            throw new MirrorPathEscapesTargetRootException(mirrorRelativePath, Path.GetFullPath(combined), Path.GetFullPath(_mirrorRoot));
+        }
+
+        return combined;
     }
 
     public bool TargetExists(string absolutePath) => File.Exists(absolutePath);

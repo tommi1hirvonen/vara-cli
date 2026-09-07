@@ -1,4 +1,5 @@
 using Vara.Application.Backup;
+using Vara.Core.Abstractions;
 using Xunit;
 
 namespace Vara.Application.Tests.Backup;
@@ -388,6 +389,58 @@ public class BackupExecutorTests : IDisposable
         Assert.Equal(0, outcome.FilesDeleted);
         Assert.Equal(1, outcome.FilesAdded);
         Assert.True(_contentStore.Mirror.ContainsKey("ok.txt"));
+    }
+
+    [Fact]
+    public void A_mirror_path_escaping_the_target_root_is_recorded_as_failed_without_aborting_the_run()
+    {
+        // MirrorPathEscapesTargetRootException is an IOException subclass thrown by
+        // FileSystemContentStore's containment guard (for example, for an unmapped UNC source
+        // path). This confirms BackupExecutor's existing per-operation
+        // catch (IOException or UnauthorizedAccessException) already handles it - for all three
+        // mirror-write entry points - with no code change to BackupExecutor itself.
+        _contentStore.PlaceAtMirrorPath("hash-move", @"Downloads\report.pdf");
+        _contentStore.PlaceAtMirrorPath("hash-delete", "gone.txt");
+        _contentStore.ThrowOnPlace = new MirrorPathEscapesTargetRootException(@"\\srv\share\new.txt", @"\\srv\share\new.txt", _root);
+        _contentStore.ThrowOnPlaceForPath = @"\\srv\share\new.txt";
+        var escapingAddPath = WriteFile("new.txt", "escapes on place");
+        var okPath = WriteFile("ok.txt", "this one is fine");
+
+        var plan = new BackupPlan(
+            [
+                new PlannedOperation(PlannedOperationKind.Add, @"\\srv\share\new.txt", null, escapingAddPath, 17, DateTimeOffset.UtcNow, null),
+                new PlannedOperation(PlannedOperationKind.Add, "ok.txt", null, okPath, 17, DateTimeOffset.UtcNow, null),
+            ],
+            34);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+
+        Assert.Equal(1, outcome.FilesFailed);
+        Assert.Equal([@"\\srv\share\new.txt"], outcome.FailedPaths);
+        Assert.Equal(1, outcome.FilesAdded);
+        Assert.True(_contentStore.Mirror.ContainsKey("ok.txt"));
+
+        // Same exception type, verified against Move and Delete too, in separate runs so each
+        // operation's failure is attributed unambiguously.
+        _contentStore.ThrowOnPlace = null;
+        _contentStore.ThrowOnMove = new MirrorPathEscapesTargetRootException(@"\\srv\share\report.pdf", @"\\srv\share\report.pdf", _root);
+        var movePlan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Move, @"\\srv\share\report.pdf", @"Downloads\report.pdf", null, 100, DateTimeOffset.UtcNow, "hash-move")],
+            0);
+        var moveOutcome = executor.Execute(_repository.BeginSnapshot(DateTimeOffset.UtcNow), DateTimeOffset.UtcNow, movePlan);
+        Assert.Equal(1, moveOutcome.FilesFailed);
+        Assert.Equal([@"\\srv\share\report.pdf"], moveOutcome.FailedPaths);
+
+        _contentStore.ThrowOnMove = null;
+        _contentStore.ThrowOnRemove = new MirrorPathEscapesTargetRootException(@"\\srv\share\gone.txt", @"\\srv\share\gone.txt", _root);
+        var deletePlan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Delete, "gone.txt", null, null, 10, DateTimeOffset.UtcNow, "hash-delete")],
+            0);
+        var deleteOutcome = executor.Execute(_repository.BeginSnapshot(DateTimeOffset.UtcNow), DateTimeOffset.UtcNow, deletePlan);
+        Assert.Equal(1, deleteOutcome.FilesFailed);
+        Assert.Equal(["gone.txt"], deleteOutcome.FailedPaths);
     }
 
     [Fact]

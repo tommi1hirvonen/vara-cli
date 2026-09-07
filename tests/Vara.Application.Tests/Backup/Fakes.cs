@@ -74,6 +74,12 @@ internal sealed class FakeContentStore : IContentStore
     private readonly HashSet<string> _existingTargets = new(StringComparer.OrdinalIgnoreCase);
     private bool? _forcedSupportsHardlinks;
 
+    /// <summary>Test seam: when set, <see cref="PlaceAtMirrorPath"/> throws this instead of performing the placement - only for a call whose <c>mirrorRelativePath</c> equals <see cref="ThrowOnPlaceForPath"/> (or for every call, when that is left unset), so a test can fail one specific placement while others in the same run proceed normally.</summary>
+    public Exception? ThrowOnPlace { get; set; }
+
+    /// <summary>Test seam: restricts <see cref="ThrowOnPlace"/> to only the placement whose <c>mirrorRelativePath</c> matches this value. Unset (<see langword="null"/>) means every placement throws.</summary>
+    public string? ThrowOnPlaceForPath { get; set; }
+
     /// <summary>Test seam: when set, <see cref="MoveMirrorEntry"/> throws this instead of performing the move.</summary>
     public Exception? ThrowOnMove { get; set; }
 
@@ -132,6 +138,11 @@ internal sealed class FakeContentStore : IContentStore
 
     public void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null, string? previousContentHash = null)
     {
+        if (ThrowOnPlace is not null && (ThrowOnPlaceForPath is null || string.Equals(ThrowOnPlaceForPath, mirrorRelativePath, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw ThrowOnPlace;
+        }
+
         Mirror[mirrorRelativePath] = hash;
         PreviousContentHashesSeen[mirrorRelativePath] = previousContentHash;
         if (!SupportsHardlinks && _blobs.TryGetValue(hash, out var bytes))

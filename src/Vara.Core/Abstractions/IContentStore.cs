@@ -49,6 +49,10 @@ public interface IContentStore
     /// on NTFS it is shared across every hardlink to the same data (the blob's own canonical name,
     /// and any other mirror path still deduplicated against it), not just the one being replaced.
     /// </summary>
+    /// <exception cref="MirrorPathEscapesTargetRootException">
+    /// <paramref name="mirrorRelativePath"/> resolves to a location outside this store's mirror
+    /// root.
+    /// </exception>
     void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null, string? previousContentHash = null);
 
     /// <summary>
@@ -56,6 +60,10 @@ public interface IContentStore
     /// without re-transferring content. Used for detected moves; works regardless of
     /// hardlink support.
     /// </summary>
+    /// <exception cref="MirrorPathEscapesTargetRootException">
+    /// <paramref name="fromRelativePath"/> or <paramref name="toRelativePath"/> resolves to a
+    /// location outside this store's mirror root.
+    /// </exception>
     void MoveMirrorEntry(string fromRelativePath, string toRelativePath);
 
     /// <summary>
@@ -66,6 +74,10 @@ public interface IContentStore
     /// across every hardlink to the same data (the blob's own canonical name, and any other
     /// mirror path still deduplicated against it), not just the entry being removed.
     /// </summary>
+    /// <exception cref="MirrorPathEscapesTargetRootException">
+    /// <paramref name="mirrorRelativePath"/> resolves to a location outside this store's mirror
+    /// root.
+    /// </exception>
     void RemoveFromMirror(string mirrorRelativePath, string hash);
 
     /// <summary>
@@ -125,4 +137,21 @@ public interface IContentStore
     /// compute which blobs are safe to garbage-collect after pruning.
     /// </summary>
     IReadOnlySet<string> ListAllStoredHashes();
+}
+
+/// <summary>
+/// Thrown when a mirror-relative path passed to <see cref="IContentStore.PlaceAtMirrorPath"/>,
+/// <see cref="IContentStore.MoveMirrorEntry"/>, or <see cref="IContentStore.RemoveFromMirror"/>
+/// would resolve to a location outside the store's mirror root (for example, a source path with
+/// no defined mirror-path mapping, such as a UNC network path, or a corrupted relative path
+/// containing <c>..</c> segments). An <see cref="IOException"/> subclass so it is caught by the
+/// same per-operation failure handling as any other unreadable/unwritable-path error, rather than
+/// aborting the run.
+/// </summary>
+public sealed class MirrorPathEscapesTargetRootException(string mirrorRelativePath, string resolvedPath, string targetRoot)
+    : IOException($"Mirror path '{mirrorRelativePath}' resolves to '{resolvedPath}', which is outside the target root '{targetRoot}'.")
+{
+    public string MirrorRelativePath { get; } = mirrorRelativePath;
+    public string ResolvedPath { get; } = resolvedPath;
+    public string TargetRoot { get; } = targetRoot;
 }

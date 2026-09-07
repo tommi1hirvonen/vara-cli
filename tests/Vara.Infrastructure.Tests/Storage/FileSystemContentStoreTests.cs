@@ -1,4 +1,5 @@
 using System.Text;
+using Vara.Core.Abstractions;
 using Vara.Infrastructure.Hashing;
 using Vara.Infrastructure.Storage;
 using Xunit;
@@ -368,6 +369,66 @@ public class FileSystemContentStoreTests : IDisposable
     }
 
     [Fact]
+    public void PlaceAtMirrorPath_throws_when_the_relative_path_is_actually_a_unc_path()
+    {
+        // Reproduces the bug: AbsolutePathMirrorMapper.ToMirrorPath currently passes a UNC
+        // source path through unchanged, and Path.Combine returns a rooted second argument
+        // verbatim - so an unmapped UNC source's "mirror path" was the UNC path itself. This
+        // must now be refused rather than silently written to (or read from) that UNC location.
+        var store = CreateStore();
+        var (hash, _) = store.StoreFromStream(Content("content"));
+
+        var ex = Assert.Throws<MirrorPathEscapesTargetRootException>(
+            () => store.PlaceAtMirrorPath(hash, @"\\srv\share\file.txt"));
+
+        Assert.Equal(@"\\srv\share\file.txt", ex.MirrorRelativePath);
+    }
+
+    [Fact]
+    public void PlaceAtMirrorPath_throws_and_creates_no_file_when_the_relative_path_escapes_via_dot_dot_segments()
+    {
+        var store = CreateStore();
+        var (hash, _) = store.StoreFromStream(Content("content"));
+        var escapingRelativePath = Path.Combine("..", "..", $"vara-escape-{Guid.NewGuid():N}.txt");
+        var resolvedEscapePath = Path.GetFullPath(Path.Combine(_targetRoot, escapingRelativePath));
+
+        Assert.Throws<MirrorPathEscapesTargetRootException>(
+            () => store.PlaceAtMirrorPath(hash, escapingRelativePath));
+
+        Assert.False(File.Exists(resolvedEscapePath));
+    }
+
+    [Fact]
+    public void PlaceAtMirrorPath_does_not_touch_an_existing_file_outside_the_mirror_root_when_the_relative_path_resolves_there()
+    {
+        // Regression coverage for the original finding's most severe consequence: a mirror
+        // write whose resolved path coincides with a real file outside the target root (as an
+        // unmapped UNC source path resolving to itself would) must never create, overwrite,
+        // hardlink to, or change the attributes of that file. A local rooted path exercises the
+        // exact same Path.Combine/GetFullPath code path a real UNC path would (both are
+        // "rooted" as far as .NET's path APIs are concerned), without requiring network access.
+        var outsideDirectory = Path.Combine(Path.GetTempPath(), $"vara-outside-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(outsideDirectory);
+        var outsideFile = Path.Combine(outsideDirectory, "source.txt");
+        File.WriteAllText(outsideFile, "original source content");
+        try
+        {
+            var store = CreateStore();
+            var (hash, _) = store.StoreFromStream(Content("mirrored content"));
+
+            Assert.Throws<MirrorPathEscapesTargetRootException>(
+                () => store.PlaceAtMirrorPath(hash, outsideFile));
+
+            Assert.Equal("original source content", File.ReadAllText(outsideFile));
+            Assert.False(File.GetAttributes(outsideFile).HasFlag(FileAttributes.ReadOnly));
+        }
+        finally
+        {
+            Directory.Delete(outsideDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ExtractTo_writes_the_blobs_content_to_a_fresh_destination()
     {
         var store = CreateStore();
@@ -589,6 +650,38 @@ public class FileSystemContentStoreTests : IDisposable
     }
 
     [Fact]
+    public void MoveMirrorEntry_throws_and_does_not_move_when_the_from_path_escapes_the_target_root()
+    {
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        var (hash, _) = store.StoreFromStream(Content("destination content"));
+        store.PlaceAtMirrorPath(hash, @"Documents\report.pdf");
+        var destinationPath = Path.Combine(_targetRoot, "Documents", "report.pdf");
+
+        Assert.Throws<MirrorPathEscapesTargetRootException>(
+            () => store.MoveMirrorEntry(@"\\srv\share\report.pdf", @"Documents\report.pdf"));
+
+        Assert.True(File.Exists(destinationPath));
+        Assert.Equal("destination content", File.ReadAllText(destinationPath));
+    }
+
+    [Fact]
+    public void MoveMirrorEntry_throws_and_does_not_move_when_the_to_path_escapes_the_target_root()
+    {
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        var (hash, _) = store.StoreFromStream(Content("source content"));
+        store.PlaceAtMirrorPath(hash, @"Downloads\report.pdf");
+        var sourcePath = Path.Combine(_targetRoot, "Downloads", "report.pdf");
+
+        Assert.Throws<MirrorPathEscapesTargetRootException>(
+            () => store.MoveMirrorEntry(@"Downloads\report.pdf", @"\\srv\share\report.pdf"));
+
+        Assert.True(File.Exists(sourcePath));
+        Assert.Equal("source content", File.ReadAllText(sourcePath));
+    }
+
+    [Fact]
     public void RemoveFromMirror_deletes_the_mirror_entry_but_keeps_the_blob()
     {
         var store = CreateStore();
@@ -653,6 +746,22 @@ public class FileSystemContentStoreTests : IDisposable
         store.RemoveFromMirror("first.txt", hash);
 
         Assert.True(File.GetAttributes(secondPath).HasFlag(FileAttributes.ReadOnly));
+    }
+
+    [Fact]
+    public void RemoveFromMirror_throws_and_does_not_delete_when_the_relative_path_escapes_the_target_root()
+    {
+        var store = CreateStore();
+        store.ProbeHardlinkSupport();
+        var (hash, _) = store.StoreFromStream(Content("removable content"));
+        store.PlaceAtMirrorPath(hash, "file.txt");
+        var mirrorPath = Path.Combine(_targetRoot, "file.txt");
+
+        Assert.Throws<MirrorPathEscapesTargetRootException>(
+            () => store.RemoveFromMirror(@"\\srv\share\file.txt", hash));
+
+        Assert.True(File.Exists(mirrorPath));
+        Assert.True(store.HasContent(hash));
     }
 
     [Fact]
