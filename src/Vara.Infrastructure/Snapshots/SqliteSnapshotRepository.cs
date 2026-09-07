@@ -419,7 +419,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
             ) latest ON fv.relative_path = latest.relative_path AND fv.id = latest.max_id
             WHERE fv.change_kind != $deleted
             """;
-        command.Parameters.AddWithValue("$asOf", ToIso(asOf));
+        command.Parameters.AddWithValue("$asOf", ToIso(asOf.ToUniversalTime()));
         command.Parameters.AddWithValue("$deleted", nameof(FileChangeKind.Deleted));
 
         var result = new Dictionary<string, CurrentFileState>(StringComparer.OrdinalIgnoreCase);
@@ -473,7 +473,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
         command.Parameters.AddWithValue("$deleted", nameof(FileChangeKind.Deleted));
         if (asOf is not null)
         {
-            command.Parameters.AddWithValue("$asOf", ToIso(asOf.Value));
+            command.Parameters.AddWithValue("$asOf", ToIso(asOf.Value.ToUniversalTime()));
         }
 
         var results = new List<FileVersionRecord>();

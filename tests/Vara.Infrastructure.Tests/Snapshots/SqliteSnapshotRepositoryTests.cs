@@ -413,6 +413,94 @@ public class SqliteSnapshotRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void GetStateAsOf_with_a_non_utc_offset_resolves_the_same_instant_as_the_equivalent_utc_asOf()
+    {
+        // recorded_at is always written in UTC. A row recorded at 09:00Z is before the cutoff
+        // instant (10:00Z); a row recorded at 11:00Z is after it. asOf is expressed with a
+        // non-zero (+03:00) offset that denotes the exact same 10:00Z instant, exercising the
+        // bug where the SQL comparison used the offset literally instead of normalizing to UTC.
+        var recordedBeforeCutoff = new DateTimeOffset(2026, 1, 1, 9, 0, 0, TimeSpan.Zero);
+        var s1 = Repository.BeginSnapshot(recordedBeforeCutoff);
+        Repository.RecordFileVersion(s1, "a.txt", null, "hash-v1", 10, recordedBeforeCutoff, FileChangeKind.Added, recordedBeforeCutoff);
+        Repository.CompleteSnapshot(s1, recordedBeforeCutoff, SnapshotStats.Empty);
+
+        var recordedAfterCutoff = new DateTimeOffset(2026, 1, 1, 11, 0, 0, TimeSpan.Zero);
+        var s2 = Repository.BeginSnapshot(recordedAfterCutoff);
+        Repository.RecordFileVersion(s2, "a.txt", null, "hash-v2", 20, recordedAfterCutoff, FileChangeKind.Changed, recordedAfterCutoff);
+        Repository.CompleteSnapshot(s2, recordedAfterCutoff, SnapshotStats.Empty);
+
+        var asOfUtc = new DateTimeOffset(2026, 1, 1, 10, 0, 0, TimeSpan.Zero);
+        var asOfWithOffset = new DateTimeOffset(2026, 1, 1, 13, 0, 0, TimeSpan.FromHours(3));
+        Assert.Equal(asOfUtc, asOfWithOffset); // same instant, different offset representation
+
+        var stateUtc = Repository.GetStateAsOf(asOfUtc)["a.txt"];
+        var stateWithOffset = Repository.GetStateAsOf(asOfWithOffset)["a.txt"];
+
+        Assert.Equal("hash-v1", stateWithOffset.ContentHash);
+        Assert.Equal(stateUtc.ContentHash, stateWithOffset.ContentHash);
+    }
+
+    [Fact]
+    public void GetTombstones_with_a_non_utc_offset_resolves_the_same_instant_as_the_equivalent_utc_asOf()
+    {
+        var recordedAdded = new DateTimeOffset(2026, 1, 1, 8, 0, 0, TimeSpan.Zero);
+        var s1 = Repository.BeginSnapshot(recordedAdded);
+        Repository.RecordFileVersion(s1, "a.txt", null, "hash-v1", 10, recordedAdded, FileChangeKind.Added, recordedAdded);
+        Repository.CompleteSnapshot(s1, recordedAdded, SnapshotStats.Empty);
+
+        var recordedDeleted = new DateTimeOffset(2026, 1, 1, 10, 0, 0, TimeSpan.Zero);
+        var s2 = Repository.BeginSnapshot(recordedDeleted);
+        Repository.RecordFileVersion(s2, "a.txt", null, "hash-v1", 10, recordedDeleted, FileChangeKind.Deleted, recordedDeleted);
+        Repository.CompleteSnapshot(s2, recordedDeleted, SnapshotStats.Empty);
+
+        // Same instant (10:00Z) as the deletion itself, expressed with a +03:00 offset: the
+        // deletion should already be visible as a tombstone.
+        var asOfAtDeletionUtc = new DateTimeOffset(2026, 1, 1, 10, 0, 0, TimeSpan.Zero);
+        var asOfAtDeletionWithOffset = new DateTimeOffset(2026, 1, 1, 13, 0, 0, TimeSpan.FromHours(3));
+        Assert.Equal(asOfAtDeletionUtc, asOfAtDeletionWithOffset);
+
+        var tombstoneUtc = Assert.Single(Repository.GetTombstones(asOfAtDeletionUtc));
+        var tombstoneWithOffset = Assert.Single(Repository.GetTombstones(asOfAtDeletionWithOffset));
+        Assert.Equal(tombstoneUtc.RelativePath, tombstoneWithOffset.RelativePath);
+
+        // Same instant (09:00Z), one hour before the deletion, expressed with a +03:00 offset:
+        // the deletion must not be visible yet.
+        var asOfBeforeDeletionUtc = new DateTimeOffset(2026, 1, 1, 9, 0, 0, TimeSpan.Zero);
+        var asOfBeforeDeletionWithOffset = new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.FromHours(3));
+        Assert.Equal(asOfBeforeDeletionUtc, asOfBeforeDeletionWithOffset);
+
+        Assert.Empty(Repository.GetTombstones(asOfBeforeDeletionUtc));
+        Assert.Empty(Repository.GetTombstones(asOfBeforeDeletionWithOffset));
+    }
+
+    [Fact]
+    public void GetStateAsOf_and_FindVersionAsOf_agree_on_the_current_version_for_a_non_utc_offset_asOf()
+    {
+        // Guards against the browse (GetStateAsOf, SQL-side comparison) and restore/show
+        // (FindVersionAsOf, in-memory comparison) code paths disagreeing about which version
+        // was current for the same --at instant when it carries a non-UTC offset.
+        var t0 = new DateTimeOffset(2026, 1, 1, 9, 0, 0, TimeSpan.Zero);
+        var s1 = Repository.BeginSnapshot(t0);
+        Repository.RecordFileVersion(s1, "a.txt", null, "hash-v1", 10, t0, FileChangeKind.Added, t0);
+        Repository.CompleteSnapshot(s1, t0, SnapshotStats.Empty);
+
+        var t1 = new DateTimeOffset(2026, 1, 1, 11, 0, 0, TimeSpan.Zero);
+        var s2 = Repository.BeginSnapshot(t1);
+        Repository.RecordFileVersion(s2, "a.txt", null, "hash-v2", 20, t1, FileChangeKind.Changed, t1);
+        Repository.CompleteSnapshot(s2, t1, SnapshotStats.Empty);
+
+        // 10:00Z, expressed with a +03:00 offset, between the two recorded versions.
+        var asOfWithOffset = new DateTimeOffset(2026, 1, 1, 13, 0, 0, TimeSpan.FromHours(3));
+
+        var browseState = Repository.GetStateAsOf(asOfWithOffset)["a.txt"];
+        var restoreVersion = Repository.FindVersionAsOf("a.txt", asOfWithOffset);
+
+        Assert.Equal("hash-v1", browseState.ContentHash);
+        Assert.Equal("hash-v1", restoreVersion?.ContentHash);
+        Assert.Equal(browseState.ContentHash, restoreVersion?.ContentHash);
+    }
+
+    [Fact]
     public void GetTombstones_excludes_a_path_that_is_live_again_after_being_re_added_post_deletion()
     {
         var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
