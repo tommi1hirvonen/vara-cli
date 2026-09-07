@@ -18,8 +18,12 @@ The system SHALL provide a command that lists the recorded snapshots for a profi
 - **THEN** the system reports that no snapshots are recorded, rather than displaying an empty table
 
 #### Scenario: Snapshot status reflects outcome severity
-- **WHEN** the listed snapshots include a mix of complete, failed, and in-progress runs
-- **THEN** each row's status is rendered in the severity style corresponding to that snapshot's outcome (for example, a failed run's status in the hard-error style), so outcomes are distinguishable at a glance without reading the status text
+- **WHEN** the listed snapshots include a mix of complete, failed, cancelled, and in-progress runs
+- **THEN** each row's status is rendered in the severity style corresponding to that snapshot's outcome (for example, a failed run's status in the hard-error style, and a cancelled run's status in the same warning style used for a partial-failure outcome), so outcomes are distinguishable at a glance without reading the status text
+
+#### Scenario: Cancelled run is distinguished from a failed run
+- **WHEN** the listed snapshots include one run cancelled via Ctrl+C and one run that failed due to an unhandled error
+- **THEN** the cancelled run's status renders in the warning style rather than the hard-error style, so a user can tell a deliberate stop apart from a crash at a glance
 
 #### Scenario: Numeric statistics are right-aligned
 - **WHEN** the snapshot listing includes statistics of varying digit counts (for example, file counts and byte totals)
