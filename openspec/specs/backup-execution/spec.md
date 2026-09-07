@@ -21,6 +21,12 @@ After a successful backup run, the target mirror directory SHALL contain exactly
 - **WHEN** two different sources each contain a file or folder with the same name at the same relative depth (for example, both sources have a top-level `notes.txt`, or both contain a `src\` subfolder)
 - **THEN** after a backup run, both entries exist in the mirror at distinct, non-colliding locations derived from each entry's own absolute source path
 
+#### Scenario: Drive-letter-root source is scanned from the actual drive root
+- **WHEN** a source path is a bare drive root (for example, `C:\`)
+- **THEN** the system scans the drive's actual root directory and everything beneath it, rather
+  than any directory implied by the process's current working directory, and the resulting mirror
+  reflects the drive root's real contents
+
 ### Requirement: Source exclusion rules honored
 The system SHALL exclude files and directories matching a source's configured exclude list or glob patterns from both scanning and the mirror, treating them as if they do not exist in the source. Matching a nested exclude entry against a scanned path SHALL be insensitive to whether the entry or the scanned path uses a forward slash (`/`) or a backslash (`\`) as its path separator, so an exclude entry written with either separator style matches consistently.
 
