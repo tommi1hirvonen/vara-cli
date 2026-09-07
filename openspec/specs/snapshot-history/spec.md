@@ -411,7 +411,10 @@ restore. Before streaming, WHEN standard output is an interactive terminal (not 
 file or another program) and the resolved version's content is detected as binary from a bounded
 initial sample of its bytes, the system SHALL refuse to stream it, unless the user has explicitly
 requested to force binary output. WHEN standard output is redirected, the system SHALL stream the
-content regardless of whether it is binary, since there is no terminal to protect.
+content regardless of whether it is binary, since there is no terminal to protect. If the resolved
+version is a symlink/junction entry rather than one with actual stored content, the system SHALL
+report a clear error explaining that this version has no content to show, rather than attempting
+to open its content and failing with an unrelated internal error.
 
 #### Scenario: Showing a text file's historical content
 - **WHEN** a user requests a specific version of a file's content to be shown
@@ -440,6 +443,12 @@ content regardless of whether it is binary, since there is no terminal to protec
   output is an interactive terminal, and the user has explicitly requested to force binary output
 - **THEN** the system streams the content instead of refusing
 
+#### Scenario: Showing a linked (symlink/junction) version
+- **WHEN** a user requests a version to be shown whose resolved version is a symlink/junction
+  entry with no stored content
+- **THEN** the system reports a clear error naming the path and explaining that this version has
+  no content to show, rather than an unhandled/internal error
+
 ### Requirement: Diff two versions of a file
 The system SHALL provide a command that shows a textual difference between two versions of the
 same path, each selected by version id or by an "as of" date, so a user can see what changed
@@ -447,7 +456,12 @@ between two points in a file's history without restoring either version. Before 
 version's full content, the system SHALL refuse the comparison - naming the offending side(s) and,
 for an oversized refusal, its size - when either version's recorded size exceeds 10 MB, or when
 either version's content is detected as binary from a bounded initial sample of its bytes, rather
-than buffering a large or binary version fully into memory and diffing it as if it were text.
+than buffering a large or binary version fully into memory and diffing it as if it were text. If
+either resolved version is a symlink/junction entry rather than one with actual stored content,
+the system SHALL report a clear error naming the offending side(s) and explaining that they have
+no content to diff, rather than attempting to open that side's content and failing with an
+unrelated internal error; any content stream already opened for the other, unaffected side SHALL
+be released rather than left open.
 
 #### Scenario: Diffing two recorded versions
 - **WHEN** a user requests a diff between two versions of the same path, each identified by a
@@ -483,3 +497,16 @@ than buffering a large or binary version fully into memory and diffing it as if 
   other resolved version (within the size limit) is detected as binary content
 - **THEN** the system reports a clear error identifying each side's specific problem, rather than
   a generic or misleading message
+
+#### Scenario: Diffing a linked (symlink/junction) version
+- **WHEN** a user requests a diff and at least one of the two resolved versions is a
+  symlink/junction entry with no stored content
+- **THEN** the system reports a clear error naming which side(s) have no content to diff, rather
+  than an unhandled/internal error
+
+#### Scenario: One side linked, the other side's content already opened
+- **WHEN** a user requests a diff where one resolved version's content has already been
+  successfully opened for reading and the other resolved version is then found to be a
+  symlink/junction entry with no stored content
+- **THEN** the system releases the already-opened content before reporting the linked-entry error,
+  rather than leaving it open
