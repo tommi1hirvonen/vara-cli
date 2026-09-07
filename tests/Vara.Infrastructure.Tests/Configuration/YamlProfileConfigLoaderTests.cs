@@ -437,6 +437,75 @@ public class YamlProfileConfigLoaderTests
         Assert.Contains(@"C:\Users\me\Documents", ex.Reason);
     }
 
+    [Theory]
+    [InlineData("exclude")]
+    [InlineData("include_globs")]
+    [InlineData("exclude_globs")]
+    public void Source_field_given_as_a_scalar_instead_of_a_list_throws_a_validation_error_naming_the_field(string field)
+    {
+        var path = WriteTempConfig(
+            $$"""
+            profiles:
+              - name: broken
+                target: 'D:\backup'
+                sources:
+                  - path: 'C:\data'
+                    {{field}}: '*.tmp'
+            """);
+
+        var ex = Assert.Throws<ProfileValidationException>(() => _loader.LoadProfiles(path));
+        Assert.Equal("broken", ex.ProfileName);
+        Assert.Contains(field, ex.Reason);
+        Assert.Contains(@"C:\data", ex.Reason);
+    }
+
+    [Theory]
+    [InlineData("exclude")]
+    [InlineData("include_globs")]
+    [InlineData("exclude_globs")]
+    public void Source_field_list_containing_a_nested_mapping_throws_a_validation_error_naming_the_field(string field)
+    {
+        var path = WriteTempConfig(
+            $$"""
+            profiles:
+              - name: broken
+                target: 'D:\backup'
+                sources:
+                  - path: 'C:\data'
+                    {{field}}:
+                      - nested: mapping
+            """);
+
+        var ex = Assert.Throws<ProfileValidationException>(() => _loader.LoadProfiles(path));
+        Assert.Equal("broken", ex.ProfileName);
+        Assert.Contains(field, ex.Reason);
+        Assert.Contains(@"C:\data", ex.Reason);
+    }
+
+    [Theory]
+    [InlineData("exclude")]
+    [InlineData("include_globs")]
+    [InlineData("exclude_globs")]
+    public void Source_field_list_containing_a_nested_sequence_throws_a_validation_error_naming_the_field(string field)
+    {
+        var path = WriteTempConfig(
+            $$"""
+            profiles:
+              - name: broken
+                target: 'D:\backup'
+                sources:
+                  - path: 'C:\data'
+                    {{field}}:
+                      - - nested
+                        - sequence
+            """);
+
+        var ex = Assert.Throws<ProfileValidationException>(() => _loader.LoadProfiles(path));
+        Assert.Equal("broken", ex.ProfileName);
+        Assert.Contains(field, ex.Reason);
+        Assert.Contains(@"C:\data", ex.Reason);
+    }
+
     private static string WriteTempConfig(string yaml)
     {
         var path = Path.Combine(Path.GetTempPath(), $"vara-test-{Guid.NewGuid():N}.yml");

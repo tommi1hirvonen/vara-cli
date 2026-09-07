@@ -126,9 +126,9 @@ public sealed class YamlProfileConfigLoader : IProfileConfigLoader
             throw new ProfileValidationException(profileName, $"source '{path}' has an invalid 'recursive' value '{recursiveText}' (expected true/false)");
         }
 
-        var excludes = GetOptionalStringList(mapping, "exclude");
-        var includeGlobs = GetOptionalStringList(mapping, "include_globs");
-        var excludeGlobs = GetOptionalStringList(mapping, "exclude_globs");
+        var excludes = GetOptionalStringList(mapping, profileName, path, "exclude");
+        var includeGlobs = GetOptionalStringList(mapping, profileName, path, "include_globs");
+        var excludeGlobs = GetOptionalStringList(mapping, profileName, path, "exclude_globs");
 
         try
         {
@@ -232,13 +232,37 @@ public sealed class YamlProfileConfigLoader : IProfileConfigLoader
         return value;
     }
 
-    private static IReadOnlyList<string>? GetOptionalStringList(YamlMappingNode mapping, string key)
+    private static IReadOnlyList<string>? GetOptionalStringList(YamlMappingNode mapping, string profileName, string sourcePath, string key)
     {
-        if (!TryGetChild(mapping, key, out var value) || value is not YamlSequenceNode sequence)
+        if (!TryGetChild(mapping, key, out var value))
         {
             return null;
         }
 
-        return sequence.Children.OfType<YamlScalarNode>().Select(n => n.Value ?? string.Empty).ToList();
+        if (value is not YamlSequenceNode sequence)
+        {
+            throw new ProfileValidationException(profileName, $"source '{sourcePath}' field '{key}' must be a list, but found {DescribeNodeKind(value)}");
+        }
+
+        var result = new List<string>(sequence.Children.Count);
+        foreach (var entry in sequence.Children)
+        {
+            if (entry is not YamlScalarNode scalar)
+            {
+                throw new ProfileValidationException(profileName, $"source '{sourcePath}' field '{key}' contains an entry that is {DescribeNodeKind(entry)} instead of a string");
+            }
+
+            result.Add(scalar.Value ?? string.Empty);
+        }
+
+        return result;
     }
+
+    private static string DescribeNodeKind(YamlNode node) => node switch
+    {
+        YamlMappingNode => "a mapping",
+        YamlSequenceNode => "a nested list",
+        YamlScalarNode => "a scalar",
+        _ => "an unsupported node type",
+    };
 }
