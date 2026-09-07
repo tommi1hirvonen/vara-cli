@@ -64,7 +64,7 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
         var matcher = BuildGlobMatcher(source);
         var root = Path.TrimEndingDirectorySeparator(source.Path);
 
-        foreach (var path in Walk(root, source.Recursive, root, failures))
+        foreach (var path in Walk(root, source, root, failures))
         {
             var relativePath = Path.GetRelativePath(root, path);
 
@@ -86,9 +86,14 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
     /// Walks a directory tree, yielding the path of every reportable entry: regular
     /// files, and reparse points (symlinks/junctions) which are reported once but never
     /// descended into. Plain (non-reparse) directories are recursed through but not
-    /// themselves yielded.
+    /// themselves yielded - unless a plain subdirectory's own relative path matches
+    /// <paramref name="source"/>'s literal exclude list, in which case it is skipped
+    /// entirely: its contents are never enumerated, so nothing beneath it - readable or
+    /// not - is scanned or reported as a <see cref="ScanFailure"/>. A reparse point is
+    /// still reported even when excluded; per-entry exclude filtering in
+    /// <see cref="ScanSource"/> handles it unchanged, since it's never traversed either way.
     /// </summary>
-    private static IEnumerable<string> Walk(string directory, bool recursive, string root, List<ScanFailure> failures)
+    private static IEnumerable<string> Walk(string directory, Source source, string root, List<ScanFailure> failures)
     {
         IEnumerable<string> entries;
         try
@@ -129,9 +134,19 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
 
             if (isDirectory)
             {
-                if (recursive)
+                if (source.Recursive)
                 {
-                    foreach (var nested in Walk(entryPath, recursive, root, failures))
+                    // Check the subdirectory's own relative path against the source's
+                    // literal exclude list before recursing, so an excluded directory's
+                    // contents are never enumerated and nothing beneath it can produce
+                    // a ScanFailure.
+                    var relativePath = Path.GetRelativePath(root, entryPath);
+                    if (IsExcluded(relativePath, source))
+                    {
+                        continue;
+                    }
+
+                    foreach (var nested in Walk(entryPath, source, root, failures))
                     {
                         yield return nested;
                     }

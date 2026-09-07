@@ -88,6 +88,25 @@ public class DirectoryFileSystemScannerTests : IDisposable
     }
 
     [Fact]
+    public void An_excluded_junction_is_still_filtered_out_by_the_existing_per_entry_exclude_check()
+    {
+        // Documents the design.md decision for task 1.2: Walk still yields an excluded
+        // reparse point exactly as it always has (reparse points are never traversed
+        // either way, excluded or not), and ScanSource's existing per-entry IsExcluded
+        // filter - unchanged by this proposal - is what keeps it out of the final
+        // entries. No new exclude check was added for reparse points in Walk itself.
+        Directory.CreateDirectory(_outsideTarget);
+        WriteFile(Path.Combine(_outsideTarget, "hidden-behind-link.txt"), "should not be traversed");
+
+        var junctionPath = Path_("linked-dir");
+        CreateJunction(junctionPath, _outsideTarget);
+
+        var entries = _scanner.Scan([new Source(_root, excludes: ["linked-dir"])]).Entries.ToList();
+
+        Assert.Empty(entries);
+    }
+
+    [Fact]
     public void Nested_exclude_written_with_forward_slash_is_skipped()
     {
         WriteFile(Path_("keep.txt"), "keep");
@@ -221,6 +240,84 @@ public class DirectoryFileSystemScannerTests : IDisposable
         {
             RemoveDeny(deniedDir);
         }
+    }
+
+    [Fact]
+    public void An_excluded_directory_containing_an_unreadable_nested_directory_produces_no_scan_failure()
+    {
+        WriteFile(Path_("keep.txt"), "keep");
+        var excludedDir = Path_("excluded");
+        var deniedNestedDir = Path.Combine(excludedDir, "denied-nested");
+        Directory.CreateDirectory(deniedNestedDir);
+        WriteFile(Path.Combine(deniedNestedDir, "hidden.txt"), "hidden");
+
+        DenyCurrentUser(deniedNestedDir, "RD"); // RD = list directory - what enumerating its contents needs.
+        try
+        {
+            var result = _scanner.Scan([new Source(_root, excludes: ["excluded"])]);
+            var entries = result.Entries.ToList();
+
+            // The excluded directory is never traversed at all, so Walk never even
+            // reaches - let alone tries to enumerate - the permission-denied nested
+            // directory beneath it, and no ScanFailure is recorded for it.
+            Assert.Empty(result.Failures);
+            var entry = Assert.Single(entries);
+            Assert.Equal(MirrorPath_("keep.txt"), entry.RelativePath);
+        }
+        finally
+        {
+            RemoveDeny(deniedNestedDir);
+        }
+    }
+
+    [Fact]
+    public void An_excluded_directorys_own_contents_are_never_enumerated()
+    {
+        WriteFile(Path_("keep.txt"), "keep");
+        var excludedDir = Path_("excluded");
+        Directory.CreateDirectory(excludedDir);
+        WriteFile(Path.Combine(excludedDir, "skip.txt"), "skip");
+
+        // Deny listing on the excluded directory itself: if Walk ever called
+        // Directory.EnumerateFileSystemEntries on it (i.e. if it were traversed
+        // despite being excluded), that call would throw and be recorded as an
+        // UnreadableDirectory ScanFailure. Asserting zero failures below proves that
+        // call was never made.
+        DenyCurrentUser(excludedDir, "RD");
+        try
+        {
+            var result = _scanner.Scan([new Source(_root, excludes: ["excluded"])]);
+            var entries = result.Entries.ToList();
+
+            Assert.Empty(result.Failures);
+            var entry = Assert.Single(entries);
+            Assert.Equal(MirrorPath_("keep.txt"), entry.RelativePath);
+        }
+        finally
+        {
+            RemoveDeny(excludedDir);
+        }
+    }
+
+    [Fact]
+    public void Non_excluded_directories_and_file_level_glob_filtering_are_unaffected_by_directory_level_exclusion()
+    {
+        WriteFile(Path_("a.txt"), "a");
+        WriteFile(Path_("a.log"), "a-log");
+        WriteFile(Path_("sub", "b.txt"), "b");
+        WriteFile(Path_("sub", "b.log"), "b-log");
+        WriteFile(Path_("excluded", "skip.txt"), "skip");
+
+        var entries = _scanner
+            .Scan([new Source(_root, excludes: ["excluded"], includeGlobs: ["**/*.txt"])])
+            .Entries.ToList();
+
+        Assert.Equal(2, entries.Count);
+        Assert.Contains(entries, e => e.RelativePath == MirrorPath_("a.txt"));
+        Assert.Contains(entries, e => e.RelativePath == MirrorPath_("sub", "b.txt"));
+        Assert.DoesNotContain(entries, e => e.RelativePath == MirrorPath_("a.log"));
+        Assert.DoesNotContain(entries, e => e.RelativePath == MirrorPath_("sub", "b.log"));
+        Assert.DoesNotContain(entries, e => e.RelativePath.Contains("skip.txt"));
     }
 
     [Fact]
