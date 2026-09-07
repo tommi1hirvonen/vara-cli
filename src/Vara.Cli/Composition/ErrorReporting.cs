@@ -73,7 +73,8 @@ public static class ErrorReporting
                 or NoSuchDirectoryException
                 or InvalidDateTimeOptionException
                 or DiffContentTooLargeException
-                or DiffBinaryContentException:
+                or DiffBinaryContentException
+                or ShowBinaryContentException:
                 message = ex.Message;
                 return true;
             default:

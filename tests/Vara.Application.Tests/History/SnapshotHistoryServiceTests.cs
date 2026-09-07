@@ -359,6 +359,43 @@ public class SnapshotHistoryServiceTests
     }
 
     [Fact]
+    public void ShowVersion_with_binary_content_and_forceBinary_false_throws_before_writing_any_bytes()
+    {
+        var contentStore = new FakeContentStore();
+        var (hash, _) = contentStore.StoreFromStream(new MemoryStream(BinaryContent(nulOffset: 5, totalLength: 20)));
+        var repository = new FakeSnapshotRepository();
+        var t0 = DateTimeOffset.UtcNow;
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, "a.bin", null, hash, 20, t0, FileChangeKind.Added, t0);
+        var versionId = repository.GetFileHistory("a.bin").Single().Id;
+        var service = new SnapshotHistoryService(repository, contentStore);
+        using var destination = new MemoryStream();
+
+        Assert.Throws<ShowBinaryContentException>(() => service.ShowVersion("a.bin", versionId, asOf: null, destination, forceBinary: false));
+
+        Assert.Empty(destination.ToArray());
+    }
+
+    [Fact]
+    public void ShowVersion_with_binary_content_and_forceBinary_true_streams_it_exactly_as_before()
+    {
+        var contentStore = new FakeContentStore();
+        var content = BinaryContent(nulOffset: 5, totalLength: 20);
+        var (hash, _) = contentStore.StoreFromStream(new MemoryStream(content));
+        var repository = new FakeSnapshotRepository();
+        var t0 = DateTimeOffset.UtcNow;
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, "a.bin", null, hash, 20, t0, FileChangeKind.Added, t0);
+        var versionId = repository.GetFileHistory("a.bin").Single().Id;
+        var service = new SnapshotHistoryService(repository, contentStore);
+        using var destination = new MemoryStream();
+
+        service.ShowVersion("a.bin", versionId, asOf: null, destination, forceBinary: true);
+
+        Assert.Equal(content, destination.ToArray());
+    }
+
+    [Fact]
     public void OpenVersionsForDiff_resolves_each_side_independently()
     {
         var contentStore = new FakeContentStore();

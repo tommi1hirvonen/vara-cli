@@ -129,13 +129,26 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
     /// <paramref name="asOf"/>, exactly as <see cref="RestoreVersion"/>/<see cref="RestoreAsOf"/>
     /// resolve theirs - directly to <paramref name="destination"/>, without writing anything to
     /// disk. Exactly one of <paramref name="versionId"/>/<paramref name="asOf"/> must be given.
+    /// Unless <paramref name="forceBinary"/> is <see langword="true"/>, the resolved content is
+    /// checked with the same <see cref="LooksBinary"/> heuristic <see cref="OpenVersionsForDiff"/>
+    /// uses, before any of it is copied to <paramref name="destination"/>.
     /// </summary>
+    /// <param name="forceBinary">
+    /// When <see langword="true"/>, skips the binary-content check entirely - the caller has
+    /// already decided streaming is safe (destination is redirected) or explicitly opted in.
+    /// </param>
     /// <exception cref="NoHistoryForPathException">The path was never part of any recorded snapshot.</exception>
     /// <exception cref="NoMatchingVersionException">No such version id/date exists for the path.</exception>
-    public void ShowVersion(string relativePath, long? versionId, DateTimeOffset? asOf, Stream destination)
+    /// <exception cref="ShowBinaryContentException">The resolved content is detected as binary and <paramref name="forceBinary"/> is <see langword="false"/>.</exception>
+    public void ShowVersion(string relativePath, long? versionId, DateTimeOffset? asOf, Stream destination, bool forceBinary = false)
     {
         var match = ResolveVersion(relativePath, versionId, asOf);
         using var source = contentStore.OpenRead(match.ContentHash);
+        if (!forceBinary && LooksBinary(source))
+        {
+            throw new ShowBinaryContentException(relativePath);
+        }
+
         source.CopyTo(destination);
     }
 
@@ -146,10 +159,10 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
     private const long MaxDiffContentSize = 10 * 1024 * 1024;
 
     /// <summary>
-    /// The number of leading bytes sampled from each side to detect binary content in
-    /// <see cref="OpenVersionsForDiff"/>, per the snapshot-history spec's "Refusing binary
-    /// content" scenario. Matches the sample size Git itself uses for the same NUL-byte
-    /// heuristic.
+    /// The number of leading bytes sampled to detect binary content in
+    /// <see cref="OpenVersionsForDiff"/> and <see cref="ShowVersion"/>, per the
+    /// snapshot-history spec's "Refusing binary content" scenarios. Matches the sample size
+    /// Git itself uses for the same NUL-byte heuristic.
     /// </summary>
     private const int BinarySampleSize = 8000;
 
@@ -211,7 +224,8 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
     /// Reads up to <see cref="BinarySampleSize"/> leading bytes from <paramref name="stream"/>
     /// and checks them for a NUL byte - the same heuristic Git uses to detect binary content -
     /// then rewinds the stream back to its start so a caller that goes on to read it (or is
-    /// itself refused for another reason) sees its content from the beginning.
+    /// itself refused for another reason) sees its content from the beginning. Shared by
+    /// <see cref="OpenVersionsForDiff"/> and <see cref="ShowVersion"/>.
     /// </summary>
     private static bool LooksBinary(Stream stream)
     {

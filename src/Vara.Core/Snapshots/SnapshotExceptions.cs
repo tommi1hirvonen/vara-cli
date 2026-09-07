@@ -125,6 +125,20 @@ public sealed class DiffBinaryContentException : Exception
 }
 
 /// <summary>
+/// A version was requested to be shown whose content was detected as binary from a bounded
+/// initial sample of its bytes, while standard output is an interactive terminal and the user
+/// did not explicitly force binary output (snapshot-history spec: "Refusing binary content to
+/// an interactive terminal"). Raised before any of the content is written to the destination
+/// stream. A single-sided sibling of <see cref="DiffBinaryContentException"/>: <c>show</c>
+/// resolves exactly one stream, unlike <c>diff</c>'s two named sides.
+/// </summary>
+public sealed class ShowBinaryContentException(string relativePath)
+    : Exception($"Cannot show '{relativePath}': content appears to be binary. Pass --force-binary to show it anyway, or redirect output to a file.")
+{
+    public string RelativePath { get; } = relativePath;
+}
+
+/// <summary>
 /// A restore was requested to a destination path that resolves inside the profile's live
 /// mirror. Refused unconditionally, since restore's contract is to extract content without
 /// touching the live mirror.

@@ -15,10 +15,11 @@ public static class ShowCommand
         var atOption = new Option<string?>("--at") { Description = "Show the version current as of this date/time (for example, '2025-01-15' or '2025-01-15 14:30')." };
         var versionOption = new Option<long?>("--version") { Description = "Show this specific version id (see the 'history' command)." };
         var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
+        var forceBinaryOption = new Option<bool>("--force-binary") { Description = "Stream binary content to an interactive terminal instead of refusing it." };
 
         var command = new Command("show", "Stream a specific version's content to standard output, without writing it to disk.")
         {
-            pathArgument, profileOption, atOption, versionOption, configOption,
+            pathArgument, profileOption, atOption, versionOption, configOption, forceBinaryOption,
         };
 
         command.SetAction(parseResult =>
@@ -28,6 +29,7 @@ public static class ShowCommand
             var at = parseResult.GetValue(atOption);
             var version = parseResult.GetValue(versionOption);
             var configPath = parseResult.GetValue(configOption);
+            var forceBinary = parseResult.GetValue(forceBinaryOption);
 
             if (at is null && version is null)
             {
@@ -59,7 +61,7 @@ public static class ShowCommand
                 var asOf = at is null ? (DateTimeOffset?)null : DateTimeOptionParser.Parse("--at", at);
 
                 using var stdout = Console.OpenStandardOutput();
-                history.ShowVersion(resolvedPath, version, asOf, stdout);
+                history.ShowVersion(resolvedPath, version, asOf, stdout, forceBinary: Console.IsOutputRedirected || forceBinary);
             });
         });
 

@@ -127,4 +127,20 @@ public class ErrorReportingTests
         Assert.Contains("Error: Cannot diff 'src\\image.png'", console.Output);
         Assert.DoesNotContain("DiffBinaryContentException", console.Output);
     }
+
+    [Fact]
+    public void ShowBinaryContentException_takes_the_friendly_message_path()
+    {
+        var console = new TestConsole { EmitAnsiSequences = true };
+        console.Profile.Capabilities.Ansi = true;
+        console.Profile.Capabilities.ColorSystem = Spectre.Console.ColorSystem.EightBit;
+
+        var exitCode = ErrorReporting.Run(
+            () => throw new Vara.Core.Snapshots.ShowBinaryContentException(@"src\image.png"),
+            console);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Error: Cannot show 'src\\image.png'", console.Output);
+        Assert.DoesNotContain("ShowBinaryContentException", console.Output);
+    }
 }
