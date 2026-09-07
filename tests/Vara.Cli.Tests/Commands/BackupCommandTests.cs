@@ -1,5 +1,8 @@
 using Microsoft.Data.Sqlite;
+using System.Text.Json;
 using System.Threading;
+using Spectre.Console;
+using Spectre.Console.Testing;
 using Vara.Application.Backup;
 using Vara.Application.Profiles;
 using Vara.Cli.Commands;
@@ -9,6 +12,7 @@ using Vara.Core.Abstractions;
 using Vara.Core.Configuration;
 using Vara.Core.Snapshots;
 using Vara.Infrastructure.Hashing;
+using Vara.Infrastructure.Snapshots;
 using Xunit;
 
 namespace Vara.Cli.Tests.Commands;
@@ -69,9 +73,9 @@ public class BackupCommandExitCodeTests : IDisposable
         }
     }
 
-    private sealed class SingleProfileConfigLoader(Profile profile) : IProfileConfigLoader
+    private sealed class SingleProfileConfigLoader(Vara.Core.Configuration.Profile profile) : IProfileConfigLoader
     {
-        public IReadOnlyList<Profile> LoadProfiles(string configPath) => [profile];
+        public IReadOnlyList<Vara.Core.Configuration.Profile> LoadProfiles(string configPath) => [profile];
         public string DefaultConfigPath => "unused";
     }
 
@@ -80,21 +84,23 @@ public class BackupCommandExitCodeTests : IDisposable
     /// equivalent fake in <c>Vara.Application.Tests</c>/<c>Vara.IntegrationTests</c> per this
     /// project's convention of duplicating small, drift-risk-free test fakes rather than
     /// referencing another test project.</summary>
-    private sealed class FakeFileSystemScanner(IReadOnlyList<ScanFailure>? failures = null) : IFileSystemScanner
+    private sealed class FakeFileSystemScanner(IReadOnlyList<ScanFailure>? failures = null, IReadOnlyList<ScannedEntry>? entries = null) : IFileSystemScanner
     {
-        public ScanResult Scan(IReadOnlyList<Source> sources) => new([], failures ?? []);
+        public ScanResult Scan(IReadOnlyList<Source> sources) => new(entries ?? [], failures ?? []);
     }
 
-    private System.CommandLine.Command CreateCommand(IFileSystemScanner scanner, CancellationToken cancellationToken = default)
+    private System.CommandLine.Command CreateCommand(IFileSystemScanner scanner, CancellationToken cancellationToken = default, TextWriter? jsonOutput = null, IAnsiConsole? console = null)
     {
-        var profile = new Profile("test-profile", _targetRoot, [new Source(_sourceRoot)], null);
+        var profile = new Vara.Core.Configuration.Profile("test-profile", _targetRoot, [new Source(_sourceRoot)], null);
         var hasher = new XxHash128Hasher();
         return BackupCommand.Create(
             new ProfileResolver(new SingleProfileConfigLoader(profile)),
             new ProfileServiceFactory(hasher),
             scanner,
             hasher,
-            cancellationToken);
+            cancellationToken,
+            jsonOutput,
+            console);
     }
 
     [Fact]
@@ -141,5 +147,71 @@ public class BackupCommandExitCodeTests : IDisposable
         var exitCode = command.Parse(["--profile", "test-profile"]).Invoke();
 
         Assert.Equal(ExitCodes.PartialFailure, exitCode);
+    }
+
+    [Fact]
+    public void Dry_run_alone_prints_a_plain_text_planned_summary_and_performs_zero_writes()
+    {
+        Directory.CreateDirectory(_sourceRoot);
+        var sourceFile = Path.Combine(_sourceRoot, "a.txt");
+        File.WriteAllText(sourceFile, "hello");
+        var entry = new ScannedEntry("a.txt", sourceFile, new FileInfo(sourceFile).Length, File.GetLastWriteTimeUtc(sourceFile), false, null);
+
+        // Passed directly via BackupCommand.Create's optional console parameter,
+        // rather than swapping the process-wide AnsiConsole.Console static - the
+        // latter would race other tests' console output when the suite runs with its
+        // default parallelization.
+        var testConsole = new TestConsole();
+        var command = CreateCommand(new FakeFileSystemScanner(entries: [entry]), console: testConsole);
+
+        var exitCode = command.Parse(["--profile", "test-profile", "--dry-run"]).Invoke();
+
+        Assert.Equal(ExitCodes.Success, exitCode);
+        var output = testConsole.Output;
+        Assert.Contains("Dry run", output);
+        Assert.Contains("Added:       1", output);
+        Assert.DoesNotContain("{", output);
+
+        // Zero writes: no file placed in the mirror (target root), and no snapshot
+        // recorded in the manifest.
+        Assert.False(File.Exists(Path.Combine(_targetRoot, "a.txt")));
+        var dbPath = Path.Combine(_targetRoot, ".vara", "profile.db");
+        using var repository = new SqliteSnapshotRepository(dbPath, createIfMissing: false);
+        Assert.Empty(repository.ListSnapshots());
+    }
+
+    [Fact]
+    public void Json_alone_prints_a_single_json_object_for_an_executed_run_with_no_progress_output()
+    {
+        // BackupCommand.Create's optional jsonOutput writer (the same testability seam
+        // BackupPipeline's diagnostics writer uses) is passed directly here, rather than
+        // swapping the process-wide Console.Out - the latter would race other tests'
+        // console output when the suite runs with its default parallelization.
+        var writer = new StringWriter();
+        var command = CreateCommand(new FakeFileSystemScanner(), jsonOutput: writer);
+
+        var exitCode = command.Parse(["--profile", "test-profile", "--json"]).Invoke();
+
+        Assert.Equal(ExitCodes.Success, exitCode);
+        var line = Assert.Single(writer.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries)).TrimEnd('\r');
+        using var parsed = JsonDocument.Parse(line);
+        Assert.Equal("executed", parsed.RootElement.GetProperty("mode").GetString());
+        Assert.Equal("test-profile", parsed.RootElement.GetProperty("profile").GetString());
+        Assert.False(parsed.RootElement.GetProperty("cancelled").GetBoolean());
+    }
+
+    [Fact]
+    public void Dry_run_and_json_together_prints_a_single_json_object_with_mode_dry_run_and_no_progress_output()
+    {
+        var writer = new StringWriter();
+        var command = CreateCommand(new FakeFileSystemScanner(), jsonOutput: writer);
+
+        var exitCode = command.Parse(["--profile", "test-profile", "--dry-run", "--json"]).Invoke();
+
+        Assert.Equal(ExitCodes.Success, exitCode);
+        var line = Assert.Single(writer.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries)).TrimEnd('\r');
+        using var parsed = JsonDocument.Parse(line);
+        Assert.Equal("dry-run", parsed.RootElement.GetProperty("mode").GetString());
+        Assert.False(parsed.RootElement.GetProperty("cancelled").GetBoolean());
     }
 }

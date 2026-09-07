@@ -67,10 +67,7 @@ public sealed class BackupPipeline(
 
             try
             {
-                var currentState = repository.GetCurrentState();
-                var scanResult = scanner.Scan(profile.Sources);
-                var diff = new BackupDiffer().Diff(scanResult.Entries, currentState, scanResult.Failures);
-                var plan = new BackupPlanner(hasher, profile.Concurrency?.ScanConcurrency ?? 0).Plan(diff, currentState);
+                var (scanResult, plan) = ScanDiffAndPlan(profile);
 
                 // The live progress denominator can differ from plan.TotalBytesToTransfer
                 // (which keeps its plain "total changed source bytes" meaning everywhere
@@ -172,5 +169,51 @@ public sealed class BackupPipeline(
                 throw;
             }
         }
+    }
+
+    /// <summary>
+    /// Computes and returns a <see cref="BackupPlanSummary"/> for <paramref name="profile"/>
+    /// without performing any writes: no mirror/content-store writes, no manifest rows, and
+    /// no new snapshot record. Still acquires the run lock (throwing
+    /// <see cref="BackupAlreadyRunningException"/> on failure, same as <see cref="Run"/>), so
+    /// its output reflects a consistent view of the manifest and it cannot race a concurrently
+    /// starting real run - see design.md's "PlanOnly" decision. Deliberately skips
+    /// <c>ReconcileIncompleteSnapshots</c>, <c>ProbeHardlinkSupport</c>, <c>CleanupOrphanedTemp</c>,
+    /// <c>BeginSnapshot</c>, and <c>BeginManifestBatch</c> - none of which are needed to compute a
+    /// plan, and several of which mutate the target.
+    /// </summary>
+    public BackupPlanSummary PlanOnly(Profile profile)
+    {
+        using (runLock)
+        {
+            if (!runLock.TryAcquire(profile.Name, profile.TargetRoot))
+            {
+                throw new BackupAlreadyRunningException(profile.Name, profile.TargetRoot);
+            }
+
+            var (scanResult, plan) = ScanDiffAndPlan(profile);
+
+            var added = plan.Operations.Count(o => o.Kind == PlannedOperationKind.Add);
+            var changed = plan.Operations.Count(o => o.Kind == PlannedOperationKind.Change);
+            var moved = plan.Operations.Count(o => o.Kind == PlannedOperationKind.Move);
+            var deleted = plan.Operations.Count(o => o.Kind == PlannedOperationKind.Delete);
+            var failedPaths = scanResult.Failures.Select(f => f.RelativePath).ToList();
+
+            return new BackupPlanSummary(added, changed, moved, deleted, plan.TotalBytesToTransfer, failedPaths);
+        }
+    }
+
+    /// <summary>
+    /// The shared scan -> diff -> plan sequence used by both <see cref="Run"/> and
+    /// <see cref="PlanOnly"/>, extracted so the two entry points can't silently drift apart
+    /// on which stages they invoke in which order (design.md's "Risks / Trade-offs").
+    /// </summary>
+    private (ScanResult ScanResult, BackupPlan Plan) ScanDiffAndPlan(Profile profile)
+    {
+        var currentState = repository.GetCurrentState();
+        var scanResult = scanner.Scan(profile.Sources);
+        var diff = new BackupDiffer().Diff(scanResult.Entries, currentState, scanResult.Failures);
+        var plan = new BackupPlanner(hasher, profile.Concurrency?.ScanConcurrency ?? 0).Plan(diff, currentState);
+        return (scanResult, plan);
     }
 }

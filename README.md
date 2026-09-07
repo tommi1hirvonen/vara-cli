@@ -175,7 +175,7 @@ optional and rarely needed.
 
 | Command | Purpose |
 |---|---|
-| `vara backup --profile <name>` | Run an incremental backup for a profile. |
+| `vara backup --profile <name> [--dry-run] [--json]` | Run an incremental backup for a profile; `--dry-run` previews planned changes without writing anything; `--json` prints a single machine-readable JSON summary instead of the human-oriented output. |
 | `vara snapshots [--profile <name>]` | List recorded snapshots (timestamp, stats, outcome). |
 | `vara history <path> [--profile <name>]` | List a file's recorded versions, most recent first. |
 | `vara browse [directory] [--profile <name>] [--at <date>] [--deleted]` | List a mirror directory's contents, optionally as of a past date, optionally including deleted entries. |

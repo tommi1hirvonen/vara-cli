@@ -60,6 +60,162 @@ public class BackupPipelineTests : IDisposable
         Assert.Equal(1, repository.ReconcileCallCount);
     }
 
+    [Fact]
+    public void PlanOnly_throws_when_the_lock_cannot_be_acquired()
+    {
+        var repository = new FakeSnapshotRepository();
+        var pipeline = new BackupPipeline(new FakeFileSystemScanner([]), new FakeHasher(), new FakeContentStore(), repository, new FakeRunLock(acquirable: false));
+
+        var ex = Assert.Throws<BackupAlreadyRunningException>(() => pipeline.PlanOnly(SimpleProfile(_root)));
+        Assert.Equal("files", ex.ProfileName);
+        Assert.Equal(_root, ex.TargetRoot);
+
+        // Nothing should have been touched if the lock was never acquired.
+        Assert.Empty(repository.ListSnapshots());
+    }
+
+    [Fact]
+    public void PlanOnly_performs_zero_writes_for_a_profile_with_pending_adds_changes_deletes_and_moves()
+    {
+        var unchangedPath = Path.Combine(_root, "unchanged.txt");
+        File.WriteAllText(unchangedPath, "same");
+        var unchangedEntry = new ScannedEntry("unchanged.txt", unchangedPath, new FileInfo(unchangedPath).Length, File.GetLastWriteTimeUtc(unchangedPath), false, null);
+
+        var oldNamePath = Path.Combine(_root, "old-name.txt");
+        File.WriteAllText(oldNamePath, "move-me");
+        var oldNameEntry = new ScannedEntry("old-name.txt", oldNamePath, new FileInfo(oldNamePath).Length, File.GetLastWriteTimeUtc(oldNamePath), false, null);
+
+        var changedPath = Path.Combine(_root, "changed.txt");
+        File.WriteAllText(changedPath, "v1");
+        var changedEntryV1 = new ScannedEntry("changed.txt", changedPath, new FileInfo(changedPath).Length, File.GetLastWriteTimeUtc(changedPath), false, null);
+
+        var deletedPath = Path.Combine(_root, "deleted.txt");
+        File.WriteAllText(deletedPath, "gone");
+        var deletedEntry = new ScannedEntry("deleted.txt", deletedPath, new FileInfo(deletedPath).Length, File.GetLastWriteTimeUtc(deletedPath), false, null);
+
+        var repository = new FakeSnapshotRepository();
+        var contentStore = new FakeContentStore();
+
+        new BackupPipeline(
+                new FakeFileSystemScanner([unchangedEntry, oldNameEntry, changedEntryV1, deletedEntry]),
+                new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .Run(SimpleProfile(_root));
+
+        var mirrorBeforeDryRun = contentStore.Mirror.ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
+        var snapshotCountBeforeDryRun = repository.ListSnapshots().Count;
+
+        // Second scan (used for the dry run): old-name.txt renamed to new-name.txt (same
+        // content -> Move), changed.txt's content updated (Change), deleted.txt no longer
+        // scanned (Delete), and a brand-new added.txt (Add). unchanged.txt stays as-is.
+        File.WriteAllText(changedPath, "v2-longer-content");
+        var changedEntryV2 = new ScannedEntry("changed.txt", changedPath, new FileInfo(changedPath).Length, File.GetLastWriteTimeUtc(changedPath), false, null);
+
+        var newNamePath = Path.Combine(_root, "new-name.txt");
+        File.WriteAllText(newNamePath, "move-me");
+        var newNameEntry = new ScannedEntry("new-name.txt", newNamePath, new FileInfo(newNamePath).Length, File.GetLastWriteTimeUtc(newNamePath), false, null);
+
+        var addedPath = Path.Combine(_root, "added.txt");
+        File.WriteAllText(addedPath, "brand-new");
+        var addedEntry = new ScannedEntry("added.txt", addedPath, new FileInfo(addedPath).Length, File.GetLastWriteTimeUtc(addedPath), false, null);
+
+        var dryRunScanner = new FakeFileSystemScanner([unchangedEntry, newNameEntry, changedEntryV2, addedEntry]);
+        var summary = new BackupPipeline(dryRunScanner, new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .PlanOnly(SimpleProfile(_root));
+
+        Assert.Equal(1, summary.FilesAdded);
+        Assert.Equal(1, summary.FilesChanged);
+        Assert.Equal(1, summary.FilesMoved);
+        Assert.Equal(1, summary.FilesDeleted);
+        Assert.Equal(addedEntry.Size + changedEntryV2.Size, summary.TotalBytesToTransfer);
+        Assert.Empty(summary.FailedPaths);
+
+        // Zero writes: the mirror, content store, and manifest (snapshot list) are
+        // exactly as they were before the dry run.
+        Assert.Equal(snapshotCountBeforeDryRun, repository.ListSnapshots().Count);
+        Assert.Equal(mirrorBeforeDryRun.Count, contentStore.Mirror.Count);
+        foreach (var (path, hash) in mirrorBeforeDryRun)
+        {
+            Assert.True(contentStore.Mirror.TryGetValue(path, out var actualHash));
+            Assert.Equal(hash, actualHash);
+        }
+    }
+
+    [Fact]
+    public void PlanOnlys_reported_counts_match_what_a_real_Run_against_the_same_state_would_report()
+    {
+        var basePath = Path.Combine(_root, "base.txt");
+        File.WriteAllText(basePath, "hello");
+        var baseEntry = new ScannedEntry("base.txt", basePath, new FileInfo(basePath).Length, File.GetLastWriteTimeUtc(basePath), false, null);
+
+        var repository = new FakeSnapshotRepository();
+        var contentStore = new FakeContentStore();
+        new BackupPipeline(new FakeFileSystemScanner([baseEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .Run(SimpleProfile(_root));
+
+        File.WriteAllText(basePath, "hello, changed");
+        var changedBaseEntry = new ScannedEntry("base.txt", basePath, new FileInfo(basePath).Length, File.GetLastWriteTimeUtc(basePath), false, null);
+        var newPath = Path.Combine(_root, "new.txt");
+        File.WriteAllText(newPath, "new content");
+        var newEntry = new ScannedEntry("new.txt", newPath, new FileInfo(newPath).Length, File.GetLastWriteTimeUtc(newPath), false, null);
+        var scanner = new FakeFileSystemScanner([changedBaseEntry, newEntry]);
+
+        // PlanOnly performs zero writes (proven separately above), so calling it before
+        // the real Run below against the same scanner/repository/content-store state is
+        // safe, and lets both be compared against the exact same starting manifest state.
+        var summary = new BackupPipeline(scanner, new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .PlanOnly(SimpleProfile(_root));
+
+        var realRun = new BackupPipeline(scanner, new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .Run(SimpleProfile(_root));
+
+        Assert.Equal(realRun.Stats.FilesAdded, summary.FilesAdded);
+        Assert.Equal(realRun.Stats.FilesChanged, summary.FilesChanged);
+        Assert.Equal(realRun.Stats.FilesMoved, summary.FilesMoved);
+        Assert.Equal(realRun.Stats.FilesDeleted, summary.FilesDeleted);
+        Assert.Equal(realRun.Stats.BytesTransferred, summary.TotalBytesToTransfer);
+    }
+
+    [Fact]
+    public void PlanOnly_reports_scan_failures_as_paths_a_real_run_would_skip_without_aborting()
+    {
+        var scanFailure = new ScanFailure("denied-dir", ScanFailureReason.UnreadableDirectory, "denied-dir");
+        var repository = new FakeSnapshotRepository();
+
+        var summary = new BackupPipeline(
+                new FakeFileSystemScanner([], [scanFailure]), new FakeHasher(), new FakeContentStore(), repository, new FakeRunLock())
+            .PlanOnly(SimpleProfile(_root));
+
+        // The scan failure is reported, not thrown - the dry run completes normally.
+        Assert.Contains("denied-dir", summary.FailedPaths);
+        Assert.Equal(0, summary.FilesAdded);
+        Assert.Empty(repository.ListSnapshots());
+    }
+
+    [Fact]
+    public void PlanOnly_reports_zero_planned_changes_for_a_profile_with_nothing_pending()
+    {
+        var path = Path.Combine(_root, "a.txt");
+        File.WriteAllText(path, "hello");
+        var entry = new ScannedEntry("a.txt", path, 5, File.GetLastWriteTimeUtc(path), false, null);
+
+        var repository = new FakeSnapshotRepository();
+        var contentStore = new FakeContentStore();
+        var scanner = new FakeFileSystemScanner([entry]);
+
+        new BackupPipeline(scanner, new FakeHasher(), contentStore, repository, new FakeRunLock()).Run(SimpleProfile(_root));
+
+        // Second call against the same, now-unchanged state: nothing pending.
+        var summary = new BackupPipeline(scanner, new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .PlanOnly(SimpleProfile(_root));
+
+        Assert.Equal(0, summary.FilesAdded);
+        Assert.Equal(0, summary.FilesChanged);
+        Assert.Equal(0, summary.FilesMoved);
+        Assert.Equal(0, summary.FilesDeleted);
+        Assert.Equal(0, summary.TotalBytesToTransfer);
+        Assert.Empty(summary.FailedPaths);
+    }
+
     private static List<ScannedEntry> WriteFiles(string root, int count)
     {
         var entries = new List<ScannedEntry>();

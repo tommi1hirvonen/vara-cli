@@ -86,6 +86,20 @@ public sealed record ExecutionOutcome(
     int FilesFailed,
     IReadOnlyList<string> FailedPaths);
 
+/// <summary>
+/// The result of a dry run (<see cref="BackupPipeline.PlanOnly"/>): the planned
+/// added/changed/moved/deleted counts and total bytes that would be transferred, plus
+/// any paths that could not be scanned (and would therefore be skipped by a real run),
+/// without performing any writes - see backup-execution's "Dry-run mode" requirement.
+/// </summary>
+public sealed record BackupPlanSummary(
+    int FilesAdded,
+    int FilesChanged,
+    int FilesMoved,
+    int FilesDeleted,
+    long TotalBytesToTransfer,
+    IReadOnlyList<string> FailedPaths);
+
 /// <summary>The final result of a full backup run, for CLI run-summary reporting.</summary>
 public sealed record BackupRunResult(
     long SnapshotId,
