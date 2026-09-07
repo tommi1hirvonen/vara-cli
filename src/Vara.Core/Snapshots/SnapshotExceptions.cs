@@ -139,6 +139,55 @@ public sealed class ShowBinaryContentException(string relativePath)
 }
 
 /// <summary>
+/// A <c>show</c> or <c>diff</c> was requested for a resolved version that is a symlink/junction
+/// entry (<see cref="FileChangeKind.Linked"/>) rather than one with actual stored content - there
+/// is nothing to show or diff. Distinct from <see cref="RestoreLinkedEntryException"/> (whose
+/// message is restore-specific) since <c>show</c>/<c>diff</c> callers are not performing a
+/// restore. <c>show</c> resolves exactly one version, so <see cref="LeftIsLinked"/>/
+/// <see cref="RightIsLinked"/> are <c>null</c> for it; <c>diff</c> resolves two independently
+/// named sides, mirroring <see cref="DiffContentTooLargeException"/>/
+/// <see cref="DiffBinaryContentException"/>'s per-side reporting.
+/// </summary>
+public sealed class ShowOrDiffLinkedEntryException : Exception
+{
+    public string RelativePath { get; }
+    public bool? LeftIsLinked { get; }
+    public bool? RightIsLinked { get; }
+
+    /// <summary>Single-sided constructor for <c>show</c>, which resolves exactly one version.</summary>
+    public ShowOrDiffLinkedEntryException(string relativePath)
+        : base($"Cannot show '{relativePath}': the resolved version is a symlink/junction with no stored content.")
+    {
+        RelativePath = relativePath;
+    }
+
+    /// <summary>Two-sided constructor for <c>diff</c>, which resolves a left and a right version independently.</summary>
+    public ShowOrDiffLinkedEntryException(string relativePath, bool leftIsLinked, bool rightIsLinked)
+        : base(BuildDiffMessage(relativePath, leftIsLinked, rightIsLinked))
+    {
+        RelativePath = relativePath;
+        LeftIsLinked = leftIsLinked;
+        RightIsLinked = rightIsLinked;
+    }
+
+    private static string BuildDiffMessage(string relativePath, bool leftIsLinked, bool rightIsLinked)
+    {
+        var sides = new List<string>();
+        if (leftIsLinked)
+        {
+            sides.Add("left side");
+        }
+
+        if (rightIsLinked)
+        {
+            sides.Add("right side");
+        }
+
+        return $"Cannot diff '{relativePath}': {string.Join(" and ", sides)} is a symlink/junction with no stored content.";
+    }
+}
+
+/// <summary>
 /// A restore was requested to a destination path that resolves inside the profile's live
 /// mirror. Refused unconditionally, since restore's contract is to extract content without
 /// touching the live mirror.

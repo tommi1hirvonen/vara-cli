@@ -126,14 +126,39 @@ internal sealed class FakeContentStore : IContentStore
 
     public bool HasContent(string hash) => _blobs.ContainsKey(hash);
 
+    /// <summary>Test seam: when set, <see cref="OpenRead"/> throws this instead of returning a stream for a call whose <c>hash</c> equals this value - lets a test simulate one side of a diff failing to open after the other side already opened successfully, to verify the successfully-opened stream is disposed rather than leaked.</summary>
+    public string? ThrowOnOpenReadForHash { get; set; }
+
+    /// <summary>Test seam: records each hash whose returned stream has been disposed, so a test can assert a stream opened for one side of a diff was released even though the caller never got to read from it.</summary>
+    public System.Collections.Concurrent.ConcurrentBag<string> DisposedHashes { get; } = new();
+
     public Stream OpenRead(string hash)
     {
+        if (ThrowOnOpenReadForHash is not null && string.Equals(ThrowOnOpenReadForHash, hash, StringComparison.Ordinal))
+        {
+            throw new FileNotFoundException($"No stored content for hash '{hash}'.");
+        }
+
         if (!_blobs.TryGetValue(hash, out var bytes))
         {
             throw new FileNotFoundException($"No stored content for hash '{hash}'.");
         }
 
-        return new MemoryStream(bytes, writable: false);
+        return new DisposeTrackingStream(bytes, hash, DisposedHashes);
+    }
+
+    /// <summary>Wraps a read-only <see cref="MemoryStream"/> so <see cref="FakeContentStore.OpenRead"/> can report when its caller disposes it, without changing any other observable behavior.</summary>
+    private sealed class DisposeTrackingStream(byte[] bytes, string hash, System.Collections.Concurrent.ConcurrentBag<string> disposedHashes) : MemoryStream(bytes, writable: false)
+    {
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                disposedHashes.Add(hash);
+            }
+
+            base.Dispose(disposing);
+        }
     }
 
     public void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null, string? previousContentHash = null)

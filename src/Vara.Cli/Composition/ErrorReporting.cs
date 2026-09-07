@@ -77,7 +77,8 @@ public static class ErrorReporting
                 or InvalidDateTimeOptionException
                 or DiffContentTooLargeException
                 or DiffBinaryContentException
-                or ShowBinaryContentException:
+                or ShowBinaryContentException
+                or ShowOrDiffLinkedEntryException:
                 message = ex.Message;
                 return true;
             default:

@@ -158,4 +158,40 @@ public class ErrorReportingTests
         Assert.Contains("Error: Cannot show 'src\\image.png'", console.Output);
         Assert.DoesNotContain("ShowBinaryContentException", console.Output);
     }
+
+    [Fact]
+    public void ShowOrDiffLinkedEntryException_single_sided_takes_the_friendly_message_path()
+    {
+        var console = new TestConsole { EmitAnsiSequences = true };
+        console.Profile.Width = 200;
+        console.Profile.Capabilities.Ansi = true;
+        console.Profile.Capabilities.ColorSystem = Spectre.Console.ColorSystem.EightBit;
+
+        var exitCode = ErrorReporting.Run(
+            () => throw new Vara.Core.Snapshots.ShowOrDiffLinkedEntryException("link"),
+            console);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Error: Cannot show 'link': the resolved version is a symlink/junction with no stored content.", console.Output);
+        Assert.DoesNotContain("Unhandled exception", console.Output);
+        Assert.DoesNotContain("ShowOrDiffLinkedEntryException", console.Output);
+    }
+
+    [Fact]
+    public void ShowOrDiffLinkedEntryException_two_sided_takes_the_friendly_message_path()
+    {
+        var console = new TestConsole { EmitAnsiSequences = true };
+        console.Profile.Width = 200;
+        console.Profile.Capabilities.Ansi = true;
+        console.Profile.Capabilities.ColorSystem = Spectre.Console.ColorSystem.EightBit;
+
+        var exitCode = ErrorReporting.Run(
+            () => throw new Vara.Core.Snapshots.ShowOrDiffLinkedEntryException("link", leftIsLinked: true, rightIsLinked: false),
+            console);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Error: Cannot diff 'link': left side is a symlink/junction with no stored content.", console.Output);
+        Assert.DoesNotContain("Unhandled exception", console.Output);
+        Assert.DoesNotContain("ShowOrDiffLinkedEntryException", console.Output);
+    }
 }

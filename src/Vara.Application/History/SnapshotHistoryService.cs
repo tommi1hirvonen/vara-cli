@@ -147,11 +147,14 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
     /// </param>
     /// <exception cref="NoHistoryForPathException">The path was never part of any recorded snapshot.</exception>
     /// <exception cref="NoMatchingVersionException">No such version id/date exists for the path.</exception>
+    /// <exception cref="ShowOrDiffLinkedEntryException">The resolved version is a symlink/junction entry with no stored content.</exception>
     /// <exception cref="ShowBinaryContentException">The resolved content is detected as binary and <paramref name="forceBinary"/> is <see langword="false"/>.</exception>
     public void ShowVersion(string relativePath, long? versionId, DateTimeOffset? asOf, Stream destination, bool forceBinary = false)
     {
         var match = ResolveVersion(relativePath, versionId, asOf);
-        using var source = contentStore.OpenRead(match.ContentHash);
+        GuardNotLinkedForShowOrDiff(relativePath, match);
+
+        using var source = contentStore.OpenRead(match.ContentHash!);
         if (!forceBinary && LooksBinary(source))
         {
             throw new ShowBinaryContentException(relativePath);
@@ -186,6 +189,7 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
     /// <exception cref="NoMatchingVersionException">No such version id/date exists for either side.</exception>
     /// <exception cref="DiffContentTooLargeException">Either resolved version's recorded size exceeds the diff size limit.</exception>
     /// <exception cref="DiffBinaryContentException">Either resolved version's content is detected as binary.</exception>
+    /// <exception cref="ShowOrDiffLinkedEntryException">Either resolved version is a symlink/junction entry with no stored content.</exception>
     public (Stream Left, Stream Right) OpenVersionsForDiff(
         string relativePath,
         long? leftVersionId,
@@ -207,10 +211,19 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
                 rightTooLarge ? right.Size : null);
         }
 
-        var leftStream = contentStore.OpenRead(left.ContentHash);
-        var rightStream = contentStore.OpenRead(right.ContentHash);
+        var leftLinked = left.ChangeKind == FileChangeKind.Linked;
+        var rightLinked = right.ChangeKind == FileChangeKind.Linked;
+        if (leftLinked || rightLinked)
+        {
+            throw new ShowOrDiffLinkedEntryException(relativePath, leftLinked, rightLinked);
+        }
+
+        Stream? leftStream = null;
+        Stream? rightStream = null;
         try
         {
+            leftStream = contentStore.OpenRead(left.ContentHash!);
+            rightStream = contentStore.OpenRead(right.ContentHash!);
             var leftIsBinary = LooksBinary(leftStream);
             var rightIsBinary = LooksBinary(rightStream);
             if (leftIsBinary || rightIsBinary)
@@ -222,8 +235,8 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
         }
         catch
         {
-            leftStream.Dispose();
-            rightStream.Dispose();
+            leftStream?.Dispose();
+            rightStream?.Dispose();
             throw;
         }
     }
@@ -541,6 +554,23 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
         if (match.ChangeKind == FileChangeKind.Linked)
         {
             throw new RestoreLinkedEntryException(relativePath);
+        }
+    }
+
+    /// <summary>
+    /// Single-sided sibling of <see cref="GuardNotLinked"/> for <see cref="ShowVersion"/>: same
+    /// <see cref="FileChangeKind.Linked"/> check, but throws <see cref="ShowOrDiffLinkedEntryException"/>
+    /// instead of <see cref="RestoreLinkedEntryException"/>, since <c>show</c> is not a restore.
+    /// <see cref="OpenVersionsForDiff"/> has its own two-sided check instead of calling this, since
+    /// it needs to name which of its two independently-resolved sides is linked in one error,
+    /// mirroring how it already reports oversized/binary content on either side.
+    /// </summary>
+    /// <exception cref="ShowOrDiffLinkedEntryException">The resolved version is a symlink/junction entry.</exception>
+    private static void GuardNotLinkedForShowOrDiff(string relativePath, FileVersionRecord match)
+    {
+        if (match.ChangeKind == FileChangeKind.Linked)
+        {
+            throw new ShowOrDiffLinkedEntryException(relativePath);
         }
     }
 

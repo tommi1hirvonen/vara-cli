@@ -657,6 +657,87 @@ public class SnapshotHistoryServiceTests
     }
 
     [Fact]
+    public void ShowVersion_of_a_linked_entry_throws_ShowOrDiffLinkedEntry_instead_of_MissingContentHash()
+    {
+        var repository = new FakeSnapshotRepository();
+        var t0 = DateTimeOffset.UtcNow;
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, "link", null, null, 0, t0, FileChangeKind.Linked, t0, linkTarget: @"C:\target");
+        var versionId = repository.GetFileHistory("link").Single().Id;
+        var service = new SnapshotHistoryService(repository, new FakeContentStore());
+
+        var ex = Assert.Throws<ShowOrDiffLinkedEntryException>(() => service.ShowVersion("link", versionId, asOf: null, new MemoryStream()));
+
+        Assert.Equal("link", ex.RelativePath);
+        Assert.Null(ex.LeftIsLinked);
+        Assert.Null(ex.RightIsLinked);
+    }
+
+    [Fact]
+    public void OpenVersionsForDiff_with_only_the_left_side_linked_throws_ShowOrDiffLinkedEntry_naming_the_left_side()
+    {
+        var contentStore = new FakeContentStore();
+        var (hash, _) = contentStore.StoreFromStream(new MemoryStream("version two"u8.ToArray()));
+        var repository = new FakeSnapshotRepository();
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, "link", null, null, 0, t0, FileChangeKind.Linked, t0, linkTarget: @"C:\target");
+        var t1 = t0.AddDays(1);
+        var s2 = repository.BeginSnapshot(t1);
+        repository.RecordFileVersion(s2, "link", null, hash, 11, t1, FileChangeKind.Changed, t1);
+        var versionIds = repository.GetFileHistory("link").OrderBy(r => r.Id).Select(r => r.Id).ToList();
+        var service = new SnapshotHistoryService(repository, contentStore);
+
+        var ex = Assert.Throws<ShowOrDiffLinkedEntryException>(() => service.OpenVersionsForDiff("link", versionIds[0], null, versionIds[1], null));
+
+        Assert.True(ex.LeftIsLinked);
+        Assert.False(ex.RightIsLinked);
+    }
+
+    [Fact]
+    public void OpenVersionsForDiff_with_only_the_right_side_linked_throws_ShowOrDiffLinkedEntry_naming_the_right_side()
+    {
+        var contentStore = new FakeContentStore();
+        var (hash, _) = contentStore.StoreFromStream(new MemoryStream("version one"u8.ToArray()));
+        var repository = new FakeSnapshotRepository();
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, "link", null, hash, 11, t0, FileChangeKind.Added, t0);
+        var t1 = t0.AddDays(1);
+        var s2 = repository.BeginSnapshot(t1);
+        repository.RecordFileVersion(s2, "link", null, null, 0, t1, FileChangeKind.Linked, t1, linkTarget: @"C:\target");
+        var versionIds = repository.GetFileHistory("link").OrderBy(r => r.Id).Select(r => r.Id).ToList();
+        var service = new SnapshotHistoryService(repository, contentStore);
+
+        var ex = Assert.Throws<ShowOrDiffLinkedEntryException>(() => service.OpenVersionsForDiff("link", versionIds[0], null, versionIds[1], null));
+
+        Assert.False(ex.LeftIsLinked);
+        Assert.True(ex.RightIsLinked);
+    }
+
+    [Fact]
+    public void OpenVersionsForDiff_disposes_the_already_opened_left_stream_when_the_right_side_fails_to_open()
+    {
+        var contentStore = new FakeContentStore();
+        var (hashV1, _) = contentStore.StoreFromStream(new MemoryStream("version one"u8.ToArray()));
+        var (hashV2, _) = contentStore.StoreFromStream(new MemoryStream("version two"u8.ToArray()));
+        contentStore.ThrowOnOpenReadForHash = hashV2;
+        var repository = new FakeSnapshotRepository();
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, "a.txt", null, hashV1, 11, t0, FileChangeKind.Added, t0);
+        var t1 = t0.AddDays(1);
+        var s2 = repository.BeginSnapshot(t1);
+        repository.RecordFileVersion(s2, "a.txt", null, hashV2, 11, t1, FileChangeKind.Changed, t1);
+        var versionIds = repository.GetFileHistory("a.txt").OrderBy(r => r.Id).Select(r => r.Id).ToList();
+        var service = new SnapshotHistoryService(repository, contentStore);
+
+        Assert.Throws<FileNotFoundException>(() => service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null));
+
+        Assert.Contains(hashV1, contentStore.DisposedHashes);
+    }
+
+    [Fact]
     public void ListDirectory_returns_only_live_entries_by_default()
     {
         var repository = new FakeSnapshotRepository();
