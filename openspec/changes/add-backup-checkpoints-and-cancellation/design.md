@@ -1,0 +1,47 @@
+## Context
+
+See proposal.md - Why. Today `BackupPipeline.Run` opens exactly one `IManifestBatch` (a single `SqliteTransaction`, via `SqliteSnapshotRepository.BeginManifestBatch`) for the whole run, and commits it only in two places: the success path and the `catch` block around the whole run. Neither path runs on an OS-level kill (default Ctrl+C behavior, `SIGKILL`, power loss) - `Program.cs` registers no `Console.CancelKeyPress` handler and no `CancellationToken` exists anywhere in `src`. `GetCurrentState()`/`GetStateAsOf()` already reconstruct "what's backed up" purely from `file_versions` rows (latest row per path, `MAX(id)`), independent of the enclosing snapshot's `status` - so a snapshot with partially-committed rows already contributes correctly to incremental diffing and point-in-time restore without any dedicated "resume" feature. The lock file (`FileRunLock`, OS-handle-based) and orphaned temp blobs (`ContentStore.CleanupOrphanedTemp`) already self-heal on a hard kill; only the manifest's single whole-run transaction does not.
+
+## Goals / Non-Goals
+
+**Goals:**
+- Bound the amount of already-completed work that an interruption can discard, independent of total run length, by committing the manifest batch periodically instead of once.
+- Let a single Ctrl+C stop a run in a way that preserves everything up to that moment (via a forced checkpoint) instead of relying on an abrupt OS-level kill.
+- Make a deliberately-cancelled run distinguishable from a crashed one in snapshot history.
+
+**Non-Goals:**
+- Not implementing partial-file resume (an in-flight large file's transfer still restarts from byte 0 after an interruption, checkpointed or not - `RecordFileVersion` is only ever called once a whole operation completes).
+- Not adding a dedicated `vara resume` command - the existing incremental scan/diff already treats a checkpointed-but-interrupted run's committed rows as "already backed up" on the very next ordinary `vara backup` invocation.
+- Not hardening against non-Ctrl+C abrupt termination (power loss, `kill -9`) beyond what periodic checkpointing already provides for free - those remain uncatchable, but the redo window is now bounded the same way regardless of cause.
+- Not changing on-disk mirror layout, content-addressing, or existing manifest columns.
+
+## Decisions
+
+**Checkpoint trigger: elapsed wall-clock time, not file/byte count.**
+A fixed file-count or byte-count threshold would make the worst-case redo window depend on the mix of file sizes in a given run (many tiny files vs. one huge file), which is unpredictable to a user. A time-based interval (default: every 30 seconds of active transfer) gives a bounded, predictable worst-case redo window regardless of what's being backed up. Checked from the same serialized point where `BackupExecutor` already takes `reportLock` per completed operation (Move/Delete/Add/Change), so no new synchronization primitive is introduced: after releasing the lock, if the interval has elapsed since the last checkpoint, the batch is committed and a new transaction opened before continuing.
+
+**Checkpoint commit reuses the existing `IManifestBatch` commit/reopen mechanics, not a new abstraction.**
+`SqliteSnapshotRepository.BeginManifestBatch`/`CommitActiveBatch` already know how to commit the active transaction and checkpoint the WAL. Checkpointing periodically means calling that same commit path mid-run and immediately opening a fresh transaction, rather than introducing a second kind of batch. `IManifestBatch.Commit()`'s contract changes from "call at most once" to "callable repeatedly, each call durably committing writes so far and continuing to accept more" - a source-compatible relaxation, since existing single-commit callers are unaffected.
+
+**Cancellation signal: a single shared flag set by `Console.CancelKeyPress`, not a `CancellationToken` threaded through every layer.**
+`ConsoleCancelEventArgs.Cancel = true` in the handler suppresses the default terminate-immediately behavior and lets code keep running. Given the goals above (finish in-flight operations, force one checkpoint, exit), the executor only needs to stop *starting new* Move/Delete/Add/Change operations - it does not need to abort operations already in progress (those are short-lived per-file operations; letting the current small batch of in-flight transfers finish is bounded and acceptable, unlike blocking indefinitely). A single `volatile bool` (or `CancellationToken` used purely as a cooperative "stop starting new work" signal, not for aborting in-flight I/O) checked before each new item is dispatched in `BackupExecutor.Execute`'s sequential and `Parallel.ForEach` loops is sufficient and keeps the change surgical. A full `CancellationToken` threaded into `File.OpenRead`/`Stream.Read`/SQLite calls was considered and rejected: it would let a single in-flight file's transfer be aborted mid-write, but that file's operation was never going to be recorded anyway (no partial-operation manifest rows), so the extra plumbing buys nothing beyond stopping slightly sooner - not worth the surface area across `IContentStore`, `IHasher`, and `ISnapshotRepository`.
+
+**Second Ctrl+C forces immediate termination via `Environment.Exit`, deliberately reverting to the pre-existing "abrupt kill, self-heals as Failed" behavior.**
+Some in-flight operation could in principle hang (e.g. a network drive stall) long enough that a user wants out immediately rather than waiting for graceful drain. Rather than adding a timeout heuristic, a second `CancelKeyPress` while a graceful stop is already in progress calls `Environment.Exit` directly. This is intentionally the same code path (or lack thereof) as today's unhandled Ctrl+C, so no new failure mode is introduced - the interrupted run is simply reconciled as `Failed` by `ReconcileIncompleteSnapshots` on next startup, exactly as it is today.
+
+**New `Cancelled` status is a plain enum/string addition, no schema migration.**
+`SnapshotStatus` is persisted via `nameof(...)` as a plain string column, not a constrained/enumerated SQL type, so adding `Cancelled` alongside `Running`/`Complete`/`Failed` needs no migration; older manifests simply never contain the new value until a run produces one. `ReconcileIncompleteSnapshots` (which flips any still-`Running` snapshot to `Failed` at startup) is unaffected: a graceful Ctrl+C stop sets `Cancelled` explicitly as part of its own forced-checkpoint commit before the process exits, so the snapshot is never left `Running` for reconciliation to find in that case; only a hard second-Ctrl+C or non-Ctrl+C kill leaves it `Running` for the existing reconciliation-to-`Failed` path.
+
+**`Cancelled` reuses the existing "partial success" (warning) severity style; no new severity tier in `cli-presentation`.**
+`cli-presentation` currently defines three severities (full success, success-with-partial-failures, hard error). A cancelled run is an expected, self-healing outcome, not a crash, so it maps naturally onto the existing warning tier used for partial failures rather than the hard-error tier used for `Failed` - avoiding a fourth severity concept and any change to `cli-presentation` itself. `snapshot-history`'s display logic is where this mapping is expressed (a lookup from `SnapshotStatus` to the existing severity styles).
+
+## Risks / Trade-offs
+
+- [Risk] Committing (and reopening) a transaction periodically reintroduces some of the fsync overhead that whole-run batching was designed to eliminate → Mitigation: a 30-second default interval bounds the number of extra commits to roughly `run_duration_seconds / 30`, a small constant overhead compared to per-file commits, and the interval is a single named constant that can be tuned later without further design changes.
+- [Risk] A checkpoint committed mid-run, followed immediately by a crash before `CompleteSnapshot`, leaves a snapshot permanently `Running` until the next startup's `ReconcileIncompleteSnapshots` marks it `Failed` - a user inspecting history between the crash and the next run sees a stale `Running` row → Accepted: this already happens today (whole-run batching has the same window, just wider), and no command currently promises live-refreshed status for another process's crash.
+- [Risk] Letting in-flight operations "finish" during a graceful stop could still take a long time for a very large single file → Mitigation: the second-Ctrl+C-forces-immediate-exit escape hatch (see Decisions) bounds how long a user is stuck waiting, at the cost of falling back to `Failed` instead of `Cancelled` for that final in-flight interval.
+- [Trade-off] Cooperative cancellation (stop starting new work) instead of true operation abort trades a slightly later stop for far less code churn - accepted per the Decisions rationale above.
+
+## Migration Plan
+
+No schema migration - `snapshots.status` remains a free-text column; a manifest written before this change simply has never contained the string `"Cancelled"`, and reading it back is unaffected. No user action required. Rollback is a code revert: remove the `CancelKeyPress` handler and revert `BeginManifestBatch`/`Commit` to their single-commit-per-run behavior; any manifest that already recorded a `Cancelled` snapshot continues to be readable (existing code paths already tolerate an unrecognized/rare status value being displayed as-is), so no data migration is needed in either direction.
