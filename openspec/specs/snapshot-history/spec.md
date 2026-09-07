@@ -57,7 +57,9 @@ NOT overwrite an existing file at the requested destination unless the user has 
 authorized the overwrite, either by passing an explicit override or by confirming an interactive
 prompt. A version id and an "as of" date SHALL be mutually exclusive ways of identifying which
 version to restore; supplying both SHALL be rejected with a clear error, and no restore SHALL be
-performed.
+performed. If the resolved version is a symlink/junction entry rather than one with actual stored
+content, the system SHALL report a clear error explaining that this version has no content to
+restore, rather than attempting extraction and failing with an unrelated internal error.
 
 #### Scenario: Restoring a previous version
 - **WHEN** a user requests a file's content as of a date prior to its most recent change
@@ -105,6 +107,12 @@ performed.
   diff request
 - **THEN** the system reports a clear error explaining that the two are mutually exclusive, and
   performs no restore, show, or diff
+
+#### Scenario: Requested version is a symlink or junction entry
+- **WHEN** a user requests a restore of a specific version id, or as of a date, that resolves to a
+  symlink/junction entry rather than one with stored content
+- **THEN** the system reports a clear error explaining that the resolved version is a link with no
+  restorable content, and writes nothing to the destination
 
 ### Requirement: Restore progress indication for large files
 While a restore command is extracting a historical file's content to its destination, the system SHALL display a byte-based progress indicator reflecting bytes copied against the version's known total size, per the `progress-reporting` capability's incremental-progress requirement, so a restore of a large file does not appear to hang with no feedback. Because a version's total size is known before extraction begins, no separate scan or indeterminate phase is needed.
@@ -269,7 +277,9 @@ WHEN a user runs the restore command for a single file (that is, without `--recu
 specifying a version id or an "as of" date, and the session is interactive, the system SHALL
 present the path's recorded version history as a selectable list and restore the version the
 user selects, instead of reporting an error. This interactive picker SHALL NOT apply to a
-recursive directory restore, which has no single per-file version history to select from.
+recursive directory restore, which has no single per-file version history to select from. The
+selectable list SHALL exclude both deleted versions and symlink/junction versions, since neither
+has restorable content.
 
 #### Scenario: Restoring interactively without a version or date
 - **WHEN** a user runs the restore command for a path with recorded history, specifying neither
@@ -290,6 +300,12 @@ recursive directory restore, which has no single per-file version history to sel
   directory at a given date" requirement's "Recursive restore without an explicit date" scenario,
   rather than presenting an interactive version picker
 
+#### Scenario: Selectable list excludes symlink/junction versions
+- **WHEN** a user runs the restore command interactively for a path whose recorded history
+  includes a version where the path was a symlink or junction
+- **THEN** the system's selectable list omits that version, alongside any deleted version,
+  since neither has content that can be restored
+
 ### Requirement: Restore a directory at a given date
 The system SHALL support restoring an entire directory (subtree) at once, instead of a single
 file, when the user passes an explicit `--recursive` flag alongside the restore command's
@@ -297,6 +313,9 @@ directory path. In this mode, the system SHALL reconstruct the exact set of trac
 existed under that directory as of the requested date (or the current state, if no date is
 given): every path tracked as live at that date SHALL be written to the destination, including a
 path later deleted from the profile, and a path not yet added as of that date SHALL be excluded.
+A path tracked as live at that date as a symlink/junction entry SHALL NOT be written (it has no
+stored content to extract); it SHALL instead be counted and reported as skipped, separately from
+the written and removed counts, so its absence from the destination is visible rather than silent.
 Any path the system currently tracks as live under that directory but which was not live as of
 the requested date SHALL be removed from the destination, so the destination ends up matching the
 requested point in time exactly rather than a merge of old and current tracked content. This mode
@@ -348,6 +367,12 @@ and has no meaning for a whole subtree.
 - **WHEN** a user requests a recursive restore of a directory without supplying `--at`
 - **THEN** the system reconstructs the directory's current tracked state (its live paths as of
   now) rather than reporting an error or prompting for a date
+
+#### Scenario: Recursive restore of a directory containing a symlink/junction
+- **WHEN** a directory being recursively restored as of a given date contains a path tracked as
+  live at that date as a symlink or junction
+- **THEN** the system does not write that path to the destination, does not treat this as a
+  failure, and reports it as a skipped link separately from the written and removed counts
 
 ### Requirement: Single confirmation for a directory restore
 Because a recursive restore can write and remove many files in one operation, the system SHALL

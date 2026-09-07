@@ -144,11 +144,15 @@ WHEN comparing an added file against same-size deleted candidates during move de
 ### Requirement: Symlinks and junctions are not followed
 The system SHALL NOT follow symbolic links, junctions, or other reparse points encountered while
 scanning sources; it SHALL record their existence and target path without traversing into or
-copying the linked content. A symlink/junction encountered during a scan SHALL be treated as
-observed for that run, so it is never misclassified as a deletion of whatever previously existed
-at that path. A path previously tracked as a regular file that is replaced by a symlink or
-junction SHALL be recorded as a distinct, non-deleted state change, not silently dropped from the
-manifest's current view.
+copying the linked content. The recorded target path SHALL be stored separately from any
+content-store hash, so a link's manifest entry never carries a value that downstream consumers of
+content hashes (integrity checking, restore, content-store maintenance) could mistake for one. A
+symlink/junction encountered during a scan SHALL be treated as observed for that run, so it is
+never misclassified as a deletion of whatever previously existed at that path. A path previously
+tracked as a regular file that is replaced by a symlink or junction SHALL be recorded as a
+distinct, non-deleted state change, not silently dropped from the manifest's current view, and the
+file's now-superseded mirror copy SHALL be removed as part of recording that change, so the mirror
+does not retain stale content for a path the manifest no longer considers a regular file.
 
 #### Scenario: Symlink encountered during scan
 - **WHEN** a source directory contains a symbolic link or junction
@@ -166,6 +170,13 @@ manifest's current view.
   across two consecutive backup runs
 - **THEN** the second run does not classify the link's path as newly added, newly deleted, or
   changed
+
+#### Scenario: Mirror copy removed when a tracked file becomes a symlink
+- **WHEN** a path tracked as a regular file with a mirrored copy of its content is replaced by a
+  symbolic link or junction, and the backup run records that transition
+- **THEN** the file's previously mirrored copy is removed from the target as part of the same run,
+  so the mirror no longer contains a copy of content the manifest now considers superseded by a
+  link
 
 ### Requirement: Unreadable files do not abort the run
 WHEN a source file, directory, or other filesystem entry cannot be read (for example,
