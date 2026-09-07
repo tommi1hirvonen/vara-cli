@@ -26,18 +26,25 @@ public interface ISnapshotRepository : IDisposable
     /// bounded-prefix content signature (see
     /// <see cref="Vara.Core.Hashing.QuickHashPolicy"/>), when known, alongside the full
     /// <paramref name="contentHash"/> - see <see cref="Snapshots.FileVersionRecord.QuickHash"/>.
+    /// <paramref name="contentHash"/> SHALL be <c>null</c> and <paramref name="linkTarget"/>
+    /// SHALL carry the link's target path when <paramref name="changeKind"/> is
+    /// <see cref="FileChangeKind.Linked"/>; for every other change kind
+    /// <paramref name="linkTarget"/> SHALL be <c>null</c>, and <paramref name="contentHash"/>
+    /// is <c>null</c> only when there was never any content-store blob associated with this
+    /// path (for example, deleting a path whose most recent state was itself a link).
     /// </summary>
     void RecordFileVersion(
         long snapshotId,
         string relativePath,
         string? previousRelativePath,
-        string contentHash,
+        string? contentHash,
         long size,
         DateTimeOffset sourceModifiedAt,
         FileChangeKind changeKind,
         DateTimeOffset recordedAt,
         string? quickHash = null,
-        int? quickHashScheme = null);
+        int? quickHashScheme = null,
+        string? linkTarget = null);
 
     /// <summary>
     /// Marks a snapshot as successfully completed with its final statistics.

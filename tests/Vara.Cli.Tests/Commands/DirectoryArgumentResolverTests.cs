@@ -17,7 +17,7 @@ public class DirectoryArgumentResolverTests
         public void Dispose() { }
         public void ReconcileIncompleteSnapshots() => throw new NotSupportedException();
         public long BeginSnapshot(DateTimeOffset startedAt) => throw new NotSupportedException();
-        public void RecordFileVersion(long snapshotId, string relativePath, string? previousRelativePath, string contentHash, long size, DateTimeOffset sourceModifiedAt, FileChangeKind changeKind, DateTimeOffset recordedAt, string? quickHash = null, int? quickHashScheme = null) => throw new NotSupportedException();
+        public void RecordFileVersion(long snapshotId, string relativePath, string? previousRelativePath, string? contentHash, long size, DateTimeOffset sourceModifiedAt, FileChangeKind changeKind, DateTimeOffset recordedAt, string? quickHash = null, int? quickHashScheme = null, string? linkTarget = null) => throw new NotSupportedException();
         public void CompleteSnapshot(long snapshotId, DateTimeOffset completedAt, SnapshotStats stats) => throw new NotSupportedException();
         public void FailSnapshot(long snapshotId, DateTimeOffset failedAt, SnapshotStats stats) => throw new NotSupportedException();
         public void CancelSnapshot(long snapshotId, DateTimeOffset cancelledAt, SnapshotStats stats) => throw new NotSupportedException();

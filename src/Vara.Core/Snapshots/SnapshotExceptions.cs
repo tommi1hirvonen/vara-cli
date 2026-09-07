@@ -160,6 +160,17 @@ public sealed class DestinationExistsException(string destinationPath)
 }
 
 /// <summary>
+/// A restore was requested for a resolved version that is a symlink/junction entry
+/// (<see cref="FileChangeKind.Linked"/>) rather than one with actual stored content -
+/// there is nothing to extract.
+/// </summary>
+public sealed class RestoreLinkedEntryException(string relativePath)
+    : Exception($"Cannot restore '{relativePath}': the resolved version is a symlink/junction with no stored content.")
+{
+    public string RelativePath { get; } = relativePath;
+}
+
+/// <summary>
 /// A recursive directory restore (<c>restore --recursive</c>) was planned for a profile
 /// while running with a non-interactive input stream and without <c>--force</c> - so the
 /// operation's single required confirmation, covering every planned write and removal,

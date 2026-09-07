@@ -31,6 +31,31 @@ public class IntegrityCheckServiceTests
     }
 
     [Fact]
+    public void A_tracked_symlink_or_junction_is_not_reported_as_a_missing_or_corrupt_blob()
+    {
+        var contentStore = new FakeContentStore();
+        var (hash, _) = contentStore.StoreFromStream(new MemoryStream("hello"u8.ToArray()));
+        contentStore.PlaceAtMirrorPath(hash, "a.txt");
+
+        var repository = new FakeSnapshotRepository();
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = repository.BeginSnapshot(now);
+        repository.RecordFileVersion(snapshot, "a.txt", null, hash, 5, now, FileChangeKind.Added, now);
+        // A Linked row has no content-store hash - it must not be treated as a
+        // referenced blob to verify, or it would always report as missing.
+        repository.RecordFileVersion(snapshot, "link", null, null, 0, now, FileChangeKind.Linked, now, linkTarget: @"C:\target");
+        repository.CompleteSnapshot(snapshot, now, SnapshotStats.Empty);
+
+        var service = new IntegrityCheckService(repository, contentStore, new FakeHasher());
+
+        var result = service.Check(quick: false);
+
+        Assert.Equal(1, result.BlobsChecked);
+        Assert.Empty(result.Missing);
+        Assert.Empty(result.Corrupt);
+    }
+
+    [Fact]
     public void A_referenced_blob_absent_from_the_store_is_reported_as_missing_with_its_affected_path()
     {
         var contentStore = new FakeContentStore();

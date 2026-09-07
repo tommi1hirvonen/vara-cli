@@ -24,6 +24,21 @@ public class ErrorReportingTests
     }
 
     [Fact]
+    public void RestoreLinkedEntryException_is_reported_as_a_friendly_error_not_a_raw_stack_trace()
+    {
+        var console = new TestConsole();
+        console.Profile.Width = 200;
+
+        var exitCode = ErrorReporting.Run(
+            () => throw new Vara.Core.Snapshots.RestoreLinkedEntryException("link"),
+            console);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Error: Cannot restore 'link': the resolved version is a symlink/junction with no stored content.", console.Output);
+        Assert.DoesNotContain("Unhandled exception", console.Output);
+    }
+
+    [Fact]
     public void Successful_action_returns_exit_code_0_and_writes_nothing()
     {
         var console = new TestConsole();

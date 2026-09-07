@@ -155,3 +155,14 @@ public sealed class MirrorPathEscapesTargetRootException(string mirrorRelativePa
     public string ResolvedPath { get; } = resolvedPath;
     public string TargetRoot { get; } = targetRoot;
 }
+
+/// <summary>
+/// Thrown when a content-store operation that resolves a blob path (for example
+/// <see cref="IContentStore.RemoveFromMirror"/> or <see cref="IContentStore.ExtractTo"/>) is
+/// given a null or empty hash. A well-formed hash is always non-empty, so this indicates a
+/// caller passed through a value that was never a real content-store hash to begin with (for
+/// example, a symlink/junction's manifest row, which has no associated blob) instead of
+/// checking for that case first.
+/// </summary>
+public sealed class MissingContentHashException()
+    : IOException("Cannot resolve a content-store blob path: no content hash was provided.");

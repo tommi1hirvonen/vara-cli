@@ -43,15 +43,22 @@ public enum PlannedOperationKind
 /// and <see cref="PlannedOperationKind.Delete"/>, <see cref="KnownContentHash"/> (and, when known,
 /// <see cref="QuickHash"/>/<see cref="QuickHashScheme"/>) is already known (no content read is
 /// needed); for <see cref="PlannedOperationKind.Add"/>/<see cref="PlannedOperationKind.Change"/> these
-/// are resolved during execution as content is streamed into the content store. For
-/// <see cref="PlannedOperationKind.Link"/>, <see cref="KnownContentHash"/> instead carries the
-/// link's target path (there is no real content-store hash, since the target is never read) -
-/// also known upfront, so no execution-time resolution is needed.
+/// are resolved during execution as content is streamed into the content store.
+/// <see cref="PlannedOperationKind.Delete"/>'s <see cref="KnownContentHash"/> is <c>null</c> when
+/// the path being deleted was itself most recently a <see cref="Vara.Core.Snapshots.FileChangeKind.Linked"/>
+/// entry - there was never a content-store blob for it to remove. For
+/// <see cref="PlannedOperationKind.Link"/>, <see cref="KnownContentHash"/> is always <c>null</c>
+/// (a link never has content-store content) and <see cref="LinkTarget"/> instead carries the
+/// link's target path - known upfront, so no execution-time resolution is needed.
 /// <see cref="PreviousContentHash"/> is distinct: for <see cref="PlannedOperationKind.Change"/> it is
 /// the *previous* content's hash (already known from the current manifest state at plan time, unlike
 /// <see cref="KnownContentHash"/>'s *new*-content meaning above) - used to restore the content
 /// store's read-only protection on the superseded blob after the mirror entry is overwritten
-/// (protect-hardlinked-mirror-files change's design.md). <c>null</c> for every other operation kind.
+/// (protect-hardlinked-mirror-files change's design.md). For <see cref="PlannedOperationKind.Link"/>,
+/// it instead carries the path's previous content hash only when this operation represents a
+/// file-to-link transition (the path was not already tracked as a link) - used to remove that
+/// now-superseded content from the mirror, since a <see cref="PlannedOperationKind.Link"/> op
+/// otherwise performs no mirror I/O. <c>null</c> for every other operation kind.
 /// </summary>
 public sealed record PlannedOperation(
     PlannedOperationKind Kind,
@@ -63,7 +70,8 @@ public sealed record PlannedOperation(
     string? KnownContentHash,
     string? QuickHash = null,
     int? QuickHashScheme = null,
-    string? PreviousContentHash = null);
+    string? PreviousContentHash = null,
+    string? LinkTarget = null);
 
 /// <summary>
 /// The full backup plan: every operation to carry out, and the total bytes that will

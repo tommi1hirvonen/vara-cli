@@ -149,22 +149,37 @@ public sealed class BackupExecutor(
             }
             else if (operation.Kind == PlannedOperationKind.Delete)
             {
-                contentStore.RemoveFromMirror(operation.RelativePath, operation.KnownContentHash!);
+                // KnownContentHash is null when the path being deleted was itself most
+                // recently a Linked entry - there was never a content-store blob for it,
+                // so there is nothing to remove from the mirror (and no valid hash to
+                // pass into the content store's blob-path resolution).
+                if (!string.IsNullOrEmpty(operation.KnownContentHash))
+                {
+                    contentStore.RemoveFromMirror(operation.RelativePath, operation.KnownContentHash);
+                }
+
                 repository.RecordFileVersion(
-                    snapshotId, operation.RelativePath, null, operation.KnownContentHash!,
+                    snapshotId, operation.RelativePath, null, operation.KnownContentHash,
                     operation.Size, operation.SourceModifiedAt, FileChangeKind.Deleted, recordedAt,
                     operation.QuickHash, operation.QuickHashScheme);
                 counts.Deleted++;
             }
             else
             {
-                // Link: no content store I/O at all - the target is never followed or
-                // copied. KnownContentHash already carries the link's target path
-                // (BackupPlanner), so this is a pure manifest write.
+                // Link: no content store I/O for the link target itself - it is never
+                // followed or copied. PreviousContentHash, when set, means this is a
+                // file-to-link transition (BackupPlanner): the mirror still holds the
+                // path's previously tracked content, which is now superseded by the
+                // link and must be removed so the mirror doesn't retain it forever.
+                if (!string.IsNullOrEmpty(operation.PreviousContentHash))
+                {
+                    contentStore.RemoveFromMirror(operation.RelativePath, operation.PreviousContentHash);
+                }
+
                 repository.RecordFileVersion(
-                    snapshotId, operation.RelativePath, null, operation.KnownContentHash ?? string.Empty,
+                    snapshotId, operation.RelativePath, null, null,
                     operation.Size, operation.SourceModifiedAt, FileChangeKind.Linked, recordedAt,
-                    operation.QuickHash, operation.QuickHashScheme);
+                    operation.QuickHash, operation.QuickHashScheme, linkTarget: operation.LinkTarget);
             }
 
             lock (reportLock)

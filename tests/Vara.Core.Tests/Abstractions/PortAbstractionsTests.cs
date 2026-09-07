@@ -92,7 +92,7 @@ public class PortAbstractionsTests
             return id;
         }
 
-        public void RecordFileVersion(long snapshotId, string relativePath, string? previousRelativePath, string contentHash, long size, DateTimeOffset sourceModifiedAt, FileChangeKind changeKind, DateTimeOffset recordedAt, string? quickHash = null, int? quickHashScheme = null) { }
+        public void RecordFileVersion(long snapshotId, string relativePath, string? previousRelativePath, string? contentHash, long size, DateTimeOffset sourceModifiedAt, FileChangeKind changeKind, DateTimeOffset recordedAt, string? quickHash = null, int? quickHashScheme = null, string? linkTarget = null) { }
 
         public void CompleteSnapshot(long snapshotId, DateTimeOffset completedAt, SnapshotStats stats)
         {

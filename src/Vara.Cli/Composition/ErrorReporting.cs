@@ -69,6 +69,7 @@ public static class ErrorReporting
                 or PruneConfirmationRequiredException
                 or NoHistoryForPathException
                 or NoMatchingVersionException
+                or RestoreLinkedEntryException
                 or RestoreDestinationInMirrorException
                 or DestinationExistsException
                 or RestoreDirectoryConfirmationRequiredException

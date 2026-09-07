@@ -204,6 +204,35 @@ public class SnapshotHistoryServiceTests
     }
 
     [Fact]
+    public void RestoreVersion_of_a_linked_entry_throws_RestoreLinkedEntry_instead_of_extracting()
+    {
+        var repository = new FakeSnapshotRepository();
+        var t0 = DateTimeOffset.UtcNow;
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, "link", null, null, 0, t0, FileChangeKind.Linked, t0, linkTarget: @"C:\target");
+        var versionId = repository.GetFileHistory("link").Single().Id;
+        var service = new SnapshotHistoryService(repository, new FakeContentStore());
+
+        var ex = Assert.Throws<RestoreLinkedEntryException>(() => service.RestoreVersion("link", versionId, "out.txt"));
+
+        Assert.Equal("link", ex.RelativePath);
+    }
+
+    [Fact]
+    public void RestoreAsOf_of_a_linked_entry_throws_RestoreLinkedEntry_instead_of_extracting()
+    {
+        var repository = new FakeSnapshotRepository();
+        var t0 = DateTimeOffset.UtcNow;
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, "link", null, null, 0, t0, FileChangeKind.Linked, t0, linkTarget: @"C:\target");
+        var service = new SnapshotHistoryService(repository, new FakeContentStore());
+
+        var ex = Assert.Throws<RestoreLinkedEntryException>(() => service.RestoreAsOf("link", t0.AddDays(1), "out.txt"));
+
+        Assert.Equal("link", ex.RelativePath);
+    }
+
+    [Fact]
     public void RestoreAsOf_to_a_destination_within_the_mirror_throws_even_when_overwrite_is_true()
     {
         var contentStore = new FakeContentStore();
@@ -829,6 +858,45 @@ public class SnapshotHistoryServiceTests
     }
 
     [Fact]
+    public void PlanDirectoryRestore_excludes_a_tracked_symlink_from_ToWrite_and_reports_it_as_skipped()
+    {
+        var repository = new FakeSnapshotRepository();
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, @"src\a.txt", null, "hash-1", 10, t0, FileChangeKind.Added, t0);
+        repository.RecordFileVersion(s1, @"src\link", null, null, 0, t0, FileChangeKind.Linked, t0, linkTarget: @"C:\target");
+        var service = new SnapshotHistoryService(repository, new FakeContentStore());
+
+        var plan = service.PlanDirectoryRestore("src", asOf: null, outRoot: @"C:\out", inPlace: false);
+
+        Assert.Single(plan.ToWrite, e => e.RelativePath == @"src\a.txt");
+        Assert.DoesNotContain(plan.ToWrite, e => e.RelativePath == @"src\link");
+        Assert.Contains(@"src\link", plan.Skipped);
+        Assert.DoesNotContain(@"src\link", plan.ToRemove);
+    }
+
+    [Fact]
+    public void PlanDirectoryRestore_does_not_remove_a_symlink_that_is_live_at_the_requested_date_even_if_a_stale_destination_file_exists()
+    {
+        // A symlink/junction live at the requested date contributes nothing to ToWrite
+        // (it has no stored content), but it must still count as "live at that date" for
+        // ToRemove purposes - otherwise it would look indistinguishable from a path that
+        // was never live at all, and get spuriously removed.
+        var contentStore = new FakeContentStore();
+        var repository = new FakeSnapshotRepository();
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, @"src\link", null, null, 0, t0, FileChangeKind.Linked, t0, linkTarget: @"C:\target");
+        contentStore.SeedExistingTarget(@"C:\out\link");
+        var service = new SnapshotHistoryService(repository, contentStore);
+
+        var plan = service.PlanDirectoryRestore("src", asOf: t0.AddHours(1), outRoot: @"C:\out", inPlace: false);
+
+        Assert.DoesNotContain(@"C:\out\link", plan.ToRemove);
+        Assert.Contains(@"src\link", plan.Skipped);
+    }
+
+    [Fact]
     public void PlanDirectoryRestore_computes_removals_for_paths_live_now_but_not_at_the_requested_date()
     {
         var contentStore = new FakeContentStore();
@@ -932,7 +1000,8 @@ public class SnapshotHistoryServiceTests
                     new DirectoryRestoreEntry(@"src\sub\c.txt", hashC, sizeC, destinationC),
                 ],
                 ToRemove: [toRemove],
-                TotalBytes: sizeA + sizeC);
+                TotalBytes: sizeA + sizeC,
+                Skipped: []);
             var service = new SnapshotHistoryService(new FakeSnapshotRepository(), contentStore);
 
             var chunkReports = new List<long>();
@@ -948,6 +1017,36 @@ public class SnapshotHistoryServiceTests
             Assert.False(File.Exists(toRemove));
             Assert.Equal(plan.TotalBytes, resolvedSize);
             Assert.Equal(plan.TotalBytes, chunkReports.Sum());
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ExecuteDirectoryRestore_performs_no_io_for_a_skipped_entry_and_does_not_throw()
+    {
+        var contentStore = new FakeContentStore();
+        var (hashA, sizeA) = contentStore.StoreFromStream(new MemoryStream("content a"u8.ToArray()));
+        var tempRoot = Path.Combine(Path.GetTempPath(), $"vara-dirrestore-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempRoot);
+        var destinationA = Path.Combine(tempRoot, "a.txt");
+        var linkDestination = Path.Combine(tempRoot, "link");
+
+        try
+        {
+            var plan = new DirectoryRestorePlan(
+                ToWrite: [new DirectoryRestoreEntry(@"src\a.txt", hashA, sizeA, destinationA)],
+                ToRemove: [],
+                TotalBytes: sizeA,
+                Skipped: [@"src\link"]);
+            var service = new SnapshotHistoryService(new FakeSnapshotRepository(), contentStore);
+
+            service.ExecuteDirectoryRestore(plan);
+
+            Assert.Equal("content a", File.ReadAllText(destinationA));
+            Assert.False(File.Exists(linkDestination));
         }
         finally
         {

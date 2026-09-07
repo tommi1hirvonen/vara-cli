@@ -76,7 +76,8 @@ public class BackupPlannerTests : IDisposable
         var operation = Assert.Single(plan.Operations);
         Assert.Equal(PlannedOperationKind.Link, operation.Kind);
         Assert.Equal("link", operation.RelativePath);
-        Assert.Equal(@"C:\target", operation.KnownContentHash);
+        Assert.Null(operation.KnownContentHash);
+        Assert.Equal(@"C:\target", operation.LinkTarget);
         Assert.Equal(0, plan.TotalBytesToTransfer);
     }
 

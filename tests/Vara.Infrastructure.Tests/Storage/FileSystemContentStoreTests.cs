@@ -797,6 +797,33 @@ public class FileSystemContentStoreTests : IDisposable
     }
 
     [Fact]
+    public void HasContent_with_an_empty_hash_throws_a_clear_exception_instead_of_an_indexing_error()
+    {
+        // Regression coverage: BlobPath used to index hash[..2] unguarded, throwing an
+        // opaque ArgumentOutOfRangeException. Note upstream callers (BackupExecutor) now
+        // avoid ever reaching a content-store blob-path call with a missing hash (a
+        // Delete of a path whose most recent state was itself a link skips the call
+        // entirely) - this asserts the content store's own defense-in-depth guard for
+        // any other caller that reaches BlobPath with a missing hash.
+        var store = CreateStore();
+
+        var ex = Assert.Throws<MissingContentHashException>(() => store.HasContent(string.Empty));
+
+        Assert.IsNotType<ArgumentOutOfRangeException>(ex);
+    }
+
+    [Fact]
+    public void ExtractTo_with_an_empty_hash_throws_a_clear_exception_instead_of_an_indexing_error()
+    {
+        var store = CreateStore();
+
+        var ex = Assert.Throws<MissingContentHashException>(
+            () => store.ExtractTo(string.Empty, Path.Combine(_targetRoot, "out.txt")));
+
+        Assert.IsNotType<ArgumentOutOfRangeException>(ex);
+    }
+
+    [Fact]
     public void PlaceAtMirrorPath_does_not_weaken_protection_on_a_deduplicated_sibling_mirror_path_after_an_overwrite()
     {
         // Same shared-attribute hazard as the RemoveFromMirror case, but for the "Changed

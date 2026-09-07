@@ -507,7 +507,15 @@ public sealed class FileSystemContentStore : IContentStore
             .ToHashSet();
     }
 
-    private string BlobPath(string hash) => Path.Combine(_versionsRoot, hash[..2], hash);
+    private string BlobPath(string hash)
+    {
+        if (string.IsNullOrEmpty(hash))
+        {
+            throw new MissingContentHashException();
+        }
+
+        return Path.Combine(_versionsRoot, hash[..2], hash);
+    }
 
     /// <summary>
     /// Test-only seam: bypasses the real hardlink probe so the copy-fallback code path

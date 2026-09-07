@@ -14,12 +14,16 @@ public sealed record DirectoryRestoreEntry(string RelativePath, string ContentHa
 /// The full set of writes and removals a directory restore will perform, computed entirely from
 /// manifest data before any file is touched, per the snapshot-history capability's "Restore a
 /// directory at a given date" requirement - so a single confirmation can report exact counts
-/// before anything changes.
+/// before anything changes. <see cref="Skipped"/> lists every path tracked as live at the
+/// requested date as a symlink/junction entry - it has no stored content to extract, so it is
+/// omitted from <see cref="ToWrite"/> (and never added to <see cref="ToRemove"/> either) rather
+/// than causing the whole restore to fail.
 /// </summary>
 public sealed record DirectoryRestorePlan(
     IReadOnlyList<DirectoryRestoreEntry> ToWrite,
     IReadOnlyList<string> ToRemove,
-    long TotalBytes);
+    long TotalBytes,
+    IReadOnlyList<string> Skipped);
 
 /// <summary>
 /// Browsing recorded snapshots/versions and restoring historical file content for a
@@ -69,6 +73,7 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
     /// </param>
     /// <exception cref="NoHistoryForPathException">The path was never part of any recorded snapshot.</exception>
     /// <exception cref="NoMatchingVersionException">No version of the path existed as of that date.</exception>
+    /// <exception cref="RestoreLinkedEntryException">The resolved version is a symlink/junction entry with no stored content.</exception>
     /// <exception cref="RestoreDestinationInMirrorException">The destination resolves inside the profile's live mirror.</exception>
     /// <exception cref="DestinationExistsException">The destination already exists and <paramref name="overwrite"/> is <c>false</c>.</exception>
     public void RestoreAsOf(
@@ -80,10 +85,11 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
         Action<long>? onSizeResolved = null)
     {
         var match = ResolveVersion(relativePath, versionId: null, asOf);
+        GuardNotLinked(relativePath, match);
 
         GuardDestination(destinationPath, overwrite);
         onSizeResolved?.Invoke(match.Size);
-        contentStore.ExtractTo(match.ContentHash, destinationPath, onBytesCopied);
+        contentStore.ExtractTo(match.ContentHash!, destinationPath, onBytesCopied);
     }
 
     /// <summary>
@@ -107,6 +113,7 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
     /// </param>
     /// <exception cref="NoHistoryForPathException">The path was never part of any recorded snapshot.</exception>
     /// <exception cref="NoMatchingVersionException">No such version id exists for the path.</exception>
+    /// <exception cref="RestoreLinkedEntryException">The resolved version is a symlink/junction entry with no stored content.</exception>
     /// <exception cref="RestoreDestinationInMirrorException">The destination resolves inside the profile's live mirror.</exception>
     /// <exception cref="DestinationExistsException">The destination already exists and <paramref name="overwrite"/> is <c>false</c>.</exception>
     public void RestoreVersion(
@@ -118,10 +125,11 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
         Action<long>? onSizeResolved = null)
     {
         var match = ResolveVersion(relativePath, versionId, asOf: null);
+        GuardNotLinked(relativePath, match);
 
         GuardDestination(destinationPath, overwrite);
         onSizeResolved?.Invoke(match.Size);
-        contentStore.ExtractTo(match.ContentHash, destinationPath, onBytesCopied);
+        contentStore.ExtractTo(match.ContentHash!, destinationPath, onBytesCopied);
     }
 
     /// <summary>
@@ -364,6 +372,8 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
             inPlace ? AbsolutePathMirrorMapper.FromMirrorPath(relativePath) : Path.Combine(outRoot!, subPath);
 
         var toWrite = new List<DirectoryRestoreEntry>();
+        var skipped = new List<string>();
+        var historicalPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (path, state) in historical)
         {
             if (!TryGetDescendantSubPath(path, prefix, out var subPath))
@@ -372,10 +382,21 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
             }
 
             anyTracked = true;
-            toWrite.Add(new DirectoryRestoreEntry(path, state.ContentHash, state.Size, ComputeDestination(path, subPath)));
-        }
+            historicalPaths.Add(path);
 
-        var historicalPaths = new HashSet<string>(toWrite.Select(e => e.RelativePath), StringComparer.OrdinalIgnoreCase);
+            // A path tracked as live at the requested date as a symlink/junction has no
+            // stored content to extract (its ContentHash is always null) - it is
+            // reported as skipped rather than written, and (via historicalPaths above)
+            // also never added to ToRemove even though it contributes nothing to
+            // ToWrite, per the "Restore a directory at a given date" requirement.
+            if (state.IsLinked)
+            {
+                skipped.Add(path);
+                continue;
+            }
+
+            toWrite.Add(new DirectoryRestoreEntry(path, state.ContentHash!, state.Size, ComputeDestination(path, subPath)));
+        }
 
         var toRemove = new List<string>();
         foreach (var (path, _) in current)
@@ -431,7 +452,7 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
             }
         }
 
-        return new DirectoryRestorePlan(toWrite, toRemove, toWrite.Sum(e => e.Size));
+        return new DirectoryRestorePlan(toWrite, toRemove, toWrite.Sum(e => e.Size), skipped);
     }
 
     /// <summary>
@@ -505,6 +526,22 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
         return history.FirstOrDefault(r => r.RecordedAt <= asOf!.Value) is { ChangeKind: not FileChangeKind.Deleted } match
             ? match
             : throw new NoMatchingVersionException(relativePath, asOf!.Value);
+    }
+
+    /// <summary>
+    /// Guards against extracting a resolved version that is a <see cref="FileChangeKind.Linked"/>
+    /// entry - a symlink/junction has no content-store hash to extract
+    /// (<see cref="FileVersionRecord.ContentHash"/> is always <c>null</c> for one), so calling
+    /// <see cref="IContentStore.ExtractTo"/> for it would fail with an unrelated internal
+    /// error rather than a clear, actionable message.
+    /// </summary>
+    /// <exception cref="RestoreLinkedEntryException">The resolved version is a symlink/junction entry.</exception>
+    private static void GuardNotLinked(string relativePath, FileVersionRecord match)
+    {
+        if (match.ChangeKind == FileChangeKind.Linked)
+        {
+            throw new RestoreLinkedEntryException(relativePath);
+        }
     }
 
     /// <summary>

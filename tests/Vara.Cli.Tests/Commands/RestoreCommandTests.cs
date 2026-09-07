@@ -3,6 +3,7 @@ using Vara.Cli.Commands;
 using Vara.Cli.Composition;
 using Vara.Core.Abstractions;
 using Vara.Core.Configuration;
+using Vara.Core.Snapshots;
 using Xunit;
 
 namespace Vara.Cli.Tests.Commands;
@@ -56,5 +57,33 @@ public class RestoreCommandTests
         var exitCode = command.Parse(["src", "--at", "2025-01-15", "--version", "5", "--out", @"C:\out"]).Invoke();
 
         Assert.Equal(1, exitCode);
+    }
+
+    [Fact]
+    public void SelectableVersionsForInteractivePicker_excludes_deleted_and_linked_versions()
+    {
+        var t0 = DateTimeOffset.UtcNow;
+        var added = new FileVersionRecord(1, 1, "a.txt", null, "hash-1", 5, t0, FileChangeKind.Added, t0);
+        var deleted = new FileVersionRecord(2, 2, "a.txt", null, "hash-1", 5, t0.AddMinutes(1), FileChangeKind.Deleted, t0.AddMinutes(1));
+        var linked = new FileVersionRecord(3, 3, "a.txt", null, null, 0, t0.AddMinutes(2), FileChangeKind.Linked, t0.AddMinutes(2), LinkTarget: @"C:\target");
+        var history = new List<FileVersionRecord> { linked, deleted, added };
+
+        var selectable = RestoreCommand.SelectableVersionsForInteractivePicker(history);
+
+        Assert.Single(selectable);
+        Assert.Equal(added, selectable[0]);
+    }
+
+    [Fact]
+    public void SelectableVersionsForInteractivePicker_is_empty_when_every_version_is_deleted_or_linked()
+    {
+        var t0 = DateTimeOffset.UtcNow;
+        var deleted = new FileVersionRecord(1, 1, "link", null, "hash-1", 5, t0, FileChangeKind.Deleted, t0);
+        var linked = new FileVersionRecord(2, 2, "link", null, null, 0, t0.AddMinutes(1), FileChangeKind.Linked, t0.AddMinutes(1), LinkTarget: @"C:\target");
+        var history = new List<FileVersionRecord> { linked, deleted };
+
+        var selectable = RestoreCommand.SelectableVersionsForInteractivePicker(history);
+
+        Assert.Empty(selectable);
     }
 }

@@ -49,11 +49,20 @@ public sealed class BackupPlanner(IHasher hasher, int maxDegreeOfParallelism = 0
             {
                 // Metadata-only, like Move/Delete below - never a move candidate (its
                 // size is always 0 and it has no real content to hash), and no bytes to
-                // transfer. KnownContentHash carries the link's target path rather than
-                // a content-store hash, since the target is never read.
+                // transfer. LinkTarget carries the link's target path; KnownContentHash
+                // stays null since there is no content-store hash for a link.
+                // PreviousContentHash is set only for a file-to-link transition (the
+                // path was not already tracked as a link), carrying the superseded
+                // content's hash so the executor can remove it from the mirror - a Link
+                // op otherwise performs no mirror I/O.
+                var previousLinkContentHash = currentState.TryGetValue(change.Entry.RelativePath, out var previousLinkState) && !previousLinkState.IsLinked
+                    ? previousLinkState.ContentHash
+                    : null;
                 operations.Add(new PlannedOperation(
                     PlannedOperationKind.Link, change.Entry.RelativePath, null, null,
-                    change.Entry.Size, change.Entry.ModifiedAt, change.Entry.LinkTarget ?? string.Empty));
+                    change.Entry.Size, change.Entry.ModifiedAt, null,
+                    PreviousContentHash: previousLinkContentHash,
+                    LinkTarget: change.Entry.LinkTarget));
                 continue;
             }
 

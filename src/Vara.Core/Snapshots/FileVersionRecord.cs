@@ -16,10 +16,11 @@ public enum FileChangeKind
     /// A symbolic link or junction was observed at this path - either for the first
     /// time, or replacing a previously tracked regular file. Distinct from
     /// <see cref="Deleted"/>: the path is still live, just not a regular file with
-    /// backed-up content. <see cref="FileVersionRecord.ContentHash"/> holds the link's
-    /// target path rather than a content-store hash, since the target is never
-    /// followed or copied (backup-execution spec's "Symlinks and junctions are not
-    /// followed" requirement).
+    /// backed-up content. <see cref="FileVersionRecord.LinkTarget"/> holds the link's
+    /// target path; <see cref="FileVersionRecord.ContentHash"/> is <c>null</c> for a
+    /// <see cref="Linked"/> row, since the target is never followed or copied into the
+    /// content store (backup-execution spec's "Symlinks and junctions are not followed"
+    /// requirement).
     /// </summary>
     Linked,
 }
@@ -36,19 +37,23 @@ public enum FileChangeKind
 /// full-content read. Both are <c>null</c> for rows recorded before this capability
 /// existed or under an incompatible scheme - move detection treats that identically to
 /// "no signature available" and falls back to a full-content comparison.
+/// <see cref="ContentHash"/> is <c>null</c> for a <see cref="FileChangeKind.Linked"/>
+/// row, which carries its target path in <see cref="LinkTarget"/> instead - the two are
+/// mutually exclusive, never both set.
 /// </summary>
 public sealed record FileVersionRecord(
     long Id,
     long SnapshotId,
     string RelativePath,
     string? PreviousRelativePath,
-    string ContentHash,
+    string? ContentHash,
     long Size,
     DateTimeOffset SourceModifiedAt,
     FileChangeKind ChangeKind,
     DateTimeOffset RecordedAt,
     string? QuickHash = null,
-    int? QuickHashScheme = null);
+    int? QuickHashScheme = null,
+    string? LinkTarget = null);
 
 /// <summary>
 /// The current (as of the latest snapshot) state of a tracked, non-deleted file path.
@@ -57,13 +62,15 @@ public sealed record FileVersionRecord(
 /// recent record for this path is a <see cref="FileChangeKind.Linked"/> entry, so
 /// <see cref="BackupDiffer"/> (Vara.Application.Backup) can tell a symlink that's
 /// already tracked as such (no new pending change needed) apart from a path newly
-/// becoming a link (which needs one).
+/// becoming a link (which needs one). <see cref="ContentHash"/> is <c>null</c> and
+/// <see cref="LinkTarget"/> is set exactly when <see cref="IsLinked"/> is <c>true</c>.
 /// </summary>
 public sealed record CurrentFileState(
     string RelativePath,
-    string ContentHash,
+    string? ContentHash,
     long Size,
     DateTimeOffset SourceModifiedAt,
     string? QuickHash = null,
     int? QuickHashScheme = null,
-    bool IsLinked = false);
+    bool IsLinked = false,
+    string? LinkTarget = null);

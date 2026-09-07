@@ -251,6 +251,79 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
+    public void Executing_a_link_records_a_null_content_hash_and_the_scanned_target()
+    {
+        var plan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Link, "link", null, null, 0, DateTimeOffset.UtcNow, null, LinkTarget: @"C:\target")],
+            0);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+
+        var record = Assert.Single(_repository.GetFileHistory("link"));
+        Assert.Equal(Vara.Core.Snapshots.FileChangeKind.Linked, record.ChangeKind);
+        Assert.Null(record.ContentHash);
+        Assert.Equal(@"C:\target", record.LinkTarget);
+    }
+
+    [Fact]
+    public void A_file_to_link_transition_removes_the_files_previous_mirror_copy()
+    {
+        // The path was previously tracked as a regular file with mirrored content
+        // ("old-hash"); BackupPlanner surfaces that as PreviousContentHash on the Link
+        // operation so the executor can clean up the now-stale mirror copy.
+        _contentStore.PlaceAtMirrorPath("old-hash", "was-a-file");
+        var plan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Link, "was-a-file", null, null, 0, DateTimeOffset.UtcNow, null,
+                PreviousContentHash: "old-hash", LinkTarget: @"C:\target")],
+            0);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+
+        Assert.False(_contentStore.Mirror.ContainsKey("was-a-file"));
+        Assert.Equal("old-hash", _contentStore.RemoveFromMirrorHashesSeen["was-a-file"]);
+    }
+
+    [Fact]
+    public void A_link_with_no_prior_file_content_performs_no_mirror_removal()
+    {
+        // A path newly observed as a link (never previously tracked as a regular file)
+        // has no PreviousContentHash - there is nothing in the mirror to remove.
+        var plan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Link, "brand-new-link", null, null, 0, DateTimeOffset.UtcNow, null, LinkTarget: @"C:\target")],
+            0);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+
+        Assert.False(_contentStore.RemoveFromMirrorHashesSeen.ContainsKey("brand-new-link"));
+    }
+
+    [Fact]
+    public void Deleting_a_path_whose_most_recent_state_was_itself_a_link_performs_no_mirror_removal_and_does_not_throw()
+    {
+        // BackupPlanner leaves KnownContentHash null for a Delete of a path whose most
+        // recent state was a Linked entry - there was never a content-store blob for it.
+        var plan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Delete, "removed-link", null, null, 0, DateTimeOffset.UtcNow, null)],
+            0);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+
+        Assert.Equal(1, outcome.FilesDeleted);
+        Assert.Empty(outcome.FailedPaths);
+        Assert.False(_contentStore.RemoveFromMirrorHashesSeen.ContainsKey("removed-link"));
+        var record = Assert.Single(_repository.GetFileHistory("removed-link"));
+        Assert.Null(record.ContentHash);
+    }
+
+    [Fact]
     public void The_transfer_phase_starting_callback_fires_once_after_moves_deletes_and_before_any_transfer()
     {
         // A move and a delete both precede the add in the plan's operation list, but

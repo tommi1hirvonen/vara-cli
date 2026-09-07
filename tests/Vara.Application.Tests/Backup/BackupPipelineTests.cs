@@ -460,7 +460,8 @@ public class BackupPipelineTests : IDisposable
         var linkHistory = repository.GetFileHistory("link");
         var linkRecord = Assert.Single(linkHistory);
         Assert.Equal(FileChangeKind.Linked, linkRecord.ChangeKind);
-        Assert.Equal(@"C:\target", linkRecord.ContentHash);
+        Assert.Null(linkRecord.ContentHash);
+        Assert.Equal(@"C:\target", linkRecord.LinkTarget);
 
         var fileHistory = repository.GetFileHistory("regular.txt");
         Assert.DoesNotContain(fileHistory, r => r.ChangeKind == FileChangeKind.Deleted);

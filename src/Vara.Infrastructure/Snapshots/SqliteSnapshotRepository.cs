@@ -102,13 +102,14 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
                     snapshot_id INTEGER NOT NULL REFERENCES snapshots(id),
                     relative_path TEXT NOT NULL COLLATE NOCASE,
                     previous_relative_path TEXT NULL,
-                    content_hash TEXT NOT NULL,
+                    content_hash TEXT NULL,
                     size INTEGER NOT NULL,
                     source_modified_at TEXT NOT NULL,
                     change_kind TEXT NOT NULL,
                     recorded_at TEXT NOT NULL,
                     quick_hash TEXT NULL,
-                    quick_hash_scheme INTEGER NULL
+                    quick_hash_scheme INTEGER NULL,
+                    link_target TEXT NULL
                 );
 
                 CREATE INDEX IF NOT EXISTS idx_file_versions_relative_path ON file_versions(relative_path, id);
@@ -153,18 +154,19 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
                     snapshot_id INTEGER NOT NULL REFERENCES snapshots(id),
                     relative_path TEXT NOT NULL COLLATE NOCASE,
                     previous_relative_path TEXT NULL,
-                    content_hash TEXT NOT NULL,
+                    content_hash TEXT NULL,
                     size INTEGER NOT NULL,
                     source_modified_at TEXT NOT NULL,
                     change_kind TEXT NOT NULL,
                     recorded_at TEXT NOT NULL,
                     quick_hash TEXT NULL,
-                    quick_hash_scheme INTEGER NULL
+                    quick_hash_scheme INTEGER NULL,
+                    link_target TEXT NULL
                 );
 
                 INSERT INTO file_versions_migrated
-                    (id, snapshot_id, relative_path, previous_relative_path, content_hash, size, source_modified_at, change_kind, recorded_at, quick_hash, quick_hash_scheme)
-                SELECT id, snapshot_id, relative_path, previous_relative_path, content_hash, size, source_modified_at, change_kind, recorded_at, quick_hash, quick_hash_scheme
+                    (id, snapshot_id, relative_path, previous_relative_path, content_hash, size, source_modified_at, change_kind, recorded_at, quick_hash, quick_hash_scheme, link_target)
+                SELECT id, snapshot_id, relative_path, previous_relative_path, content_hash, size, source_modified_at, change_kind, recorded_at, quick_hash, quick_hash_scheme, NULL
                 FROM file_versions;
 
                 DROP TABLE file_versions;
@@ -214,32 +216,34 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
         long snapshotId,
         string relativePath,
         string? previousRelativePath,
-        string contentHash,
+        string? contentHash,
         long size,
         DateTimeOffset sourceModifiedAt,
         FileChangeKind changeKind,
         DateTimeOffset recordedAt,
         string? quickHash = null,
-        int? quickHashScheme = null)
+        int? quickHashScheme = null,
+        string? linkTarget = null)
     {
         using var command = RequireConnection().CreateCommand();
         command.Transaction = _activeBatchTransaction;
         command.CommandText = """
             INSERT INTO file_versions
-                (snapshot_id, relative_path, previous_relative_path, content_hash, size, source_modified_at, change_kind, recorded_at, quick_hash, quick_hash_scheme)
+                (snapshot_id, relative_path, previous_relative_path, content_hash, size, source_modified_at, change_kind, recorded_at, quick_hash, quick_hash_scheme, link_target)
             VALUES
-                ($snapshotId, $relativePath, $previousPath, $hash, $size, $sourceModifiedAt, $changeKind, $recordedAt, $quickHash, $quickHashScheme)
+                ($snapshotId, $relativePath, $previousPath, $hash, $size, $sourceModifiedAt, $changeKind, $recordedAt, $quickHash, $quickHashScheme, $linkTarget)
             """;
         command.Parameters.AddWithValue("$snapshotId", snapshotId);
         command.Parameters.AddWithValue("$relativePath", relativePath);
         command.Parameters.AddWithValue("$previousPath", (object?)previousRelativePath ?? DBNull.Value);
-        command.Parameters.AddWithValue("$hash", contentHash);
+        command.Parameters.AddWithValue("$hash", (object?)contentHash ?? DBNull.Value);
         command.Parameters.AddWithValue("$size", size);
         command.Parameters.AddWithValue("$sourceModifiedAt", ToIso(sourceModifiedAt));
         command.Parameters.AddWithValue("$changeKind", changeKind.ToString());
         command.Parameters.AddWithValue("$recordedAt", ToIso(recordedAt));
         command.Parameters.AddWithValue("$quickHash", (object?)quickHash ?? DBNull.Value);
         command.Parameters.AddWithValue("$quickHashScheme", (object?)quickHashScheme ?? DBNull.Value);
+        command.Parameters.AddWithValue("$linkTarget", (object?)linkTarget ?? DBNull.Value);
         command.ExecuteNonQuery();
     }
 
@@ -371,7 +375,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
 
         using var command = _connection.CreateCommand();
         command.CommandText = """
-            SELECT fv.relative_path, fv.content_hash, fv.size, fv.source_modified_at, fv.quick_hash, fv.quick_hash_scheme, fv.change_kind
+            SELECT fv.relative_path, fv.content_hash, fv.size, fv.source_modified_at, fv.quick_hash, fv.quick_hash_scheme, fv.change_kind, fv.link_target
             FROM file_versions fv
             INNER JOIN (
                 SELECT relative_path, MAX(id) AS max_id
@@ -389,12 +393,13 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
             var relativePath = reader.GetString(0);
             result[relativePath] = new CurrentFileState(
                 relativePath,
-                reader.GetString(1),
+                reader.IsDBNull(1) ? null : reader.GetString(1),
                 reader.GetInt64(2),
                 ParseIso(reader.GetString(3)),
                 reader.IsDBNull(4) ? null : reader.GetString(4),
                 reader.IsDBNull(5) ? null : reader.GetInt32(5),
-                reader.GetString(6) == nameof(FileChangeKind.Linked));
+                reader.GetString(6) == nameof(FileChangeKind.Linked),
+                reader.IsDBNull(7) ? null : reader.GetString(7));
         }
 
         return result;
@@ -409,7 +414,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
 
         using var command = _connection.CreateCommand();
         command.CommandText = """
-            SELECT fv.relative_path, fv.content_hash, fv.size, fv.source_modified_at, fv.quick_hash, fv.quick_hash_scheme, fv.change_kind
+            SELECT fv.relative_path, fv.content_hash, fv.size, fv.source_modified_at, fv.quick_hash, fv.quick_hash_scheme, fv.change_kind, fv.link_target
             FROM file_versions fv
             INNER JOIN (
                 SELECT relative_path, MAX(id) AS max_id
@@ -429,12 +434,13 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
             var relativePath = reader.GetString(0);
             result[relativePath] = new CurrentFileState(
                 relativePath,
-                reader.GetString(1),
+                reader.IsDBNull(1) ? null : reader.GetString(1),
                 reader.GetInt64(2),
                 ParseIso(reader.GetString(3)),
                 reader.IsDBNull(4) ? null : reader.GetString(4),
                 reader.IsDBNull(5) ? null : reader.GetInt32(5),
-                reader.GetString(6) == nameof(FileChangeKind.Linked));
+                reader.GetString(6) == nameof(FileChangeKind.Linked),
+                reader.IsDBNull(7) ? null : reader.GetString(7));
         }
 
         return result;
@@ -450,7 +456,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
         using var command = _connection.CreateCommand();
         command.CommandText = asOf is null
             ? """
-              SELECT fv.id, fv.snapshot_id, fv.relative_path, fv.previous_relative_path, fv.content_hash, fv.size, fv.source_modified_at, fv.change_kind, fv.recorded_at, fv.quick_hash, fv.quick_hash_scheme
+              SELECT fv.id, fv.snapshot_id, fv.relative_path, fv.previous_relative_path, fv.content_hash, fv.size, fv.source_modified_at, fv.change_kind, fv.recorded_at, fv.quick_hash, fv.quick_hash_scheme, fv.link_target
               FROM file_versions fv
               INNER JOIN (
                   SELECT relative_path, MAX(id) AS max_id
@@ -460,7 +466,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
               WHERE fv.change_kind = $deleted
               """
             : """
-              SELECT fv.id, fv.snapshot_id, fv.relative_path, fv.previous_relative_path, fv.content_hash, fv.size, fv.source_modified_at, fv.change_kind, fv.recorded_at, fv.quick_hash, fv.quick_hash_scheme
+              SELECT fv.id, fv.snapshot_id, fv.relative_path, fv.previous_relative_path, fv.content_hash, fv.size, fv.source_modified_at, fv.change_kind, fv.recorded_at, fv.quick_hash, fv.quick_hash_scheme, fv.link_target
               FROM file_versions fv
               INNER JOIN (
                   SELECT relative_path, MAX(id) AS max_id
@@ -673,7 +679,10 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
         }
 
         using var command = _connection.CreateCommand();
-        command.CommandText = "SELECT DISTINCT content_hash FROM file_versions";
+        // Excludes NULL content_hash rows (Linked entries, which never had a
+        // content-store blob - their target path lives in link_target instead) so a
+        // tracked symlink/junction is never treated as a referenced blob to verify.
+        command.CommandText = "SELECT DISTINCT content_hash FROM file_versions WHERE content_hash IS NOT NULL";
 
         var result = new HashSet<string>();
         using var reader = command.ExecuteReader();
@@ -715,7 +724,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
 
         using var command = _connection.CreateCommand();
         command.CommandText = """
-            SELECT id, snapshot_id, relative_path, previous_relative_path, content_hash, size, source_modified_at, change_kind, recorded_at, quick_hash, quick_hash_scheme
+            SELECT id, snapshot_id, relative_path, previous_relative_path, content_hash, size, source_modified_at, change_kind, recorded_at, quick_hash, quick_hash_scheme, link_target
             FROM file_versions
             WHERE relative_path = $path
             ORDER BY id DESC
@@ -753,13 +762,14 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
         SnapshotId: reader.GetInt64(1),
         RelativePath: reader.GetString(2),
         PreviousRelativePath: reader.IsDBNull(3) ? null : reader.GetString(3),
-        ContentHash: reader.GetString(4),
+        ContentHash: reader.IsDBNull(4) ? null : reader.GetString(4),
         Size: reader.GetInt64(5),
         SourceModifiedAt: ParseIso(reader.GetString(6)),
         ChangeKind: Enum.Parse<FileChangeKind>(reader.GetString(7)),
         RecordedAt: ParseIso(reader.GetString(8)),
         QuickHash: reader.IsDBNull(9) ? null : reader.GetString(9),
-        QuickHashScheme: reader.IsDBNull(10) ? null : reader.GetInt32(10));
+        QuickHashScheme: reader.IsDBNull(10) ? null : reader.GetInt32(10),
+        LinkTarget: reader.IsDBNull(11) ? null : reader.GetString(11));
 
     private static string ToIso(DateTimeOffset value) => value.ToString("o", CultureInfo.InvariantCulture);
 

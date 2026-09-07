@@ -107,13 +107,12 @@ public static class RestoreCommand
                 if (at is null && version is null)
                 {
                     // Neither given, but canPromptForVersion is true (checked above) -
-                    // present the path's recorded versions as a selectable list per the
-                    // snapshot-history delta's "Interactive version selection when
-                    // restoring" requirement, reusing HistoryTablePresenter's per-row
-                    // formatting for the prompt's choice labels.
-                    var selectable = history.GetFileHistory(path)
-                        .Where(v => v.ChangeKind != FileChangeKind.Deleted)
-                        .ToList();
+                                    // present the path's recorded versions as a selectable list per the
+                                    // snapshot-history delta's "Interactive version selection when
+                                    // restoring" requirement, reusing HistoryTablePresenter's per-row
+                                    // formatting for the prompt's choice labels. A Linked version has no
+                                    // stored content to restore, so it's excluded alongside Deleted.
+                                    var selectable = SelectableVersionsForInteractivePicker(history.GetFileHistory(path));
 
                     if (selectable.Count == 0)
                     {
@@ -311,9 +310,10 @@ public static class RestoreCommand
                 RunDirectoryRestoreWithPlainOutput(history, plan, console);
             }
 
+            var skippedClause = plan.Skipped.Count > 0 ? $", {plan.Skipped.Count} link(s) skipped" : string.Empty;
             OutcomeStyle.WriteLineSuccess(
                 AnsiConsole.Console,
-                $"Restored directory '{resolvedPath}': {plan.ToWrite.Count} file(s) written, {plan.ToRemove.Count} file(s) removed.");
+                $"Restored directory '{resolvedPath}': {plan.ToWrite.Count} file(s) written, {plan.ToRemove.Count} file(s) removed{skippedClause}.");
         }
 
         if (force)
@@ -348,6 +348,18 @@ public static class RestoreCommand
             cancelled = true;
         }
     }
+
+    /// <summary>
+    /// Filters a path's recorded history down to the versions offered by the interactive
+    /// restore-version picker: a <see cref="FileChangeKind.Deleted"/> entry has no content
+    /// at that path, and a <see cref="FileChangeKind.Linked"/> entry is a symlink/junction
+    /// with no stored content either (its <see cref="FileVersionRecord.ContentHash"/> is
+    /// always <c>null</c>) - both would just error if selected. Internal (rather than
+    /// private) so it can be unit-tested directly without simulating an interactive console
+    /// session.
+    /// </summary>
+    internal static IReadOnlyList<FileVersionRecord> SelectableVersionsForInteractivePicker(IReadOnlyList<FileVersionRecord> history) =>
+        history.Where(v => v.ChangeKind is not (FileChangeKind.Deleted or FileChangeKind.Linked)).ToList();
 
     /// <summary>
     /// Whether any tracked path, at any point in history, falls under <paramref name="candidate"/> -

@@ -307,13 +307,13 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
     }
 
     public void RecordFileVersion(
-        long snapshotId, string relativePath, string? previousRelativePath, string contentHash,
+        long snapshotId, string relativePath, string? previousRelativePath, string? contentHash,
         long size, DateTimeOffset sourceModifiedAt, FileChangeKind changeKind, DateTimeOffset recordedAt,
-        string? quickHash = null, int? quickHashScheme = null)
+        string? quickHash = null, int? quickHashScheme = null, string? linkTarget = null)
     {
         var record = new FileVersionRecord(
             _nextRecordId++, snapshotId, relativePath, previousRelativePath, contentHash, size, sourceModifiedAt, changeKind, recordedAt,
-            quickHash, quickHashScheme);
+            quickHash, quickHashScheme, linkTarget);
 
         if (_batchActive)
         {
@@ -435,7 +435,7 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
             {
                 result[latest.RelativePath] = new CurrentFileState(
                     latest.RelativePath, latest.ContentHash, latest.Size, latest.SourceModifiedAt, latest.QuickHash, latest.QuickHashScheme,
-                    latest.ChangeKind == FileChangeKind.Linked);
+                    latest.ChangeKind == FileChangeKind.Linked, latest.LinkTarget);
             }
         }
 
@@ -452,7 +452,7 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
             {
                 result[latest.RelativePath] = new CurrentFileState(
                     latest.RelativePath, latest.ContentHash, latest.Size, latest.SourceModifiedAt, latest.QuickHash, latest.QuickHashScheme,
-                    latest.ChangeKind == FileChangeKind.Linked);
+                    latest.ChangeKind == FileChangeKind.Linked, latest.LinkTarget);
             }
         }
 
@@ -524,7 +524,8 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
         return removable.Count;
     }
 
-    public IReadOnlySet<string> GetAllReferencedContentHashes() => _fileVersions.Select(r => r.ContentHash).ToHashSet();
+    public IReadOnlySet<string> GetAllReferencedContentHashes() =>
+        _fileVersions.Where(r => r.ContentHash is not null).Select(r => r.ContentHash!).ToHashSet();
     public IReadOnlyList<string> GetPathsForContentHash(string hash) => _fileVersions.Where(r => r.ContentHash == hash).Select(r => r.RelativePath).Distinct().ToList();
 }
 

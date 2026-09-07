@@ -619,6 +619,61 @@ public class SqliteSnapshotRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void A_fresh_database_declares_content_hash_and_link_target_as_nullable()
+    {
+        _ = Repository; // trigger creation
+
+        var tableSql = GetFileVersionsTableSql();
+        Assert.Contains("content_hash TEXT NULL", tableSql, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("content_hash TEXT NOT NULL", tableSql, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("link_target TEXT NULL", tableSql, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void A_recorded_linked_row_round_trips_a_null_content_hash_and_its_link_target()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = Repository.BeginSnapshot(now);
+        Repository.RecordFileVersion(snapshot, "link", null, null, 0, now, FileChangeKind.Linked, now, linkTarget: @"C:\target");
+
+        var history = Repository.GetFileHistory("link");
+
+        var record = Assert.Single(history);
+        Assert.Null(record.ContentHash);
+        Assert.Equal(@"C:\target", record.LinkTarget);
+        Assert.Equal(FileChangeKind.Linked, record.ChangeKind);
+    }
+
+    [Fact]
+    public void GetCurrentState_reports_a_linked_path_with_a_null_content_hash_and_its_target()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = Repository.BeginSnapshot(now);
+        Repository.RecordFileVersion(snapshot, "link", null, null, 0, now, FileChangeKind.Linked, now, linkTarget: @"C:\target");
+
+        var state = Repository.GetCurrentState()["link"];
+
+        Assert.True(state.IsLinked);
+        Assert.Null(state.ContentHash);
+        Assert.Equal(@"C:\target", state.LinkTarget);
+    }
+
+    [Fact]
+    public void GetAllReferencedContentHashes_excludes_a_linked_rows_null_content_hash()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = Repository.BeginSnapshot(now);
+        Repository.RecordFileVersion(snapshot, "a.txt", null, "hash-real", 10, now, FileChangeKind.Added, now);
+        Repository.RecordFileVersion(snapshot, "link", null, null, 0, now, FileChangeKind.Linked, now, linkTarget: @"C:\target");
+        Repository.CompleteSnapshot(snapshot, now, SnapshotStats.Empty);
+
+        var referenced = Repository.GetAllReferencedContentHashes();
+
+        Assert.Contains("hash-real", referenced);
+        Assert.Single(referenced);
+    }
+
+    [Fact]
     public void GetAllReferencedContentHashes_returns_hashes_still_present_after_a_deletion()
     {
         var now = DateTimeOffset.UtcNow;
