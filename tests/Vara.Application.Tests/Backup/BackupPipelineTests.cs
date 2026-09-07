@@ -33,6 +33,9 @@ public class BackupPipelineTests : IDisposable
 
         var ex = Assert.Throws<BackupAlreadyRunningException>(() => pipeline.Run(SimpleProfile(_root)));
         Assert.Equal("files", ex.ProfileName);
+        Assert.Equal(_root, ex.TargetRoot);
+        Assert.Contains(_root, ex.Message);
+        Assert.DoesNotContain("files' is already in progress", ex.Message);
 
         // Nothing should have been touched if the lock was never acquired.
         Assert.Empty(repository.ListSnapshots());

@@ -42,7 +42,7 @@ public sealed class BackupPipeline(
         {
             if (!runLock.TryAcquire(profile.Name, profile.TargetRoot))
             {
-                throw new BackupAlreadyRunningException(profile.Name);
+                throw new BackupAlreadyRunningException(profile.Name, profile.TargetRoot);
             }
 
             repository.ReconcileIncompleteSnapshots();

@@ -80,7 +80,7 @@ public sealed class PruneService(ISnapshotRepository repository, IContentStore c
         {
             if (!runLock.TryAcquire(profile.Name, profile.TargetRoot))
             {
-                throw new PruneAlreadyRunningException(profile.Name);
+                throw new PruneAlreadyRunningException(profile.Name, profile.TargetRoot);
             }
 
             var snapshots = repository.ListSnapshots();

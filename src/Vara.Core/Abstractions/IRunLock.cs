@@ -1,7 +1,9 @@
 namespace Vara.Core.Abstractions;
 
 /// <summary>
-/// Prevents two backup runs from executing concurrently against the same profile's target.
+/// Prevents two runs (backup or prune) from executing concurrently against the same
+/// target root. The lock is shared across both backup and prune runs and is keyed by
+/// target, not by profile.
 /// </summary>
 public interface IRunLock : IDisposable
 {

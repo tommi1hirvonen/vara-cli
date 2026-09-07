@@ -193,7 +193,10 @@ public class PruneServiceTests
     {
         var service = new PruneService(new FakeSnapshotRepository(), new FakeContentStore(), new FakeRunLock(acquirable: false));
 
-        Assert.Throws<PruneAlreadyRunningException>(() => service.Prune(ProfileWithRetention(new RetentionPolicy(1, 0, 0, 0))));
+        var ex = Assert.Throws<PruneAlreadyRunningException>(() => service.Prune(ProfileWithRetention(new RetentionPolicy(1, 0, 0, 0))));
+        Assert.Equal("files", ex.ProfileName);
+        Assert.Equal(@"D:\backup", ex.TargetRoot);
+        Assert.Contains(@"D:\backup", ex.Message);
     }
 
     [Fact]

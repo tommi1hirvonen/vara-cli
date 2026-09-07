@@ -1,14 +1,21 @@
 namespace Vara.Core.Backup;
 
 /// <summary>
-/// A prune run was requested for a profile while a backup (or another prune) run for
-/// the same profile was already in progress - prune shares the same per-profile run
-/// lock as backup so the two never operate on the target concurrently.
+/// A prune run was requested for a profile while the shared per-target run lock was
+/// already held by another run (backup or prune) - prune shares the same per-target
+/// run lock as backup so the two never operate on the target concurrently. The lock
+/// is keyed by target, not by profile, so the actual holder could be a different
+/// profile that shares the same target root - the message describes the target as
+/// busy rather than asserting that the requesting profile itself is the one already
+/// running.
 /// </summary>
-public sealed class PruneAlreadyRunningException(string profileName)
-    : Exception($"Another operation for profile '{profileName}' is already in progress.")
+public sealed class PruneAlreadyRunningException(string profileName, string targetRoot)
+    : Exception(
+        $"Another operation is already using target '{targetRoot}'; " +
+        $"a prune run for profile '{profileName}' cannot start until it finishes.")
 {
     public string ProfileName { get; } = profileName;
+    public string TargetRoot { get; } = targetRoot;
 }
 
 /// <summary>

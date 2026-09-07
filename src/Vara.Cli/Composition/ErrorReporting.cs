@@ -1,6 +1,7 @@
 using Spectre.Console;
 using Vara.Cli.Presentation;
 using Vara.Core.Backup;
+using Vara.Core.Concurrency;
 using Vara.Core.Configuration;
 using Vara.Core.Snapshots;
 
@@ -64,6 +65,7 @@ public static class ErrorReporting
             case ProfileConfigException
                 or BackupAlreadyRunningException
                 or PruneAlreadyRunningException
+                or RunLockAccessDeniedException
                 or PruneConfirmationRequiredException
                 or NoHistoryForPathException
                 or NoMatchingVersionException

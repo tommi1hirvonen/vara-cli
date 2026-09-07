@@ -1,4 +1,5 @@
 using Vara.Core.Abstractions;
+using Vara.Core.Concurrency;
 
 namespace Vara.Infrastructure.Concurrency;
 
@@ -26,6 +27,10 @@ public sealed class FileRunLock : IRunLock
         catch (IOException)
         {
             return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            throw new RunLockAccessDeniedException(targetRoot);
         }
     }
 

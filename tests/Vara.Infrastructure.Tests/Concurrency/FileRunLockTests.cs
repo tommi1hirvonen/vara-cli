@@ -1,3 +1,4 @@
+using Vara.Core.Concurrency;
 using Vara.Infrastructure.Concurrency;
 using Xunit;
 
@@ -42,5 +43,29 @@ public class FileRunLockTests : IDisposable
 
         using var second = new FileRunLock();
         Assert.True(second.TryAcquire("files", _targetRoot));
+    }
+
+    [Fact]
+    public void TryAcquire_throws_RunLockAccessDeniedException_when_the_lock_file_cannot_be_opened()
+    {
+        var varaDir = Directory.CreateDirectory(Path.Combine(_targetRoot, ".vara")).FullName;
+        var lockPath = Path.Combine(varaDir, "run.lock");
+        File.WriteAllText(lockPath, string.Empty);
+
+        // Marking the lock file read-only forces the OS to deny the read-write open
+        // FileRunLock performs, raising UnauthorizedAccessException without needing
+        // to manipulate ACLs or run elevated.
+        File.SetAttributes(lockPath, FileAttributes.ReadOnly);
+
+        try
+        {
+            using var runLock = new FileRunLock();
+            var ex = Assert.Throws<RunLockAccessDeniedException>(() => runLock.TryAcquire("files", _targetRoot));
+            Assert.Equal(_targetRoot, ex.TargetRoot);
+        }
+        finally
+        {
+            File.SetAttributes(lockPath, FileAttributes.Normal);
+        }
     }
 }
