@@ -106,6 +106,16 @@ public class ProfileTests
 
         Assert.Equal(@"C:\Users\me", profile.TargetRoot);
     }
+
+    [Theory]
+    [InlineData(@"backup")]
+    [InlineData(@"backup\")]
+    [InlineData(@"..\backup")]
+    [InlineData(@".\backup")]
+    public void Constructing_with_a_relative_target_root_throws(string target)
+    {
+        Assert.Throws<ArgumentException>(() => new Profile("files", target, [ValidSource()], null));
+    }
 }
 
 public class SourceTests
@@ -137,6 +147,16 @@ public class SourceTests
 
         Assert.False(source.Recursive);
         Assert.Equal(["node_modules"], source.Excludes);
+    }
+
+    [Theory]
+    [InlineData(@"Documents")]
+    [InlineData(@".\src")]
+    [InlineData(@"..\src")]
+    [InlineData(@"C:data")]
+    public void Constructing_with_a_relative_path_throws(string path)
+    {
+        Assert.Throws<ArgumentException>(() => new Source(path));
     }
 }
 

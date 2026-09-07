@@ -25,6 +25,12 @@ public sealed record Profile
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(targetRoot);
+        if (!System.IO.Path.IsPathFullyQualified(targetRoot))
+        {
+            throw new ArgumentException(
+                $"Target root '{targetRoot}' must be a fully-qualified, absolute path.", nameof(targetRoot));
+        }
+
         ArgumentNullException.ThrowIfNull(sources);
         if (sources.Count == 0)
         {
@@ -90,6 +96,11 @@ public sealed record Source
         IReadOnlyList<string>? excludeGlobs = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        if (!System.IO.Path.IsPathFullyQualified(path))
+        {
+            throw new ArgumentException(
+                $"Source path '{path}' must be a fully-qualified, absolute path.", nameof(path));
+        }
 
         Path = path;
         Recursive = recursive;

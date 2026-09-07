@@ -130,7 +130,14 @@ public sealed class YamlProfileConfigLoader : IProfileConfigLoader
         var includeGlobs = GetOptionalStringList(mapping, "include_globs");
         var excludeGlobs = GetOptionalStringList(mapping, "exclude_globs");
 
-        return new Source(path, recursive, excludes, includeGlobs, excludeGlobs);
+        try
+        {
+            return new Source(path, recursive, excludes, includeGlobs, excludeGlobs);
+        }
+        catch (ArgumentException ex) when (ex.ParamName == "path")
+        {
+            throw new ProfileValidationException(profileName, ex.Message);
+        }
     }
 
     private static RetentionPolicy? ParseRetention(YamlMappingNode mapping)

@@ -125,6 +125,39 @@ public class DirectoryFileSystemScannerTests : IDisposable
     }
 
     [Fact]
+    public void A_drive_root_source_is_scanned_from_the_actual_root_not_the_current_directory()
+    {
+        // Reproduces the bug fixed by using Path.TrimEndingDirectorySeparator instead of a raw
+        // TrimEnd('\\', '/'): `subst` maps a drive letter onto _root so the test can control a
+        // drive's contents without touching a real system drive. Setting the process's current
+        // directory to a decoy subfolder on that drive is exactly the situation Windows resolves
+        // a bare "L:" (no trailing separator) against instead of the drive's actual root - which
+        // is what a naive TrimEnd produces from a configured source of "L:\". This test fails if
+        // that trailing-separator trim ever regresses to producing the bare drive-relative form.
+        WriteFile(Path_("marker.txt"), "root");
+        WriteFile(Path_("decoy", "decoyfile.txt"), "decoy");
+
+        var driveLetter = FindUnusedDriveLetter();
+        Subst(driveLetter, _root);
+        var originalCwd = Environment.CurrentDirectory;
+        try
+        {
+            Directory.SetCurrentDirectory($"{driveLetter}:\\decoy");
+
+            var entries = _scanner.Scan([new Source($"{driveLetter}:\\")]).Entries.ToList();
+
+            Assert.Equal(2, entries.Count);
+            Assert.Contains(entries, e => e.RelativePath == AbsolutePathMirrorMapper.ToMirrorPath($"{driveLetter}:\\marker.txt"));
+            Assert.Contains(entries, e => e.RelativePath == AbsolutePathMirrorMapper.ToMirrorPath($"{driveLetter}:\\decoy\\decoyfile.txt"));
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalCwd);
+            Unsubst(driveLetter);
+        }
+    }
+
+    [Fact]
     public void Missing_source_path_yields_no_entries()
     {
         var entries = _scanner.Scan([new Source(Path_("does-not-exist"))]).Entries.ToList();
@@ -203,6 +236,41 @@ public class DirectoryFileSystemScannerTests : IDisposable
         Assert.Equal(missingPath, failure.RelativePath);
         Assert.Equal(ScanFailureReason.SourceUnavailable, failure.Reason);
         Assert.Equal(AbsolutePathMirrorMapper.ToMirrorPath(missingPath), failure.MirrorPath);
+    }
+
+    /// <summary>Finds a drive letter with no filesystem currently mounted on it, for use with <see cref="Subst"/>.</summary>
+    private static char FindUnusedDriveLetter()
+    {
+        var used = DriveInfo.GetDrives().Select(d => char.ToUpperInvariant(d.Name[0])).ToHashSet();
+        for (var letter = 'Z'; letter >= 'D'; letter--)
+        {
+            if (!used.Contains(letter))
+            {
+                return letter;
+            }
+        }
+
+        throw new InvalidOperationException("No unused drive letter available for the drive-root scan test.");
+    }
+
+    /// <summary>Maps <paramref name="driveLetter"/> to <paramref name="targetPath"/> as a virtual drive, via the `subst` command. Remove with <see cref="Unsubst"/>.</summary>
+    private static void Subst(char driveLetter, string targetPath) => RunCmd($"subst {driveLetter}: \"{targetPath}\"");
+
+    /// <summary>Removes a virtual drive mapping created by <see cref="Subst"/>.</summary>
+    private static void Unsubst(char driveLetter) => RunCmd($"subst {driveLetter}: /d");
+
+    private static void RunCmd(string arguments)
+    {
+        var startInfo = new ProcessStartInfo("cmd.exe", $"/c {arguments}")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        using var process = Process.Start(startInfo)!;
+        var error = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        Assert.True(process.ExitCode == 0, $"cmd /c {arguments} failed with exit code {process.ExitCode}: {error}");
     }
 
     private static void CreateJunction(string junctionPath, string targetPath)

@@ -62,7 +62,7 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
         }
 
         var matcher = BuildGlobMatcher(source);
-        var root = source.Path.TrimEnd('\\', '/');
+        var root = Path.TrimEndingDirectorySeparator(source.Path);
 
         foreach (var path in Walk(root, source.Recursive, root, failures))
         {

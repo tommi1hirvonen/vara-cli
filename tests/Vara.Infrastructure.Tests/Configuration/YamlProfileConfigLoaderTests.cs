@@ -86,6 +86,38 @@ public class YamlProfileConfigLoaderTests
     }
 
     [Fact]
+    public void Profile_with_a_relative_target_path_throws_a_validation_error_naming_the_profile()
+    {
+        var path = WriteTempConfig(
+            """
+            profiles:
+              - name: broken
+                target: 'backup'
+                sources:
+                  - path: 'C:\data'
+            """);
+
+        var ex = Assert.Throws<ProfileValidationException>(() => _loader.LoadProfiles(path));
+        Assert.Equal("broken", ex.ProfileName);
+    }
+
+    [Fact]
+    public void Profile_with_a_relative_source_path_throws_a_validation_error_naming_the_profile()
+    {
+        var path = WriteTempConfig(
+            """
+            profiles:
+              - name: broken
+                target: 'D:\backup'
+                sources:
+                  - path: 'data'
+            """);
+
+        var ex = Assert.Throws<ProfileValidationException>(() => _loader.LoadProfiles(path));
+        Assert.Equal("broken", ex.ProfileName);
+    }
+
+    [Fact]
     public void Source_without_a_recursive_flag_defaults_to_recursive_true()
     {
         var path = WriteTempConfig(
