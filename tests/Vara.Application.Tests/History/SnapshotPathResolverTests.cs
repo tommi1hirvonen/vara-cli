@@ -132,6 +132,67 @@ public class SnapshotPathResolverTests
         Assert.Equal(@"C\Users\john\Projects\src\main.py", resolvedPath);
     }
 
+    [Fact]
+    public void When_the_working_directory_is_inside_the_mirror_the_cwd_relative_candidate_wins_over_a_coincidental_literal_match()
+    {
+        // Two distinct recorded paths: one matches the literal raw input exactly, the other
+        // matches the cwd-relative interpretation. Standing inside the mirror, the cwd-relative
+        // candidate must win, even though the literal input also happens to match elsewhere.
+        var tracked = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            @"file.txt",
+            @"C\Users\john\Projects\file.txt",
+        };
+
+        var resolved = SnapshotPathResolver.TryResolve(
+            MirrorRoot,
+            "file.txt",
+            tracked.Contains,
+            IsWithinMirror,
+            out var resolvedPath,
+            currentDirectory: MirrorRoot + @"\C\Users\john\Projects");
+
+        Assert.True(resolved);
+        Assert.Equal(@"C\Users\john\Projects\file.txt", resolvedPath);
+    }
+
+    [Fact]
+    public void When_the_working_directory_is_outside_the_mirror_the_literal_match_still_wins()
+    {
+        var tracked = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { @"C\Users\john\file.txt" };
+
+        var resolved = SnapshotPathResolver.TryResolve(
+            MirrorRoot,
+            @"C\Users\john\file.txt",
+            tracked.Contains,
+            IsWithinMirror,
+            out var resolvedPath,
+            currentDirectory: @"C:\Windows");
+
+        Assert.True(resolved);
+        Assert.Equal(@"C\Users\john\file.txt", resolvedPath);
+    }
+
+    [Fact]
+    public void When_the_working_directory_is_inside_the_mirror_and_the_cwd_relative_candidate_does_not_match_the_literal_input_is_still_used_as_a_fallback()
+    {
+        var tracked = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { @"C\Users\john\file.txt" };
+
+        // Standing inside "...\Projects", the cwd-relative candidate becomes
+        // "C\Users\john\Projects\C\Users\john\file.txt", which is not recorded, so this must
+        // fall back to the literal input.
+        var resolved = SnapshotPathResolver.TryResolve(
+            MirrorRoot,
+            @"C\Users\john\file.txt",
+            tracked.Contains,
+            IsWithinMirror,
+            out var resolvedPath,
+            currentDirectory: MirrorRoot + @"\C\Users\john\Projects");
+
+        Assert.True(resolved);
+        Assert.Equal(@"C\Users\john\file.txt", resolvedPath);
+    }
+
     /// <summary>Plain lexical containment check standing in for the reparse-aware
     /// <c>IContentStore.IsWithinMirror</c> a real caller passes - equivalent for these tests
     /// since none of them exercise a symlink/junction.</summary>

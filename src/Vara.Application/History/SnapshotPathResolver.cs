@@ -5,16 +5,19 @@ namespace Vara.Application.History;
 /// <summary>
 /// Resolves a path argument typed by a user - in any of the forms the snapshot-history
 /// capability's "Flexible path input" requirement accepts - to the mirror-relative path
-/// it should be looked up as. Tried in order, the first interpretation that the caller's
-/// <c>hasHistory</c> predicate recognizes wins:
+/// it should be looked up as. The first interpretation that the caller's <c>hasHistory</c>
+/// predicate recognizes wins, and the order in which interpretations are tried depends on
+/// whether the input, resolved against the current working directory, falls inside the
+/// mirror root:
 /// <list type="number">
-/// <item>the input taken completely literally (today's only supported form, so existing
-/// callers see no behavior change);</item>
-/// <item>the input resolved against the current working directory - if that resolves
-/// inside the mirror root, the mirror-relative remainder;</item>
-/// <item>otherwise, the input resolved against the current working directory and
-/// converted from an absolute source path to its mirror-relative form, the same way the
-/// backup pipeline derives mirror paths from source paths (<see cref="AbsolutePathMirrorMapper"/>).</item>
+/// <item>WHEN the cwd-resolved absolute path falls inside the mirror root: (a) the
+/// mirror-relative remainder of that resolved path; (b) otherwise, the input taken
+/// completely literally; (c) otherwise, the resolved path converted from an absolute
+/// source path to its mirror-relative form, the same way the backup pipeline derives
+/// mirror paths from source paths (<see cref="AbsolutePathMirrorMapper"/>);</item>
+/// <item>WHEN it does not: (a) the input taken completely literally (today's only
+/// supported form, so existing callers see no behavior change); (b) otherwise, the
+/// resolved path converted from an absolute source path to its mirror-relative form.</item>
 /// </list>
 /// </summary>
 public static class SnapshotPathResolver
@@ -52,16 +55,9 @@ public static class SnapshotPathResolver
         out string resolvedPath,
         string? currentDirectory = null)
     {
-        // (1) Literal match - preserves today's exact behavior for every existing caller.
-        if (hasHistory(rawInput))
-        {
-            resolvedPath = rawInput;
-            return true;
-        }
-
         var cwd = currentDirectory ?? Directory.GetCurrentDirectory();
 
-        string absolute;
+        string? absolute;
         try
         {
             absolute = Path.GetFullPath(rawInput, cwd);
@@ -69,25 +65,49 @@ public static class SnapshotPathResolver
         catch (ArgumentException)
         {
             // Not a well-formed filesystem path (invalid characters, etc.) - only the
-            // literal interpretation above could ever have matched.
-            resolvedPath = string.Empty;
-            return false;
+            // literal interpretation below could ever match.
+            absolute = null;
         }
 
         // isWithinMirror is reparse-aware (it may say "yes" for a path reached only through a
         // symlink/junction whose real target lies inside the mirror, even though the literal
         // path string does not start with the mirror root); TryStripMirrorRootPrefix stays
         // purely lexical. When the two disagree - contained, but no literal prefix to strip -
-        // fall through to the absolute-source-path interpretation rather than fabricating an
+        // there is no cwd-relative mirror candidate to try, so this falls through to the
+        // literal and absolute-source-path interpretations below rather than fabricating an
         // incorrect mirror-relative path from a prefix strip that doesn't apply.
-        var candidate = isWithinMirror(absolute) && TryStripMirrorRootPrefix(mirrorRoot, absolute, out var mirrorRelative)
-            ? mirrorRelative
-            : AbsolutePathMirrorMapper.ToMirrorPath(absolute);
-
-        if (hasHistory(candidate))
+        string? mirrorRelativeCandidate = null;
+        if (absolute != null && isWithinMirror(absolute) && TryStripMirrorRootPrefix(mirrorRoot, absolute, out var mirrorRelative))
         {
-            resolvedPath = candidate;
+            mirrorRelativeCandidate = mirrorRelative;
+        }
+
+        // (1, when the cwd-resolved absolute path falls inside the mirror) the cwd-relative
+        // mirror candidate is tried before the literal interpretation, so a file at the user's
+        // own location isn't shadowed by an unrelated literal match recorded elsewhere in the
+        // mirror.
+        if (mirrorRelativeCandidate != null && hasHistory(mirrorRelativeCandidate))
+        {
+            resolvedPath = mirrorRelativeCandidate;
             return true;
+        }
+
+        // Literal match - preserves today's exact behavior when the cwd-resolved absolute
+        // path does not fall inside the mirror, and serves as the fallback otherwise.
+        if (hasHistory(rawInput))
+        {
+            resolvedPath = rawInput;
+            return true;
+        }
+
+        if (absolute != null)
+        {
+            var sourcePathCandidate = AbsolutePathMirrorMapper.ToMirrorPath(absolute);
+            if (hasHistory(sourcePathCandidate))
+            {
+                resolvedPath = sourcePathCandidate;
+                return true;
+            }
         }
 
         resolvedPath = string.Empty;

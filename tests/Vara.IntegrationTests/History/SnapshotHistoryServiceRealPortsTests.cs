@@ -283,6 +283,34 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
     }
 
     [Fact]
+    public void TryResolve_reproduces_the_reported_scenario_a_cwd_relative_file_is_no_longer_shadowed_by_an_unrelated_root_level_literal_match()
+    {
+        // Reproduces the bug report end-to-end against the real FileSystemContentStore and
+        // SqliteSnapshotRepository, exactly as HistoryCommand/RestoreCommand/ShowCommand/
+        // DiffCommand call SnapshotPathResolver.TryResolve: a root-level "file.txt" is
+        // recorded (the unrelated file that used to win), and a distinct "Projects\file.txt"
+        // is also recorded. Standing inside "<mirror>\Projects" and typing the bare literal
+        // "file.txt" must now resolve to the file at the user's own location.
+        var (rootHash, _) = ContentStore.StoreFromStream(new MemoryStream("unrelated root-level content"u8.ToArray()));
+        var (projectsHash, _) = ContentStore.StoreFromStream(new MemoryStream("the file the user actually meant"u8.ToArray()));
+        var t0 = DateTimeOffset.UtcNow;
+        var s1 = Repository.BeginSnapshot(t0);
+        Repository.RecordFileVersion(s1, "file.txt", null, rootHash, 28, t0, FileChangeKind.Added, t0);
+        Repository.RecordFileVersion(s1, @"Projects\file.txt", null, projectsHash, 33, t0, FileChangeKind.Added, t0);
+
+        var resolved = SnapshotPathResolver.TryResolve(
+            _targetRoot,
+            "file.txt",
+            candidate => Repository.GetFileHistory(candidate).Count > 0,
+            ContentStore.IsWithinMirror,
+            out var resolvedPath,
+            currentDirectory: Path.Combine(_targetRoot, "Projects"));
+
+        Assert.True(resolved);
+        Assert.Equal(@"Projects\file.txt", resolvedPath);
+    }
+
+    [Fact]
     public void PlanAndExecuteDirectoryRestore_reconstructs_a_real_point_in_time_directory_to_a_fresh_out_destination()
     {
         var (hashKept, _) = ContentStore.StoreFromStream(new MemoryStream("kept content"u8.ToArray()));
