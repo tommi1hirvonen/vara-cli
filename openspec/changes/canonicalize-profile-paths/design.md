@@ -81,3 +81,14 @@ in a separate normalization pass.**
   → **Mitigation**: this is an explicit non-goal (see above); it is also a pre-existing limitation
   of `SnapshotPathResolver`'s own `Path.GetFullPath` call, so this change introduces no new
   inconsistency - it only closes the separator/relative-segment variant of the bug.
+- **[Risk]** `Path.GetFullPath` normalizes forward slashes, doubled separators, and `.`/`..`
+  segments, but does **not** strip a single trailing directory separator (confirmed:
+  `GetFullPath("C:/Data/")` → `"C:\Data\"`, while `GetFullPath("C:\Data")` → `"C:\Data"` - these
+  remain different strings). A config authored with an inconsistent trailing separator across
+  otherwise-identical source paths is therefore not fully normalized by this change.
+  → **Mitigation**: out of scope for Option A (this is not the bug reported, which was specifically
+  about mixed `/`/`\` separators). `Profile.PathsOverlap`'s own `NormalizePath` already trims a
+  trailing separator for overlap-comparison purposes, independently of this change, so overlap
+  validation is unaffected. Closing this residual gap would require trimming logic beyond a plain
+  `Path.GetFullPath` call, plus special-casing a drive root (`C:\` must not become `C:`, which is
+  drive-relative, not absolute) - deliberately left out of this minimal fix.

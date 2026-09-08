@@ -8,12 +8,14 @@ resolved against the process's current working directory when a backup, scan, or
 later runs.
 
 Once accepted, a target root or source path SHALL be stored in canonical absolute form: any
-forward slashes, redundant path separators, `.`/`..` segments, or a trailing separator that the
-configured value contains SHALL be normalized away, so that every downstream consumer (the file
-system scanner, the mirror-path mapper, and snapshot history lookups) observes and records a single
+forward slashes, redundant (doubled) path separators, or `.`/`..` segments that the configured
+value contains SHALL be normalized away, so that every downstream consumer (the file system
+scanner, the mirror-path mapper, and snapshot history lookups) observes and records a single
 consistent path string for a given location. Two differently-written configured values that denote
 the same location (for example, one using forward slashes and one using the platform's native
-separator) SHALL normalize to the identical stored string.
+separator) SHALL normalize to the identical stored string. This normalization does not strip a
+single trailing directory separator - a configured value ending in a separator remains distinct
+from the same value without one.
 
 #### Scenario: Relative target root rejected
 - **WHEN** a profile's target root is a relative path (for example, `backup\` or `..\backup`)
@@ -46,7 +48,13 @@ separator) SHALL normalize to the identical stored string.
 #### Scenario: Equivalent path forms normalize to the same stored value
 - **WHEN** two profiles (or a profile reloaded after an edit) configure a target root or source
   path for the same location using different but equivalent forms (for example, differing only in
-  separator style, a trailing separator, or a redundant `.` segment)
+  separator style, a doubled separator, or a redundant `.` segment)
 - **THEN** the system stores the same canonical path string for both, rather than two lexically
   different strings that a later exact-match lookup (such as snapshot history) would treat as
   different locations
+
+#### Scenario: Trailing separator is not stripped
+- **WHEN** a profile's target root or source path is written with a single trailing directory
+  separator (for example, `C:\Backups\vara\`)
+- **THEN** the system accepts the profile, and the stored path retains that trailing separator
+  rather than being treated as identical to the same value without one

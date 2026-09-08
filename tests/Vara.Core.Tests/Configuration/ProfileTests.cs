@@ -90,6 +90,14 @@ public class ProfileTests
     }
 
     [Fact]
+    public void Constructing_with_mixed_separator_styles_still_detects_target_source_overlap()
+    {
+        var source = new Source(@"C:\backup\Documents");
+
+        Assert.Throws<ArgumentException>(() => new Profile("files", "C:/backup", [source], null));
+    }
+
+    [Fact]
     public void Constructing_with_non_overlapping_target_and_sources_succeeds()
     {
         var profile = new Profile("files", @"D:\backup", [new Source(@"C:\data")], null);
@@ -115,6 +123,15 @@ public class ProfileTests
     public void Constructing_with_a_relative_target_root_throws(string target)
     {
         Assert.Throws<ArgumentException>(() => new Profile("files", target, [ValidSource()], null));
+    }
+
+    [Fact]
+    public void Constructing_with_a_forward_slash_target_root_normalizes_to_the_native_separator()
+    {
+        var profile = new Profile("files", "D:/backup", [ValidSource()], null);
+
+        Assert.Equal(@"D:\backup", profile.TargetRoot);
+        Assert.DoesNotContain('/', profile.TargetRoot);
     }
 
     [Fact]
@@ -209,6 +226,34 @@ public class SourceTests
     public void Constructing_with_a_relative_path_throws(string path)
     {
         Assert.Throws<ArgumentException>(() => new Source(path));
+    }
+
+    [Fact]
+    public void Constructing_with_forward_slashes_normalizes_to_the_native_separator()
+    {
+        var source = new Source("C:/Users/me/Docs");
+
+        Assert.Equal(@"C:\Users\me\Docs", source.Path);
+        Assert.DoesNotContain('/', source.Path);
+    }
+
+    [Fact]
+    public void Constructing_with_equivalent_paths_differing_only_in_separator_style_normalizes_to_the_same_value()
+    {
+        var forwardSlash = new Source("C:/Data");
+        var nativeSeparator = new Source(@"C:\Data");
+
+        Assert.Equal(forwardSlash.Path, nativeSeparator.Path);
+    }
+
+    [Fact]
+    public void Constructing_with_a_trailing_separator_preserves_it()
+    {
+        var withTrailingSeparator = new Source(@"C:\Backups\vara\");
+        var withoutTrailingSeparator = new Source(@"C:\Backups\vara");
+
+        Assert.NotEqual(withTrailingSeparator.Path, withoutTrailingSeparator.Path);
+        Assert.EndsWith(@"\", withTrailingSeparator.Path);
     }
 }
 

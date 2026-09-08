@@ -32,6 +32,8 @@ public sealed record Profile
                 $"Target root '{targetRoot}' must be a fully-qualified, absolute path.", nameof(targetRoot));
         }
 
+        targetRoot = System.IO.Path.GetFullPath(targetRoot);
+
         ArgumentNullException.ThrowIfNull(sources);
         if (sources.Count == 0)
         {
@@ -116,7 +118,7 @@ public sealed record Source
                 $"Source path '{path}' must be a fully-qualified, absolute path.", nameof(path));
         }
 
-        Path = path;
+        Path = System.IO.Path.GetFullPath(path);
         Recursive = recursive;
         Excludes = excludes ?? [];
         IncludeGlobs = includeGlobs ?? [];
