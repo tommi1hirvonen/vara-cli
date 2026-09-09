@@ -1,3 +1,4 @@
+using Vara.Application.Profiles;
 using Vara.Core.Abstractions;
 using Vara.Core.Configuration;
 using YamlDotNet.Core;
@@ -57,14 +58,18 @@ public sealed class YamlProfileConfigLoader : IProfileConfigLoader
         }
 
         var profiles = new List<Profile>();
-        var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var entry in profilesNode.Children)
         {
             var mapping = AsMapping(entry, "<unnamed>", "each entry under 'profiles' must be a mapping");
             var profile = ParseProfile(mapping);
 
-            if (!seenNames.Add(profile.Name))
+            // Shares the same comparison logic the interactive profile editor's live
+            // validation uses (see ProfileNameUniqueness), so "what counts as a duplicate
+            // name" is defined once. excludedName is always null here - every name parsed so
+            // far genuinely is a different, already-accepted profile from the one being
+            // checked, unlike the editor's own-profile-rename case.
+            if (ProfileNameUniqueness.ConflictsWithAnotherProfile(profiles.Select(p => p.Name), profile.Name, excludedName: null))
             {
                 throw new DuplicateProfileNameException(profile.Name);
             }

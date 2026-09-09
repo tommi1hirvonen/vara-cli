@@ -11,6 +11,7 @@ using Vara.Infrastructure.Hashing;
 
 var builder = Host.CreateApplicationBuilder();
 builder.Services.AddSingleton<IProfileConfigLoader, YamlProfileConfigLoader>();
+builder.Services.AddSingleton<IProfileConfigWriter, YamlProfileConfigWriter>();
 builder.Services.AddSingleton<IHasher, XxHash128Hasher>();
 builder.Services.AddSingleton<IFileSystemScanner, DirectoryFileSystemScanner>();
 builder.Services.AddSingleton<ProfileResolver>();
@@ -23,6 +24,8 @@ var profileResolver = services.GetRequiredService<ProfileResolver>();
 var serviceFactory = services.GetRequiredService<ProfileServiceFactory>();
 var scanner = services.GetRequiredService<IFileSystemScanner>();
 var hasher = services.GetRequiredService<IHasher>();
+var configLoader = services.GetRequiredService<IProfileConfigLoader>();
+var configWriter = services.GetRequiredService<IProfileConfigWriter>();
 
 // Backs each command's "Graceful cancellation via Ctrl+C" requirement: a single Ctrl+C is
 // intercepted (Cancel = true suppresses the OS's default immediate-termination
@@ -48,6 +51,7 @@ var rootCommand = new RootCommand("Vara - versioned, deduplicated backup tool")
     DiffCommand.Create(profileResolver, serviceFactory),
     PruneCommand.Create(profileResolver, serviceFactory, gracefulCancellation.TokenSource.Token),
     CheckCommand.Create(profileResolver, serviceFactory, hasher, gracefulCancellation.TokenSource.Token),
+    ProfilesCommand.Create(configLoader, configWriter),
 };
 
 var parseResult = rootCommand.Parse(args);
