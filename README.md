@@ -11,7 +11,8 @@ vara backup --profile files
 
 runs an incremental backup for a profile named `files`; `vara snapshots`, `vara history`,
 `vara browse`, `vara restore`, `vara show`, `vara diff` and `vara prune` let you inspect
-and recover that history afterwards.
+and recover that history afterwards, and `vara profiles` opens an interactive editor for
+creating, editing, and deleting profiles without hand-editing YAML.
 
 ## Table of contents
 
@@ -171,6 +172,9 @@ Each profile has a name, a target root, and one or more sources (with optional
 `vara prune` refuses to run for a profile until it's configured. `concurrency` is
 optional and rarely needed.
 
+Instead of hand-editing this file, `vara profiles` opens an interactive terminal UI for
+creating, editing, and deleting profiles - see [`vara profiles`](#usage) below.
+
 ## Usage
 
 | Command | Purpose |
@@ -186,6 +190,7 @@ optional and rarely needed.
 | `vara diff <path> (--left-at <date> \| --left-version <id>) (--right-at <date> \| --right-version <id>)` | Show a textual diff between two versions of a file. |
 | `vara prune --profile <name> [--yes]` | Apply the profile's tiered retention policy and garbage-collect unreferenced content. |
 | `vara check --profile <name> [--quick]` | Verify content physically stored in the target still matches the manifest across the full snapshot history; reports missing/corrupt/orphaned blobs. |
+| `vara profiles [--config <path>]` | Open an interactive terminal UI to create, edit, and delete profiles in the configuration file, instead of hand-editing YAML. Requires an interactive terminal (fails cleanly if input or output is redirected). |
 
 The profile is always given via a `--profile` option, never a positional argument -
 including for `backup`, which took a positional `<profile>` in earlier versions. This
@@ -216,6 +221,22 @@ interactive session, omitting both presents a selectable list of versions instea
 erroring; `show` always requires one of the two and errors if both are omitted. This
 picker does not apply to `restore --recursive` - a directory restore has no single
 per-file version history to pick from.
+
+`vara profiles` (optionally with `--config <path>`, matching the same option accepted by
+the other commands) opens a full-screen interactive editor over the configuration file:
+a main menu lists every profile by name, target root, and source count, and offers "Add
+new profile" and a per-profile delete action (which asks for an explicit yes/no
+confirmation and only removes the profile's configuration entry - it never touches
+existing backup data under that profile's target). Selecting a profile, or "Add new
+profile", opens an edit screen where the name, target root, sources (each with its own
+path, `recursive` flag, and exclude/glob lists), retention policy, and concurrency
+settings can be changed in any order; every edit is validated immediately using the same
+rules the configuration loader enforces (required fields, absolute paths, non-overlapping
+target/sources, non-negative retention counts, positive concurrency values, and no
+duplicate profile name), and "Save" only writes the file if the draft is valid at that
+moment - "Discard" abandons the draft and returns to the main menu with no change. This
+command requires a real interactive terminal (both input and output) and exits with an
+error, making no change, if either is redirected.
 
 ## How it works
 
