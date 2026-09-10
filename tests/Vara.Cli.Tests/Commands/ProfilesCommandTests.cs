@@ -113,7 +113,7 @@ public class ProfilesCommandTests
         draft.Sources.Add(new SourceDraft { Path = @"C:\data" });
         Assert.True(draft.Revalidate(profiles));
 
-        var saved = ProfilesCommand.ApplySave(draft, profiles, writer, "unused-path");
+        var saved = ProfilesCommand.ApplySave(draft, draft.CurrentValidProfile!, profiles, writer, "unused-path");
 
         Assert.Equal("files", saved.Name);
         Assert.Single(profiles);
@@ -130,7 +130,7 @@ public class ProfilesCommandTests
         draft.Name = "documents"; // renamed
         Assert.True(draft.Revalidate(profiles));
 
-        ProfilesCommand.ApplySave(draft, profiles, writer, "unused-path");
+        ProfilesCommand.ApplySave(draft, draft.CurrentValidProfile!, profiles, writer, "unused-path");
 
         var remaining = Assert.Single(profiles);
         Assert.Equal("documents", remaining.Name);
@@ -153,5 +153,52 @@ public class ProfilesCommandTests
         // Deleting only edits the in-memory list / configuration file - it never touches
         // anything under the deleted profile's target root on disk.
         Assert.False(Directory.Exists(toDelete.TargetRoot));
+    }
+
+    [Fact]
+    public void TrySave_persists_the_profile_produced_by_its_own_revalidation_when_the_draft_is_valid()
+    {
+        var writer = new RecordingProfileConfigWriter();
+        var profiles = new List<Profile>();
+        var draft = ProfileDraft.ForNewProfile();
+        draft.Name = "files";
+        draft.Target = @"D:\backup";
+        draft.Sources.Add(new SourceDraft { Path = @"C:\data" });
+
+        var succeeded = ProfilesCommand.TrySave(draft, profiles, writer, "unused-path", out var saved);
+
+        Assert.True(succeeded);
+        Assert.NotNull(saved);
+        Assert.Equal("files", saved!.Name);
+        Assert.Single(profiles);
+        Assert.True(writer.WasCalled);
+    }
+
+    [Fact]
+    public void TrySave_refuses_and_writes_nothing_when_a_draft_that_was_previously_valid_has_since_been_mutated_into_an_invalid_state()
+    {
+        // Reproduces the reported bug: a valid draft that has already been revalidated
+        // (so it has a stale CurrentValidProfile/CurrentError = null), then mutated by a
+        // path that does not itself call Revalidate - such as "Add source" appending an
+        // empty SourceDraft. Save must refuse based on the draft's *current* state, not
+        // the stale cached snapshot from before the mutation.
+        var writer = new RecordingProfileConfigWriter();
+        var profiles = new List<Profile>();
+        var draft = ProfileDraft.ForNewProfile();
+        draft.Name = "files";
+        draft.Target = @"D:\backup";
+        draft.Sources.Add(new SourceDraft { Path = @"C:\data" });
+        Assert.True(draft.Revalidate(profiles));
+
+        // Simulates "Add source" appending an empty SourceDraft without revalidating.
+        draft.Sources.Add(new SourceDraft());
+
+        var succeeded = ProfilesCommand.TrySave(draft, profiles, writer, "unused-path", out var saved);
+
+        Assert.False(succeeded);
+        Assert.Null(saved);
+        Assert.NotNull(draft.CurrentError);
+        Assert.Empty(profiles);
+        Assert.False(writer.WasCalled);
     }
 }

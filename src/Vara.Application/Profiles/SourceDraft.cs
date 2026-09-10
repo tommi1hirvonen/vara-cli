@@ -35,11 +35,17 @@ public sealed class SourceDraft
     /// exception message, verbatim - the draft layer never re-implements a validation rule
     /// like "path must be absolute", it only decides when to ask.
     /// </summary>
+    /// <remarks>
+    /// Passes *copies* of <see cref="Excludes"/>/<see cref="IncludeGlobs"/>/<see cref="ExcludeGlobs"/>
+    /// into the <see cref="Source"/> constructor rather than the draft's own list instances,
+    /// so a later edit to this draft's lists cannot retroactively mutate an already-built,
+    /// supposedly-immutable <see cref="Source"/>.
+    /// </remarks>
     public bool TryBuild(out Source? source, out string? error)
     {
         try
         {
-            source = new Source(Path ?? string.Empty, Recursive, Excludes, IncludeGlobs, ExcludeGlobs);
+            source = new Source(Path ?? string.Empty, Recursive, [.. Excludes], [.. IncludeGlobs], [.. ExcludeGlobs]);
             error = null;
             return true;
         }

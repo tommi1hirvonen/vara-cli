@@ -41,7 +41,7 @@ public class ProfilesEndToEndTests : IDisposable
         addDraft.Target = @"D:\backup";
         addDraft.Sources.Add(new SourceDraft { Path = @"C:\data" });
         Assert.True(addDraft.Revalidate(profiles));
-        ProfilesCommand.ApplySave(addDraft, profiles, _writer, ConfigPath);
+        ProfilesCommand.ApplySave(addDraft, addDraft.CurrentValidProfile!, profiles, _writer, ConfigPath);
 
         var afterAdd = Assert.Single(_loader.LoadProfiles(ConfigPath));
         Assert.Equal("files", afterAdd.Name);
@@ -58,7 +58,7 @@ public class ProfilesEndToEndTests : IDisposable
         editDraft.KeepMonthly = 3;
         editDraft.KeepYearly = 1;
         Assert.True(editDraft.Revalidate(profiles));
-        ProfilesCommand.ApplySave(editDraft, profiles, _writer, ConfigPath);
+        ProfilesCommand.ApplySave(editDraft, editDraft.CurrentValidProfile!, profiles, _writer, ConfigPath);
 
         var afterEdit = Assert.Single(_loader.LoadProfiles(ConfigPath));
         Assert.Equal("documents", afterEdit.Name);
@@ -66,9 +66,43 @@ public class ProfilesEndToEndTests : IDisposable
         Assert.NotNull(afterEdit.Retention);
         Assert.Equal(7, afterEdit.Retention!.KeepDaily);
 
+        // 2b. Confirm the written file's two sources are both present with their own
+        // paths - a regression here would mean a newly added source silently got
+        // dropped from what Save actually persists (the bug this change fixes).
+        Assert.Contains(afterEdit.Sources, s => s.Path == @"C:\data");
+        Assert.Contains(afterEdit.Sources, s => s.Path == @"C:\other-data");
+
         // 3. Delete it.
         ProfilesCommand.ApplyDelete(profiles, afterEdit, _writer, ConfigPath);
 
         Assert.Empty(_loader.LoadProfiles(ConfigPath));
+    }
+
+    [Fact]
+    public void Adding_a_second_source_via_TrySave_writes_both_sources_to_the_configuration_file()
+    {
+        var profiles = new List<Vara.Core.Configuration.Profile>();
+
+        var addDraft = ProfileDraft.ForNewProfile();
+        addDraft.Name = "files";
+        addDraft.Target = @"D:\backup";
+        addDraft.Sources.Add(new SourceDraft { Path = @"C:\data" });
+        Assert.True(ProfilesCommand.TrySave(addDraft, profiles, _writer, ConfigPath, out var added));
+
+        // Simulates the "Add source" screen: append a new source and give it a path,
+        // mirroring the live-validation path the interactive editor now takes.
+        var editDraft = ProfileDraft.FromProfile(added!);
+        var newSource = new SourceDraft();
+        editDraft.Sources.Add(newSource);
+        Assert.False(editDraft.Revalidate(profiles)); // incomplete source (no path yet)
+        newSource.Path = @"C:\other-data";
+        Assert.True(editDraft.Revalidate(profiles));
+
+        Assert.True(ProfilesCommand.TrySave(editDraft, profiles, _writer, ConfigPath, out _));
+
+        var afterEdit = Assert.Single(_loader.LoadProfiles(ConfigPath));
+        Assert.Equal(2, afterEdit.Sources.Count);
+        Assert.Contains(afterEdit.Sources, s => s.Path == @"C:\data");
+        Assert.Contains(afterEdit.Sources, s => s.Path == @"C:\other-data");
     }
 }

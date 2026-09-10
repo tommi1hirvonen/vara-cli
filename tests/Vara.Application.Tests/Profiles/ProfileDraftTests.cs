@@ -133,7 +133,8 @@ public class ProfileDraftTests
         var valid = draft.Revalidate([existing]);
 
         Assert.False(valid);
-        Assert.Contains("defined more than once", draft.CurrentError);
+        Assert.Contains("photos", draft.CurrentError);
+        Assert.Contains("already exists", draft.CurrentError);
     }
 
     [Fact]
@@ -161,5 +162,20 @@ public class ProfileDraftTests
         Assert.False(valid);
         Assert.NotNull(draft.CurrentError);
         Assert.Same(lastValid, draft.CurrentValidProfile);
+    }
+
+    [Fact]
+    public void Later_source_edits_do_not_change_an_already_validated_profile()
+    {
+        var draft = ValidNewDraft();
+        Assert.True(draft.Revalidate([]));
+        var validatedProfile = draft.CurrentValidProfile!;
+        var originalExcludes = validatedProfile.Sources[0].Excludes.ToList();
+
+        // Mutate the originating draft's source exclude list after validation.
+        draft.Sources[0].Excludes.Add("*.tmp");
+
+        Assert.Equal(originalExcludes, validatedProfile.Sources[0].Excludes);
+        Assert.DoesNotContain("*.tmp", validatedProfile.Sources[0].Excludes);
     }
 }

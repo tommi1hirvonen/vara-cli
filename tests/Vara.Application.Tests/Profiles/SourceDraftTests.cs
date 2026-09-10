@@ -33,6 +33,22 @@ public class SourceDraftTests
     }
 
     [Fact]
+    public void A_built_Sources_Excludes_is_unaffected_by_later_edits_to_the_originating_drafts_list()
+    {
+        var draft = new SourceDraft { Path = @"C:\data" };
+        draft.Excludes.Add("*.tmp");
+
+        var built = draft.TryBuild(out var source, out _);
+        Assert.True(built);
+        var originalExcludes = source!.Excludes.ToList();
+
+        draft.Excludes.Add("*.log");
+
+        Assert.Equal(originalExcludes, source.Excludes);
+        Assert.DoesNotContain("*.log", source.Excludes);
+    }
+
+    [Fact]
     public void FromSource_reproduces_the_original_values()
     {
         var original = new Source(@"C:\data", recursive: false, excludes: ["a"], includeGlobs: ["*.txt"], excludeGlobs: ["*.tmp"]);

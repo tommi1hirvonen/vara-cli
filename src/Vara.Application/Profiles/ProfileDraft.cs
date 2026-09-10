@@ -138,9 +138,12 @@ public sealed class ProfileDraft
 
         if (ProfileNameUniqueness.ConflictsWithAnotherProfile(existingProfiles.Select(p => p.Name), profile.Name, OriginalName))
         {
-            // Reuses the loader's own exception message so a duplicate name reads
-            // identically whether it's caught at load time or live in the editor.
-            CurrentError = new DuplicateProfileNameException(profile.Name).Message;
+            // Authored for the editor: at this moment the name is used once in the saved
+            // configuration file and once in this unsaved draft, which is not the
+            // "defined more than once in the configuration file" situation the loader's
+            // DuplicateProfileNameException describes - that exception (and its message)
+            // stays reserved for the loader's own use, unchanged.
+            CurrentError = $"A profile named '{profile.Name}' already exists. Choose a different name to save this profile.";
             return false;
         }
 

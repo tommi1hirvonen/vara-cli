@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.Globalization;
 using Spectre.Console;
 using Vara.Application.Profiles;
 using Vara.Cli.Composition;
@@ -215,6 +216,7 @@ public static class ProfilesCommand
                     break;
                 case EditAction.Sources:
                     RunSourcesScreen(console, draft, profiles);
+                    draft.Revalidate(profiles);
                     break;
                 case EditAction.Retention:
                     EditRetention(console, draft);
@@ -225,15 +227,14 @@ public static class ProfilesCommand
                     draft.Revalidate(profiles);
                     break;
                 case EditAction.Save:
-                    if (draft.CurrentError is not null)
+                    if (TrySave(draft, profiles, configWriter, configPath, out var saved))
                     {
-                        OutcomeStyle.WriteLineError(console, $"Cannot save - validation error: {draft.CurrentError}");
-                        break;
+                        OutcomeStyle.WriteLineSuccess(console, $"Saved profile '{saved!.Name}'.");
+                        return;
                     }
 
-                    var saved = ApplySave(draft, profiles, configWriter, configPath);
-                    OutcomeStyle.WriteLineSuccess(console, $"Saved profile '{saved.Name}'.");
-                    return;
+                    OutcomeStyle.WriteLineError(console, $"Cannot save - validation error: {draft.CurrentError}");
+                    break;
                 case EditAction.Discard:
                     return;
             }
@@ -241,19 +242,48 @@ public static class ProfilesCommand
     }
 
     /// <summary>
-    /// Persists <paramref name="draft"/>'s currently-valid profile (see
-    /// <see cref="ProfileDraft.CurrentValidProfile"/>) into <paramref name="profiles"/> - added
-    /// as a new entry when <see cref="ProfileDraft.OriginalName"/> is <see langword="null"/>,
-    /// or replacing the matching entry (found by <c>OriginalName</c>, not the draft's current,
-    /// possibly-renamed <see cref="ProfileDraft.Name"/>) otherwise - then writes the updated
-    /// list. Callers must only invoke this once <see cref="ProfileDraft.CurrentError"/> is
-    /// <see langword="null"/>. Extracted from the edit screen's Save action so the
+    /// Re-validates <paramref name="draft"/> against <paramref name="profiles"/> at the
+    /// moment Save is chosen, and, only when that revalidation succeeds, persists the
+    /// profile it just produced via <see cref="ApplySave"/>. This is Save's single entry
+    /// point precisely so that "is the draft valid" and "what gets written" are always
+    /// answered by the same, current validation call - no code path may instead consult a
+    /// stale <see cref="ProfileDraft.CurrentValidProfile"/> left over from an earlier edit.
+    /// Returns <see langword="true"/> and sets <paramref name="saved"/> to the persisted
+    /// profile on success; returns <see langword="false"/> (leaving <paramref name="saved"/>
+    /// <see langword="null"/> and the configuration file untouched) when the draft is
+    /// currently invalid, in which case <see cref="ProfileDraft.CurrentError"/> describes why.
+    /// </summary>
+    internal static bool TrySave(
+        ProfileDraft draft,
+        List<Profile> profiles,
+        IProfileConfigWriter configWriter,
+        string configPath,
+        out Profile? saved)
+    {
+        if (!draft.Revalidate(profiles))
+        {
+            saved = null;
+            return false;
+        }
+
+        saved = ApplySave(draft, draft.CurrentValidProfile!, profiles, configWriter, configPath);
+        return true;
+    }
+
+    /// <summary>
+    /// Persists <paramref name="profileToSave"/> - the profile a caller's own, current
+    /// <see cref="ProfileDraft.Revalidate"/> call just produced, passed explicitly rather
+    /// than read back from <see cref="ProfileDraft.CurrentValidProfile"/> - into
+    /// <paramref name="profiles"/>: added as a new entry when <see cref="ProfileDraft.OriginalName"/>
+    /// is <see langword="null"/>, or replacing the matching entry (found by <c>OriginalName</c>,
+    /// not the draft's current, possibly-renamed <see cref="ProfileDraft.Name"/>) otherwise -
+    /// then writes the updated list. Extracted from <see cref="TrySave"/> so the
     /// add-vs-replace-by-OriginalName logic can be exercised directly by an automated test,
     /// without needing to drive the surrounding prompts.
     /// </summary>
-    internal static Profile ApplySave(ProfileDraft draft, List<Profile> profiles, IProfileConfigWriter configWriter, string configPath)
+    internal static Profile ApplySave(ProfileDraft draft, Profile profileToSave, List<Profile> profiles, IProfileConfigWriter configWriter, string configPath)
     {
-        var saved = draft.CurrentValidProfile!;
+        var saved = profileToSave;
         if (draft.OriginalName is null)
         {
             profiles.Add(saved);
@@ -331,6 +361,7 @@ public static class ProfilesCommand
                 case -1:
                     var newSource = new SourceDraft();
                     draft.Sources.Add(newSource);
+                    draft.Revalidate(profiles);
                     EditSource(console, draft, newSource, profiles);
                     break;
                 default:
@@ -453,11 +484,11 @@ public static class ProfilesCommand
         var input = console.Prompt(new TextPrompt<string>(
                 $"{label} (currently: {FormatOptional(current)}; leave blank for the pipeline's own default):")
             .AllowEmpty()
-            .Validate(value => string.IsNullOrWhiteSpace(value) || int.TryParse(value, out _)
+            .Validate(value => string.IsNullOrWhiteSpace(value) || int.TryParse(value, CultureInfo.InvariantCulture, out _)
                 ? ValidationResult.Success()
                 : ValidationResult.Error("Enter a whole number, or leave blank.")));
 
-        return string.IsNullOrWhiteSpace(input) ? null : int.Parse(input);
+        return string.IsNullOrWhiteSpace(input) ? null : int.Parse(input, CultureInfo.InvariantCulture);
     }
 
     internal static string FormatOptional(string? value) => string.IsNullOrEmpty(value) ? "(not set)" : value;
