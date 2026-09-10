@@ -4,7 +4,8 @@ namespace Vara.Core.Configuration;
 /// Base type for all profile-configuration-related errors that should be surfaced
 /// to the user as clear, actionable messages rather than raw exceptions.
 /// </summary>
-public abstract class ProfileConfigException(string message) : Exception(message);
+public abstract class ProfileConfigException(string message, Exception? innerException = null)
+    : Exception(message, innerException);
 
 /// <summary>
 /// The profile configuration file could not be found at its expected location.
@@ -73,4 +74,18 @@ public sealed class RetentionPolicyNotConfiguredException(string profileName)
 /// </summary>
 public sealed class ProfileNameRequiredException()
     : ProfileConfigException("No profile name was given, and the current directory is not inside a profile's target root. Specify a profile name.");
+
+/// <summary>
+/// The configuration file could not be written (for example, the file is read-only,
+/// permission was denied, or the volume is full). Carries the original I/O failure as
+/// <see cref="Exception.InnerException"/> so the underlying cause is never lost, while
+/// still being one recognizable <see cref="ProfileConfigException"/> a caller can catch
+/// instead of enumerating file-system exception types - see the
+/// harden-profiles-save-resilience change's design.md for why.
+/// </summary>
+public sealed class ProfileConfigWriteFailedException(string configPath, string reason, Exception innerException)
+    : ProfileConfigException($"Could not write profile configuration file '{configPath}': {reason}", innerException)
+{
+    public string ConfigPath { get; } = configPath;
+}
 

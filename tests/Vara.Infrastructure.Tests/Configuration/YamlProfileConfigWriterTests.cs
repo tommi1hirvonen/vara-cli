@@ -112,12 +112,18 @@ public class YamlProfileConfigWriterTests : IDisposable
         // the destination path itself an existing directory - File.Exists(ConfigPath) is
         // false for a directory, so the writer takes the File.Move branch, which then
         // throws because a directory already occupies that path. This simulates a failure
-        // between the temp file being written and the atomic swap completing.
+        // between the temp file being written and the atomic swap completing, and doubles
+        // as the "destination unwritable" case for the writer's failure-wrapping behavior:
+        // the raw IOException is rethrown as ProfileConfigWriteFailedException naming the
+        // configuration path, rather than escaping as-is.
         Directory.CreateDirectory(ConfigPath);
         var profile = new Profile("files", @"D:\backup", [new Source(@"C:\data")], retention: null);
 
-        Assert.ThrowsAny<IOException>(() => _writer.WriteProfiles([profile], ConfigPath));
+        var ex = Assert.Throws<ProfileConfigWriteFailedException>(() => _writer.WriteProfiles([profile], ConfigPath));
 
+        Assert.Equal(ConfigPath, ex.ConfigPath);
+        Assert.Contains(ConfigPath, ex.Message);
+        Assert.IsAssignableFrom<IOException>(ex.InnerException);
         Assert.True(Directory.Exists(ConfigPath));
         Assert.Empty(Directory.GetFiles(_tempDir));
     }

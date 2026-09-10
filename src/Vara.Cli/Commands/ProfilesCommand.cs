@@ -17,7 +17,7 @@ namespace Vara.Cli.Commands;
 /// </summary>
 public static class ProfilesCommand
 {
-    public static Command Create(IProfileConfigLoader configLoader, IProfileConfigWriter configWriter)
+    public static Command Create(IProfileConfigLoader configLoader, IProfileConfigWriter configWriter, CancellationToken cancellationToken = default)
     {
         var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
         var command = new Command("profiles", "Interactively create, edit, and delete backup profiles.") { configOption };
@@ -39,11 +39,27 @@ public static class ProfilesCommand
                 return 1;
             }
 
+            // A single Ctrl+C exits this command promptly instead of cooperating with the
+            // shared token the way backup/restore/prune/check do: the editor never writes
+            // outside an explicit Save/delete confirm, so an interrupt at any prompt is
+            // simply a discard, with nothing to drain - see design.md's "Ctrl+C: cancel the
+            // session, do not cooperate with it" decision. Disposed via `using` so the
+            // registration cannot fire for a later command in the same process once this
+            // one returns.
+            using var cancellationRegistration = RegisterCancellationExit(cancellationToken, Environment.Exit);
+
             return ErrorReporting.Run(() => RunMenu(AnsiConsole.Console, configLoader, configWriter, configPath));
         });
 
         return command;
     }
+
+    // Extracted so a test can invoke cancellation directly without a live terminal or a
+    // real Environment.Exit call. The callback only ever calls <paramref name="exit"/> -
+    // it has no access to any IProfileConfigWriter, so cancellation structurally cannot
+    // trigger a configuration write.
+    internal static IDisposable RegisterCancellationExit(CancellationToken cancellationToken, Action<int> exit) =>
+        cancellationToken.Register(() => exit(ExitCodes.Success));
 
     // Internal (rather than private) so Vara.Cli.Tests can exercise the "missing file"
     // behavior directly - the rest of the interactive menu can't be driven from an
@@ -157,20 +173,38 @@ public static class ProfilesCommand
             return;
         }
 
-        ApplyDelete(profiles, target, configWriter, configPath);
-        OutcomeStyle.WriteLineSuccess(console, $"Deleted profile '{target.Name}'.");
+        try
+        {
+            ApplyDelete(profiles, target, configWriter, configPath);
+            OutcomeStyle.WriteLineSuccess(console, $"Deleted profile '{target.Name}'.");
+        }
+        catch (ProfileConfigWriteFailedException ex)
+        {
+            // Writing failed, so ApplyDelete left `profiles` untouched (write-then-commit
+            // ordering - see design.md's "Order of operations on delete" decision): the
+            // profile is still listed, and returning to the main menu here reflects that
+            // accurately rather than showing it as deleted.
+            OutcomeStyle.WriteLineError(console, $"Error: {ex.Message}");
+        }
     }
 
     /// <summary>
-    /// Removes <paramref name="target"/> from <paramref name="profiles"/> and persists the
-    /// remaining list - the part of the delete flow that doesn't depend on any prompt, so it
+    /// Removes <paramref name="target"/> from a candidate copy of <paramref name="profiles"/>
+    /// and persists that candidate list, only replacing the contents of <paramref name="profiles"/>
+    /// itself once the write has succeeded - so a failed write leaves the session's in-memory
+    /// list exactly as it was (per the "no change" scenario) rather than out of sync with the
+    /// configuration file. The part of the delete flow that doesn't depend on any prompt, so it
     /// can be exercised directly by an automated test. Only ever touches the configuration
     /// file; never the deleted profile's target root.
     /// </summary>
     internal static void ApplyDelete(List<Profile> profiles, Profile target, IProfileConfigWriter configWriter, string configPath)
     {
-        profiles.RemoveAll(p => string.Equals(p.Name, target.Name, StringComparison.OrdinalIgnoreCase));
-        configWriter.WriteProfiles(profiles, configPath);
+        var candidate = new List<Profile>(profiles);
+        candidate.RemoveAll(p => string.Equals(p.Name, target.Name, StringComparison.OrdinalIgnoreCase));
+        configWriter.WriteProfiles(candidate, configPath);
+
+        profiles.Clear();
+        profiles.AddRange(candidate);
     }
 
     // ---- Profile edit screen ----
@@ -227,13 +261,25 @@ public static class ProfilesCommand
                     draft.Revalidate(profiles);
                     break;
                 case EditAction.Save:
-                    if (TrySave(draft, profiles, configWriter, configPath, out var saved))
+                    try
                     {
-                        OutcomeStyle.WriteLineSuccess(console, $"Saved profile '{saved!.Name}'.");
-                        return;
+                        if (TrySave(draft, profiles, configWriter, configPath, out var saved))
+                        {
+                            OutcomeStyle.WriteLineSuccess(console, $"Saved profile '{saved!.Name}'.");
+                            return;
+                        }
+
+                        OutcomeStyle.WriteLineError(console, $"Cannot save - validation error: {draft.CurrentError}");
+                    }
+                    catch (ProfileConfigWriteFailedException ex)
+                    {
+                        // Write-then-commit ordering (see ApplySave) means `profiles` and the
+                        // draft are both untouched here, so staying on the edit screen lets
+                        // the user retry Save once the cause is resolved without re-entering
+                        // any field.
+                        OutcomeStyle.WriteLineError(console, $"Error: {ex.Message}");
                     }
 
-                    OutcomeStyle.WriteLineError(console, $"Cannot save - validation error: {draft.CurrentError}");
                     break;
                 case EditAction.Discard:
                     return;
@@ -273,35 +319,43 @@ public static class ProfilesCommand
     /// <summary>
     /// Persists <paramref name="profileToSave"/> - the profile a caller's own, current
     /// <see cref="ProfileDraft.Revalidate"/> call just produced, passed explicitly rather
-    /// than read back from <see cref="ProfileDraft.CurrentValidProfile"/> - into
-    /// <paramref name="profiles"/>: added as a new entry when <see cref="ProfileDraft.OriginalName"/>
+    /// than read back from <see cref="ProfileDraft.CurrentValidProfile"/> - into a candidate
+    /// copy of <paramref name="profiles"/>: added as a new entry when <see cref="ProfileDraft.OriginalName"/>
     /// is <see langword="null"/>, or replacing the matching entry (found by <c>OriginalName</c>,
     /// not the draft's current, possibly-renamed <see cref="ProfileDraft.Name"/>) otherwise -
-    /// then writes the updated list. Extracted from <see cref="TrySave"/> so the
+    /// then writes the candidate list, and only replaces the contents of <paramref name="profiles"/>
+    /// itself once that write has succeeded. This write-then-commit ordering means a failed
+    /// write leaves both the session's in-memory list and the configuration file exactly as
+    /// they were before Save was chosen - see design.md's "Order of operations on delete"
+    /// decision (the same ordering applies here). Extracted from <see cref="TrySave"/> so the
     /// add-vs-replace-by-OriginalName logic can be exercised directly by an automated test,
     /// without needing to drive the surrounding prompts.
     /// </summary>
     internal static Profile ApplySave(ProfileDraft draft, Profile profileToSave, List<Profile> profiles, IProfileConfigWriter configWriter, string configPath)
     {
         var saved = profileToSave;
+        var candidate = new List<Profile>(profiles);
         if (draft.OriginalName is null)
         {
-            profiles.Add(saved);
+            candidate.Add(saved);
         }
         else
         {
-            var index = profiles.FindIndex(p => string.Equals(p.Name, draft.OriginalName, StringComparison.OrdinalIgnoreCase));
+            var index = candidate.FindIndex(p => string.Equals(p.Name, draft.OriginalName, StringComparison.OrdinalIgnoreCase));
             if (index >= 0)
             {
-                profiles[index] = saved;
+                candidate[index] = saved;
             }
             else
             {
-                profiles.Add(saved);
+                candidate.Add(saved);
             }
         }
 
-        configWriter.WriteProfiles(profiles, configPath);
+        configWriter.WriteProfiles(candidate, configPath);
+
+        profiles.Clear();
+        profiles.AddRange(candidate);
         return saved;
     }
 

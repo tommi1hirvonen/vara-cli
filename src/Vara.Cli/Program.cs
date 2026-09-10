@@ -51,7 +51,7 @@ var rootCommand = new RootCommand("Vara - versioned, deduplicated backup tool")
     DiffCommand.Create(profileResolver, serviceFactory),
     PruneCommand.Create(profileResolver, serviceFactory, gracefulCancellation.TokenSource.Token),
     CheckCommand.Create(profileResolver, serviceFactory, hasher, gracefulCancellation.TokenSource.Token),
-    ProfilesCommand.Create(configLoader, configWriter),
+    ProfilesCommand.Create(configLoader, configWriter, gracefulCancellation.TokenSource.Token),
 };
 
 var parseResult = rootCommand.Parse(args);

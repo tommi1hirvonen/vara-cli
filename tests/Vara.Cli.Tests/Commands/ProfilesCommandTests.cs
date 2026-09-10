@@ -31,6 +31,12 @@ public class ProfilesCommandTests
         public void WriteProfiles(IReadOnlyList<Profile> profiles, string configPath) => WasCalled = true;
     }
 
+    private sealed class ThrowingProfileConfigWriter : IProfileConfigWriter
+    {
+        public void WriteProfiles(IReadOnlyList<Profile> profiles, string configPath) =>
+            throw new ProfileConfigWriteFailedException(configPath, "disk is full", new IOException("disk is full"));
+    }
+
     private static Command CreateCommand(out RecordingProfileConfigWriter writer)
     {
         writer = new RecordingProfileConfigWriter();
@@ -200,5 +206,96 @@ public class ProfilesCommandTests
         Assert.NotNull(draft.CurrentError);
         Assert.Empty(profiles);
         Assert.False(writer.WasCalled);
+    }
+
+    [Fact]
+    public void ApplySave_leaves_the_in_memory_list_unchanged_when_the_writer_throws()
+    {
+        var writer = new ThrowingProfileConfigWriter();
+        var existing = new Profile("photos", @"D:\photos", [new Source(@"C:\photos")], retention: null);
+        var profiles = new List<Profile> { existing };
+        var draft = ProfileDraft.ForNewProfile();
+        draft.Name = "files";
+        draft.Target = @"D:\backup";
+        draft.Sources.Add(new SourceDraft { Path = @"C:\data" });
+        Assert.True(draft.Revalidate(profiles));
+
+        var thrown = Assert.Throws<ProfileConfigWriteFailedException>(
+            () => ProfilesCommand.ApplySave(draft, draft.CurrentValidProfile!, profiles, writer, "unused-path"));
+
+        Assert.Contains("unused-path", thrown.Message);
+        var remaining = Assert.Single(profiles);
+        Assert.Equal("photos", remaining.Name);
+    }
+
+    [Fact]
+    public void ApplyDelete_leaves_the_in_memory_list_unchanged_when_the_writer_throws()
+    {
+        var writer = new ThrowingProfileConfigWriter();
+        var toDelete = new Profile("files", @"D:\backup", [new Source(@"C:\data")], retention: null);
+        var profiles = new List<Profile> { toDelete };
+
+        Assert.Throws<ProfileConfigWriteFailedException>(
+            () => ProfilesCommand.ApplyDelete(profiles, toDelete, writer, "unused-path"));
+
+        var remaining = Assert.Single(profiles);
+        Assert.Equal("files", remaining.Name);
+    }
+
+    [Fact]
+    public void TrySave_leaves_the_draft_intact_on_a_write_failure_and_a_retry_with_a_working_writer_then_succeeds()
+    {
+        var throwingWriter = new ThrowingProfileConfigWriter();
+        var profiles = new List<Profile>();
+        var draft = ProfileDraft.ForNewProfile();
+        draft.Name = "files";
+        draft.Target = @"D:\backup";
+        draft.Sources.Add(new SourceDraft { Path = @"C:\data" });
+        Assert.True(draft.Revalidate(profiles));
+
+        Assert.Throws<ProfileConfigWriteFailedException>(
+            () => ProfilesCommand.TrySave(draft, profiles, throwingWriter, "unused-path", out _));
+
+        // The draft's own fields are untouched by the failed attempt - no re-entry needed.
+        Assert.Equal("files", draft.Name);
+        Assert.Equal(@"D:\backup", draft.Target);
+        Assert.Empty(profiles);
+
+        var workingWriter = new RecordingProfileConfigWriter();
+        var succeeded = ProfilesCommand.TrySave(draft, profiles, workingWriter, "unused-path", out var saved);
+
+        Assert.True(succeeded);
+        Assert.Equal("files", saved!.Name);
+        Assert.Single(profiles);
+        Assert.True(workingWriter.WasCalled);
+    }
+
+    [Fact]
+    public void RegisterCancellationExit_calls_the_exit_action_on_cancellation_without_touching_any_writer()
+    {
+        var writer = new RecordingProfileConfigWriter();
+        var exitCalls = new List<int>();
+        using var cts = new CancellationTokenSource();
+
+        using (ProfilesCommand.RegisterCancellationExit(cts.Token, exitCalls.Add))
+        {
+            cts.Cancel();
+        }
+
+        Assert.Equal([Vara.Cli.Composition.ExitCodes.Success], exitCalls);
+        Assert.False(writer.WasCalled);
+    }
+
+    [Fact]
+    public void RegisterCancellationExit_does_not_fire_once_disposed()
+    {
+        var exitCalls = new List<int>();
+        using var cts = new CancellationTokenSource();
+
+        var registration = ProfilesCommand.RegisterCancellationExit(cts.Token, exitCalls.Add);
+        registration.Dispose();
+        cts.Cancel();
+
+        Assert.Empty(exitCalls);
     }
 }

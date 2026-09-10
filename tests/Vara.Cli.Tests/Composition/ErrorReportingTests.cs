@@ -194,4 +194,25 @@ public class ErrorReportingTests
         Assert.DoesNotContain("Unhandled exception", console.Output);
         Assert.DoesNotContain("ShowOrDiffLinkedEntryException", console.Output);
     }
+
+    [Fact]
+    public void ProfileConfigWriteFailedException_takes_the_friendly_message_path()
+    {
+        var console = new TestConsole { EmitAnsiSequences = true };
+        console.Profile.Width = 200;
+        console.Profile.Capabilities.Ansi = true;
+        console.Profile.Capabilities.ColorSystem = Spectre.Console.ColorSystem.EightBit;
+
+        var exitCode = ErrorReporting.Run(
+            () => throw new ProfileConfigWriteFailedException(
+                @"C:\fake\.vara\profiles.yml",
+                "Access to the path is denied.",
+                new UnauthorizedAccessException("Access to the path is denied.")),
+            console);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains(@"Error: Could not write profile configuration file 'C:\fake\.vara\profiles.yml': Access to the path is denied.", console.Output);
+        Assert.DoesNotContain("Unhandled exception", console.Output);
+        Assert.DoesNotContain("ProfileConfigWriteFailedException", console.Output);
+    }
 }
