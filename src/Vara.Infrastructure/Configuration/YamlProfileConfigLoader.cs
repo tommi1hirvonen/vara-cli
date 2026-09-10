@@ -1,4 +1,3 @@
-using Vara.Application.Profiles;
 using Vara.Core.Abstractions;
 using Vara.Core.Configuration;
 using YamlDotNet.Core;

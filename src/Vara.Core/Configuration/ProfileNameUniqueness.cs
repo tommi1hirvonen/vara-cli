@@ -1,4 +1,4 @@
-namespace Vara.Application.Profiles;
+namespace Vara.Core.Configuration;
 
 /// <summary>
 /// The cross-profile "no two profiles share a name" rule, shared by the configuration

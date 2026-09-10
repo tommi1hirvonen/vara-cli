@@ -1,7 +1,7 @@
-using Vara.Application.Profiles;
+using Vara.Core.Configuration;
 using Xunit;
 
-namespace Vara.Application.Tests.Profiles;
+namespace Vara.Core.Tests.Configuration;
 
 public class ProfileNameUniquenessTests
 {
