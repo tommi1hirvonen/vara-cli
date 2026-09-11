@@ -4,6 +4,7 @@ using Spectre.Console.Testing;
 using Vara.Application.Profiles;
 using Vara.Cli.Commands;
 using Vara.Cli.Composition;
+using Vara.Cli.Presentation;
 using Vara.Core.Abstractions;
 using Vara.Core.Configuration;
 using Vara.Core.Snapshots;
@@ -221,6 +222,45 @@ public class RestoreCommandTests : IDisposable
         {
             Directory.SetCurrentDirectory(originalCwd);
         }
+    }
+
+    [Fact]
+    public void BuildRestoreTaskLabel_leaves_a_short_path_unchanged()
+    {
+        var label = RestoreCommand.BuildRestoreTaskLabel(@"src\a.txt", terminalWidth: 120);
+
+        Assert.Equal(@"Restoring 'src\a.txt'", label);
+    }
+
+    [Fact]
+    public void BuildRestoreTaskLabel_bounds_a_long_path_to_the_computed_budget()
+    {
+        var longPath = string.Join('\\', Enumerable.Repeat("a-fairly-long-directory-name", 20)) + @"\file.txt";
+
+        var label = RestoreCommand.BuildRestoreTaskLabel(longPath, terminalWidth: 200);
+
+        Assert.True(label.Length <= RestoreProgressLabelBudget.Compute(200));
+        Assert.EndsWith("file.txt'", label);
+        Assert.Contains("...", label);
+    }
+
+    [Fact]
+    public void BuildDirectoryRestoreTaskLabel_leaves_a_short_path_unchanged()
+    {
+        var label = RestoreCommand.BuildDirectoryRestoreTaskLabel(@"src\dir", terminalWidth: 120);
+
+        Assert.Equal(@"Restoring directory 'src\dir'", label);
+    }
+
+    [Fact]
+    public void BuildDirectoryRestoreTaskLabel_bounds_a_long_path_to_the_computed_budget()
+    {
+        var longPath = string.Join('\\', Enumerable.Repeat("a-fairly-long-directory-name", 20));
+
+        var label = RestoreCommand.BuildDirectoryRestoreTaskLabel(longPath, terminalWidth: 200);
+
+        Assert.True(label.Length <= RestoreProgressLabelBudget.Compute(200));
+        Assert.Contains("...", label);
     }
 
     [Fact]

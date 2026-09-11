@@ -20,9 +20,12 @@ Two independent TUI rendering issues, both diagnosed during exploration (see pro
    Save/Discard. Nothing in the command ever calls `console.Clear()`, so every re-render - within
    one edit session and across sessions - appends below whatever is already on screen.
 
-`profiles` already requires an interactive, live-capable terminal before it runs at all (checked
-in `ProfilesCommand.Create`), so relying on `IAnsiConsole.Clear()` being supported is safe without
-any new capability check.
+An initial implementation called `IAnsiConsole.Clear()` at these points. That was wrong: `Clear()`
+clears the *entire* terminal (and, on some terminals, the scrollback), equivalent to `cls`/`clear`
+- discovered via manual verification, where it wiped terminal content that had nothing to do with
+vara at all (prior shell commands run before `vara profiles` was even invoked). The requirement is
+narrower than "clear the screen": only the region `vara profiles` itself has drawn should ever be
+erased.
 
 ## Goals / Non-Goals
 
@@ -41,7 +44,7 @@ any new capability check.
   three-role/outcome-coloring machinery; reusing that heavier pattern here would be more change
   than the problem needs.
 - Redesigning `profiles` around a `Live` region instead of sequential prompts. The screen is
-  prompt-driven, not continuously redrawn; a plain, deliberate `Clear()` before each render is
+  prompt-driven, not continuously redrawn; a scoped, cursor-based erase before each render is
   sufficient and much less invasive.
 
 ## Decisions
@@ -95,27 +98,61 @@ width (`console.Profile.Width`) minus the other columns' known/typical rendered 
 so an unusually narrow terminal still gets a short-but-non-empty label rather than a negative or
 zero budget.
 
-### Decision: `console.Clear()` placement in `RunEditScreen`
-Call `console.Clear()` immediately before `ProfileDraftPresenter.Render(console, draft)` inside the
-`while(true)` loop, and once more immediately before returning to the main menu on both the
-`Save` and `Discard` branches. This covers every path that currently leaves stale content behind:
-re-entering the loop after editing a field, and leaving the edit screen entirely.
+### Decision: Scoped erase via cursor repositioning, not `IAnsiConsole.Clear()`
+Capture the terminal row `RunEditScreen` starts on (`System.Console.CursorTop`) once, the moment
+the screen is entered. Before every redraw - each loop iteration, and before returning via Save or
+Discard - reposition the cursor back to that exact row and blank every row from there to the
+bottom of the visible window (`ClearOwnRegion`), then (for the loop case) render fresh content
+starting from that same row. This can only ever erase what this screen itself drew at or after
+that starting row; it structurally cannot touch anything above it, including whatever was on the
+terminal before `vara profiles` was ever run.
+
+`IAnsiConsoleCursor.SetPosition` is what makes this safe to rely on: it's an absolute-position
+move in both of Spectre's cursor backends (an ANSI CSI `H` sequence in the ANSI backend, or a
+direct `System.Console.CursorLeft`/`CursorTop` assignment in the legacy, non-VT backend), so
+repositioning to the captured row lands in the same place regardless of which backend is active.
+Blanking is done with plain space-padded text writes at each row (not an ANSI erase-in-display
+sequence): `IAnsiConsole.WriteAnsi` is a silent no-op under the legacy backend ("the backend is not
+capable of emitting ANSI/VT escape sequences"), so an ANSI-only erase would leave legacy-backend
+terminals with the original, unfixed bug. Plain text writes work identically in both backends.
+
+On the `Save` branch specifically, the erase is placed *before* the "Saved profile '...'."
+confirmation message is written, not after: erasing after printing it would remove the
+confirmation before the user ever sees it, defeating its purpose. Erasing first still wipes the
+edit screen's stale render, and the confirmation then prints onto that clean region and remains
+visible until whatever is drawn next.
 
 **Alternatives considered:**
+- `IAnsiConsole.Clear()` - the first approach taken, rejected after manual verification showed it
+  clears the whole terminal (and scrollback on some terminals), not just vara's own prior output -
+  see Context above.
+- Precisely counting how many lines each render/prompt combination produced (accounting for
+  terminal-width wrapping) and moving the cursor up by exactly that count - rejected as
+  significantly more fragile and complex than capturing a single starting row once: it would need
+  to account for `SelectionPrompt`'s own rendered footprint (which this code does not control) in
+  addition to `ProfileDraftPresenter`'s output, and get that count exactly right on every possible
+  terminal width.
+- An ANSI erase-in-display sequence (`EraseInDisplay(0)` via `IAnsiConsole.WriteAnsi`) instead of
+  line-by-line blanking - rejected: silently does nothing under Spectre's legacy console backend,
+  which would leave that subset of terminals with the original bug unfixed.
 - Clearing only right after Discard - rejected: leaves the compounding-within-one-session case
   (editing multiple fields in a row) unfixed, since each loop iteration's `Render` call would still
   stack beneath the previous one.
+- Erasing after the `Save` branch's confirmation message instead of before it - rejected: this
+  erases the confirmation message immediately (no message would ever be visible to the user),
+  which regresses existing behavior rather than just deduplicating stale output.
 
 ## Risks / Trade-offs
 
-- [Terminal width reported by `console.Profile.Width` is stale or wrong in some hosting
-  environments] → Clamp the computed label budget to a sane minimum floor; a slightly
-  over-generous or over-conservative budget still degrades gracefully (either a longer label than
-  ideal, or a bit more truncation than strictly necessary) rather than breaking layout.
-- [`console.Clear()` produces a visible flicker on some terminals] → `profiles` already requires a
-  live-capable, real interactive terminal (checked before the command runs at all), so this is the
-  same class of terminal the existing progress bars already redraw against; no new compatibility
-  risk is introduced.
+- [`console.Profile.Width`/`console.Profile.Height` reported width/height is stale or wrong in
+  some hosting environments] → `ClearOwnRegion` clamps its own loop bound to at least one row, so
+  an unusual value degrades to blanking one row rather than throwing; `RestoreProgressLabelBudget`
+  separately clamps the label budget to a sane minimum floor.
+- [Writing blank lines all the way to a terminal's last visible row could trigger an unwanted
+  auto-scroll on some terminals, shifting what the captured starting row means] → Each blank line
+  is one character short of the full reported width, and every row is written via an explicit
+  `SetPosition` rather than relying on line-wrap to advance, so a write never reaches the exact
+  bottom-right corner that triggers this on some terminals.
 - [Filename-truncation fallback loses the ability to distinguish two same-directory files whose
   names differ only after the truncation point] → Accepted: this is an extreme-edge case (a
   single filename alone exceeding the label budget), and the alternative (an unbounded label) is

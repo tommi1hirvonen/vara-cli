@@ -217,8 +217,25 @@ public static class ProfilesCommand
     {
         draft.Revalidate(profiles);
 
+        // Captured once, when this screen is first entered: the terminal row immediately
+        // below whatever is already on screen (which may be completely unrelated to vara -
+        // earlier shell commands, output from before `profiles` was even run). Every
+        // subsequent redraw repositions the cursor back to exactly this row and blanks
+        // everything below it (see ClearOwnRegion), so this screen can never leave a stale
+        // copy of itself behind - without ever touching anything above this row. A global
+        // `IAnsiConsole.Clear()` was tried first and rejected: it clears the whole terminal
+        // (and on some terminals, the scrollback), which wipes unrelated content that has
+        // nothing to do with vara - see design.md's "console.Clear() placement in
+        // RunEditScreen" decision for the full rationale.
+        // + 1 => preserve the vara command
+        var screenStartRow = System.Console.CursorTop + 1;
+
         while (true)
         {
+            // Erased before every (re-)render - including on returning here after editing a
+            // field or a sub-screen - so a previously rendered copy of the draft's summary is
+            // never left on screen underneath the new one.
+            ClearOwnRegion(console, screenStartRow);
             ProfileDraftPresenter.Render(console, draft);
 
             var rows = new List<EditActionRow>
@@ -265,6 +282,11 @@ public static class ProfilesCommand
                     {
                         if (TrySave(draft, profiles, configWriter, configPath, out var saved))
                         {
+                            // Erased before the confirmation, not after: this wipes the edit
+                            // screen's last render so it can't linger underneath whatever the
+                            // main menu displays next, while still leaving the confirmation
+                            // itself visible on the now-clean screen.
+                            ClearOwnRegion(console, screenStartRow);
                             OutcomeStyle.WriteLineSuccess(console, $"Saved profile '{saved!.Name}'.");
                             return;
                         }
@@ -282,9 +304,44 @@ public static class ProfilesCommand
 
                     break;
                 case EditAction.Discard:
+                    // Erased before returning, so the edit screen's last render doesn't
+                    // linger underneath the main menu's next prompt.
+                    ClearOwnRegion(console, screenStartRow);
                     return;
             }
         }
+    }
+
+    /// <summary>
+    /// Repositions the cursor to <paramref name="startRow"/> and blanks every row from there
+    /// to the bottom of the visible window, then returns the cursor to
+    /// <paramref name="startRow"/> - erasing only the region a caller has drawn since that row,
+    /// never anything above it. Deliberately does not use <see cref="IAnsiConsole.Clear"/>
+    /// (which clears the whole terminal, including content unrelated to vara - see
+    /// design.md's "console.Clear() placement in RunEditScreen" decision) or
+    /// <c>IAnsiConsole.WriteAnsi</c>'s ANSI erase-in-display sequence (which silently does
+    /// nothing under Spectre's legacy, non-VT console backend). <see cref="IAnsiConsoleCursor.SetPosition"/>
+    /// is an absolute-position move in both of Spectre's cursor backends (an ANSI CSI `H`
+    /// sequence, or a direct <see cref="System.Console.CursorLeft"/>/<see
+    /// cref="System.Console.CursorTop"/> set), so blanking line-by-line via plain text writes
+    /// works identically regardless of which backend is active.
+    /// </summary>
+    private static void ClearOwnRegion(IAnsiConsole console, int startRow)
+    {
+        // One character short of the full width, not the full width itself - writing all
+        // the way to the last column of a row risks some terminals eagerly wrapping/
+        // scrolling once that column is filled, which would shift what "startRow" means for
+        // every SetPosition call after that point.
+        var blankLine = new string(' ', Math.Max(1, console.Profile.Width - 1));
+        var height = Math.Max(startRow + 1, console.Profile.Height);
+
+        for (var row = startRow; row < height; row++)
+        {
+            console.Cursor.SetPosition(0, row);
+            console.Write(blankLine);
+        }
+
+        console.Cursor.SetPosition(0, startRow);
     }
 
     /// <summary>

@@ -223,7 +223,7 @@ public static class RestoreCommand
 
                 void Render(BackupProgress admitted)
                 {
-                    task ??= ctx.AddTask($"Restoring '{Markup.Escape(path)}'", autoStart: true, maxValue: admitted.TotalBytes);
+                    task ??= ctx.AddTask(BuildRestoreTaskLabel(path, console.Profile.Width), autoStart: true, maxValue: admitted.TotalBytes);
                     task.Value = admitted.BytesTransferred;
                     ctx.Refresh();
                 }
@@ -231,6 +231,29 @@ public static class RestoreCommand
                 var reporter = new RestoreProgressReporter(displayGate, Render);
                 RunRestoreOnce(history, path, version, at, outPath, overwrite, reporter.OnBytesCopied, reporter.OnSizeResolved);
             });
+    }
+
+    // Builds the single-file restore live display's task label from the restored path,
+    // pre-truncated to a fixed character budget (per RestoreProgressLabelBudget, derived from
+    // the terminal's reported width) before Markup.Escape ever sees it - so Spectre's
+    // TaskDescriptionColumn never measures more than a bounded-length string, per design.md's
+    // "Pre-truncate the label string instead of a custom column" decision. Internal (rather
+    // than private) so RestoreCommandTests can assert the label's bounded length directly,
+    // without needing a live-capable console/terminal double to drive the whole progress
+    // display.
+    internal static string BuildRestoreTaskLabel(string path, int terminalWidth) =>
+        BuildRestoreTaskLabel("Restoring '", path, terminalWidth);
+
+    // Shared by both the single-file and recursive directory restore live displays - only the
+    // prefix text differs between them (see RunDirectoryRestoreWithLiveDisplay), so both labels
+    // are bounded to the same overall budget via RestoreProgressLabelBudget.
+    private static string BuildRestoreTaskLabel(string prefix, string path, int terminalWidth)
+    {
+        const string suffix = "'";
+        var budget = RestoreProgressLabelBudget.Compute(terminalWidth);
+        var pathBudget = Math.Max(1, budget - prefix.Length - suffix.Length);
+        var truncatedPath = PathLabelTruncator.Truncate(path, pathBudget);
+        return $"{prefix}{Markup.Escape(truncatedPath)}{suffix}";
     }
 
     // Non-interactive/redirected path: plain, uncolored, appended lines with no in-place
@@ -436,7 +459,7 @@ public static class RestoreCommand
 
                 void Render(BackupProgress admitted)
                 {
-                    task ??= ctx.AddTask($"Restoring directory '{Markup.Escape(directoryPath)}'", autoStart: true, maxValue: admitted.TotalBytes);
+                    task ??= ctx.AddTask(BuildDirectoryRestoreTaskLabel(directoryPath, console.Profile.Width), autoStart: true, maxValue: admitted.TotalBytes);
                     task.Value = admitted.BytesTransferred;
                     ctx.Refresh();
                 }
@@ -447,6 +470,11 @@ public static class RestoreCommand
 
         return stoppedEarly;
     }
+
+    // Recursive-restore counterpart to BuildRestoreTaskLabel, sharing the same truncation and
+    // budget logic - only the prefix text ("Restoring directory '" vs "Restoring '") differs.
+    internal static string BuildDirectoryRestoreTaskLabel(string directoryPath, int terminalWidth) =>
+        BuildRestoreTaskLabel("Restoring directory '", directoryPath, terminalWidth);
 
     // Non-interactive/redirected path for a recursive directory restore - analogous to
     // RunWithPlainOutput's single-file equivalent.
