@@ -9,8 +9,14 @@ namespace Vara.Cli.Commands;
 
 public static class BrowseCommand
 {
-    public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory)
+    public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory, IAnsiConsole? console = null)
     {
+        // Overridable so tests can assert against an in-memory console instead of the
+        // process-wide AnsiConsole.Console static (which would otherwise race other tests'
+        // console output under the test suite's default parallelization) - the same
+        // testability seam BackupCommand.Create's own console parameter uses.
+        var ansiConsole = console ?? AnsiConsole.Console;
+
         var profileOption = new Option<string?>("--profile") { Description = "The profile to browse. Optional when the current directory is inside a profile's target root." };
         var directoryArgument = new Argument<string>("directory")
         {
@@ -41,11 +47,16 @@ public static class BrowseCommand
                 using var services = serviceFactory.CreateFor(profile, createIfMissing: false);
                 var history = new SnapshotHistoryService(services.Repository, services.ContentStore);
 
-                var resolvedDirectory = DirectoryArgumentResolver.Resolve(profile.TargetRoot, directory, services.Repository, services.ContentStore.IsWithinMirror);
+                var resolution = DirectoryArgumentResolver.Resolve(profile.TargetRoot, directory, services.Repository, services.ContentStore.IsWithinMirror);
                 var asOf = at is null ? (DateTimeOffset?)null : DateTimeOptionParser.Parse("--at", at);
 
-                var entries = history.ListDirectory(resolvedDirectory, asOf, includeDeleted);
-                DirectoryListingPresenter.Render(AnsiConsole.Console, entries);
+                var entries = history.ListDirectory(resolution.Path, asOf, includeDeleted);
+                DirectoryListingPresenter.Render(ansiConsole, entries);
+
+                if (resolution.FellBackToMirrorRoot)
+                {
+                    OutcomeStyle.WriteLineNeutral(ansiConsole, "The current directory has no recorded history; showing the mirror root instead.");
+                }
             });
         });
 

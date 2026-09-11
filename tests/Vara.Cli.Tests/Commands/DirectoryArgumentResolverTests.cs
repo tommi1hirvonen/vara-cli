@@ -47,7 +47,8 @@ public class DirectoryArgumentResolverTests
 
         var resolved = DirectoryArgumentResolver.Resolve(@"D:\Backups\Profile1", @"C:\Users\john\Projects\src", repository, IsWithinMirror);
 
-        Assert.Equal(@"C\Users\john\Projects\src", resolved);
+        Assert.Equal(@"C\Users\john\Projects\src", resolved.Path);
+        Assert.False(resolved.FellBackToMirrorRoot);
     }
 
     [Fact]
@@ -55,9 +56,33 @@ public class DirectoryArgumentResolverTests
     {
         var repository = new StubRepository(new Dictionary<string, CurrentFileState>());
 
-        var resolved = DirectoryArgumentResolver.Resolve(@"D:\Backups\Profile1", "never-tracked-dir", repository, IsWithinMirror);
+        // "never-tracked-dir" is a non-root, non-blank argument - unaffected by the `.`/blank
+        // fallback handling, per the "Non-root directory argument from within a source is
+        // unaffected" scenario.
+        var resolved = DirectoryArgumentResolver.Resolve(
+            @"D:\Backups\Profile1", "never-tracked-dir", repository, IsWithinMirror, currentDirectory: @"C:\Users\john\Elsewhere");
 
-        Assert.Equal("never-tracked-dir", resolved);
+        Assert.Equal("never-tracked-dir", resolved.Path);
+        Assert.False(resolved.FellBackToMirrorRoot);
+    }
+
+    [Fact]
+    public void Dot_from_a_working_directory_inside_a_source_resolves_to_the_source_mapped_directory()
+    {
+        // The cwd (C:\Users\john\Projects\src) is outside the mirror, but maps to a
+        // mirror-relative directory that has recorded history - the "Browsing or recursively
+        // restoring the current directory from within a source" scenario.
+        var current = new Dictionary<string, CurrentFileState>(StringComparer.OrdinalIgnoreCase)
+        {
+            [@"C\Users\john\Projects\src\main.py"] = new(@"C\Users\john\Projects\src\main.py", "hash", 10, DateTimeOffset.UnixEpoch),
+        };
+        var repository = new StubRepository(current);
+
+        var resolved = DirectoryArgumentResolver.Resolve(
+            @"D:\Backups\Profile1", ".", repository, IsWithinMirror, currentDirectory: @"C:\Users\john\Projects\src");
+
+        Assert.Equal(@"C\Users\john\Projects\src", resolved.Path);
+        Assert.False(resolved.FellBackToMirrorRoot);
     }
 
     [Fact]
@@ -65,9 +90,30 @@ public class DirectoryArgumentResolverTests
     {
         var repository = new StubRepository(new Dictionary<string, CurrentFileState>());
 
-        var resolved = DirectoryArgumentResolver.Resolve(@"D:\Backups\Profile1", ".", repository, IsWithinMirror);
+        // The cwd's source-mapped location has no recorded history (the repository is empty),
+        // so this falls back to the mirror root and signals that fallback - the "Current
+        // directory outside the mirror has no recorded history" scenario.
+        var resolved = DirectoryArgumentResolver.Resolve(
+            @"D:\Backups\Profile1", ".", repository, IsWithinMirror, currentDirectory: @"C:\Users\john\Projects\src");
 
-        Assert.Equal(".", resolved);
+        Assert.Equal(".", resolved.Path);
+        Assert.True(resolved.FellBackToMirrorRoot);
+    }
+
+    [Fact]
+    public void Dot_from_a_working_directory_inside_the_mirror_resolves_without_falling_back()
+    {
+        var repository = new StubRepository(new Dictionary<string, CurrentFileState>());
+
+        // The cwd is inside the mirror, so the mirror root is the directly-requested directory,
+        // not a fallback - unaffected by the `.`/blank-while-outside-the-mirror special case.
+        // The cwd-relative candidate strips the mirror root from the cwd itself, producing an
+        // empty mirror-relative path - equivalent to "." (both normalize to the root prefix).
+        var resolved = DirectoryArgumentResolver.Resolve(
+            @"D:\Backups\Profile1", ".", repository, IsWithinMirror, currentDirectory: @"D:\Backups\Profile1");
+
+        Assert.Equal(string.Empty, resolved.Path);
+        Assert.False(resolved.FellBackToMirrorRoot);
     }
 
     /// <summary>Plain lexical containment check standing in for the reparse-aware

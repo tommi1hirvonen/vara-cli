@@ -1,5 +1,6 @@
 using System.Threading;
 using Microsoft.Data.Sqlite;
+using Spectre.Console.Testing;
 using Vara.Application.Profiles;
 using Vara.Cli.Commands;
 using Vara.Cli.Composition;
@@ -58,13 +59,14 @@ public class RestoreCommandTests : IDisposable
     private static System.CommandLine.Command CreateCommand() =>
         RestoreCommand.Create(new ProfileResolver(new UnusedProfileConfigLoader()), new ProfileServiceFactory(new UnusedHasher()));
 
-    private System.CommandLine.Command CreateRealCommand(CancellationToken cancellationToken = default)
+    private System.CommandLine.Command CreateRealCommand(CancellationToken cancellationToken = default, Spectre.Console.IAnsiConsole? console = null)
     {
         var profile = new Profile("test-profile", _targetRoot, [new Source(_sourceRoot)], null);
         return RestoreCommand.Create(
             new ProfileResolver(new SingleProfileConfigLoader(profile)),
             new ProfileServiceFactory(_hasher),
-            cancellationToken);
+            cancellationToken,
+            console);
     }
 
     /// <summary>Stores two files' content in the profile's real content store and records
@@ -82,6 +84,29 @@ public class RestoreCommandTests : IDisposable
         var snapshot = repository.BeginSnapshot(now);
         repository.RecordFileVersion(snapshot, @"src\a.txt", null, hashA, sizeA, now, FileChangeKind.Added, now);
         repository.RecordFileVersion(snapshot, @"src\b.txt", null, hashB, sizeB, now, FileChangeKind.Added, now);
+        repository.CompleteSnapshot(snapshot, now, SnapshotStats.Empty);
+    }
+
+    /// <summary>Stores two files' content and records both as live under the mirror-relative
+    /// path that <see cref="Vara.Core.FileSystem.AbsolutePathMirrorMapper"/> derives from the
+    /// profile's actual <c>_sourceRoot</c> - so a cwd of <c>_sourceRoot</c> resolving `.` through
+    /// the absolute-source-path mapping lands exactly on this tracked prefix, unlike
+    /// <see cref="SeedTwoTrackedFiles"/>'s arbitrary "src\" prefix (which deliberately does not
+    /// correspond to any real source root).</summary>
+    private void SeedTwoTrackedFilesUnderSourceRoot()
+    {
+        var contentStore = new FileSystemContentStore(_targetRoot, _hasher);
+        var (hashA, sizeA) = contentStore.StoreFromStream(new MemoryStream("content a"u8.ToArray()));
+        var (hashB, sizeB) = contentStore.StoreFromStream(new MemoryStream("content b"u8.ToArray()));
+
+        var mirrorPrefix = Vara.Core.FileSystem.AbsolutePathMirrorMapper.ToMirrorPath(_sourceRoot);
+
+        var dbPath = Path.Combine(_targetRoot, ".vara", "profile.db");
+        using var repository = new SqliteSnapshotRepository(dbPath);
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = repository.BeginSnapshot(now);
+        repository.RecordFileVersion(snapshot, Path.Combine(mirrorPrefix, "a.txt"), null, hashA, sizeA, now, FileChangeKind.Added, now);
+        repository.RecordFileVersion(snapshot, Path.Combine(mirrorPrefix, "b.txt"), null, hashB, sizeB, now, FileChangeKind.Added, now);
         repository.CompleteSnapshot(snapshot, now, SnapshotStats.Empty);
     }
 
@@ -132,6 +157,70 @@ public class RestoreCommandTests : IDisposable
         Assert.Equal(ExitCodes.PartialFailure, exitCode);
         Assert.False(File.Exists(Path.Combine(_outRoot, "a.txt")));
         Assert.False(File.Exists(Path.Combine(_outRoot, "b.txt")));
+    }
+
+    /// <summary>Covers the snapshot-history delta's "Current directory outside the mirror has
+    /// no recorded history" scenario for `restore --recursive .`: run from a cwd inside the
+    /// profile's source tree whose source-mapped location has nothing tracked under it (only
+    /// the unrelated "src\" prefix is tracked), so the resolver falls back to the mirror root
+    /// and the command prints the fallback message before restoring the mirror root's
+    /// contents.</summary>
+    [Fact]
+    public void Recursive_restore_of_dot_from_a_source_directory_with_no_tracked_history_falls_back_to_mirror_root_with_a_message()
+    {
+        SeedTwoTrackedFiles();
+        Directory.CreateDirectory(_sourceRoot);
+        var testConsole = new TestConsole();
+        var command = CreateRealCommand(console: testConsole);
+
+        var originalCwd = Directory.GetCurrentDirectory();
+        try
+        {
+            Directory.SetCurrentDirectory(_sourceRoot);
+            var exitCode = command.Parse([".", "--profile", "test-profile", "--recursive", "--out", _outRoot, "--force"]).Invoke();
+
+            Assert.Equal(ExitCodes.Success, exitCode);
+            Assert.Contains("no recorded history", testConsole.Output);
+            // Falling back to the mirror root restores everything tracked, preserving each
+            // file's mirror-relative path - here "src\" (SeedTwoTrackedFiles' prefix) - rather
+            // than flattening it into _outRoot, unlike restoring a specific subdirectory below.
+            Assert.True(File.Exists(Path.Combine(_outRoot, "src", "a.txt")));
+            Assert.True(File.Exists(Path.Combine(_outRoot, "src", "b.txt")));
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalCwd);
+        }
+    }
+
+    /// <summary>Covers the snapshot-history delta's "Browsing or recursively restoring the
+    /// current directory from within a source" scenario for `restore --recursive .`: run from a
+    /// cwd inside the profile's source tree that *does* map to tracked history, and confirm the
+    /// command restores that source-mapped directory - not the mirror root - with no fallback
+    /// message.</summary>
+    [Fact]
+    public void Recursive_restore_of_dot_from_a_source_directory_with_tracked_history_restores_that_directory()
+    {
+        SeedTwoTrackedFilesUnderSourceRoot();
+        Directory.CreateDirectory(_sourceRoot);
+        var testConsole = new TestConsole();
+        var command = CreateRealCommand(console: testConsole);
+
+        var originalCwd = Directory.GetCurrentDirectory();
+        try
+        {
+            Directory.SetCurrentDirectory(_sourceRoot);
+            var exitCode = command.Parse([".", "--profile", "test-profile", "--recursive", "--out", _outRoot, "--force"]).Invoke();
+
+            Assert.Equal(ExitCodes.Success, exitCode);
+            Assert.DoesNotContain("no recorded history", testConsole.Output);
+            Assert.True(File.Exists(Path.Combine(_outRoot, "a.txt")));
+            Assert.True(File.Exists(Path.Combine(_outRoot, "b.txt")));
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalCwd);
+        }
     }
 
     [Fact]

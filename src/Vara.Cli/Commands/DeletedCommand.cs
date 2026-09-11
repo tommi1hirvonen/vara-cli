@@ -40,7 +40,7 @@ public static class DeletedCommand
 
                 var resolvedDirectory = string.IsNullOrWhiteSpace(directory)
                     ? null
-                    : DirectoryArgumentResolver.Resolve(profile.TargetRoot, directory, services.Repository, services.ContentStore.IsWithinMirror);
+                    : DirectoryArgumentResolver.Resolve(profile.TargetRoot, directory, services.Repository, services.ContentStore.IsWithinMirror).Path;
                 var sinceDate = since is null ? (DateTimeOffset?)null : DateTimeOptionParser.Parse("--since", since);
 
                 var deleted = history.ListDeleted(resolvedDirectory, sinceDate);

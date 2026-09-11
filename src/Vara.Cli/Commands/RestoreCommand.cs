@@ -14,8 +14,14 @@ namespace Vara.Cli.Commands;
 
 public static class RestoreCommand
 {
-    public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory, CancellationToken cancellationToken = default)
+    public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory, CancellationToken cancellationToken = default, IAnsiConsole? console = null)
     {
+        // Overridable so tests can assert against an in-memory console instead of the
+        // process-wide AnsiConsole.Console static (which would otherwise race other tests'
+        // console output under the test suite's default parallelization) - the same
+        // testability seam BackupCommand.Create's own console parameter uses.
+        var ansiConsole = console ?? AnsiConsole.Console;
+
         var profileOption = new Option<string?>("--profile") { Description = "The profile to restore from. Optional when the current directory is inside a profile's target root." };
         var pathArgument = new Argument<string>("path") { Description = "The file (or, with --recursive, directory) to restore - a mirror-relative path, an absolute source path, or a path relative to the current directory." };
         var outOption = new Option<string?>("--out") { Description = "Destination path to write the restored content to. Mutually exclusive with --in-place." };
@@ -73,7 +79,7 @@ public static class RestoreCommand
             // Only relevant to single-file restore; a recursive restore has no single per-file
             // version history to pick from (per the "Interactive version selection when
             // restoring" requirement's "does not apply to a recursive directory restore" note).
-            var console = AnsiConsole.Console;
+            var console = ansiConsole;
             var canPromptForVersion = !Console.IsInputRedirected && OutputMode.IsLiveCapable(console);
 
             if (!recursive && at is null && version is null && !canPromptForVersion)
@@ -297,14 +303,17 @@ public static class RestoreCommand
         ref bool cancelled,
         ref bool gracefullyCancelled)
     {
-        var resolvedPath = SnapshotPathResolver.TryResolve(
+        var resolution = DirectoryArgumentResolver.Resolve(
             mirrorRoot,
             path,
             candidate => IsDirectoryTracked(history, candidate),
-            isWithinMirror,
-            out var candidatePath)
-            ? candidatePath
-            : path;
+            isWithinMirror);
+        var resolvedPath = resolution.Path;
+
+        if (resolution.FellBackToMirrorRoot)
+        {
+            OutcomeStyle.WriteLineNeutral(console, "The current directory has no recorded history; falling back to the mirror root.");
+        }
 
         var asOf = at is null
             ? (DateTimeOffset?)null
