@@ -160,6 +160,38 @@ public class RestoreCommandTests : IDisposable
         Assert.False(File.Exists(Path.Combine(_outRoot, "b.txt")));
     }
 
+    /// <summary>Covers the snapshot-history delta's "Restore without --recursive given a
+    /// tracked directory path" scenario: "src" matches no tracked file (only "src\a.txt" and
+    /// "src\b.txt" are tracked files), but is itself a tracked directory prefix, so restoring it
+    /// without --recursive must fail with RestoreTargetIsDirectoryException's exit code rather
+    /// than treating it as an ordinary unknown path. The exact message mapping is covered by
+    /// ErrorReportingTests; this only exercises that RestoreCommand's single-file branch reaches
+    /// that exception instead of NoHistoryForPathException or a crash.</summary>
+    [Fact]
+    public void Restoring_a_tracked_directory_path_without_recursive_fails_with_a_hard_error()
+    {
+        SeedTwoTrackedFiles();
+        var command = CreateRealCommand();
+
+        var exitCode = command.Parse(["src", "--profile", "test-profile", "--in-place", "--at", "2025-01-15"]).Invoke();
+
+        Assert.Equal(ExitCodes.HardError, exitCode);
+    }
+
+    /// <summary>Regression guard for the proposal's Non-Goal: a path that matches neither a
+    /// tracked file nor a tracked directory must still fail the same way it always has (still a
+    /// hard error - untouched by the new directory-detection branch).</summary>
+    [Fact]
+    public void Restoring_a_path_with_no_history_at_all_still_fails_with_a_hard_error()
+    {
+        SeedTwoTrackedFiles();
+        var command = CreateRealCommand();
+
+        var exitCode = command.Parse(["never-tracked", "--profile", "test-profile", "--in-place", "--at", "2025-01-15"]).Invoke();
+
+        Assert.Equal(ExitCodes.HardError, exitCode);
+    }
+
     /// <summary>Covers the snapshot-history delta's "Current directory outside the mirror has
     /// no recorded history" scenario for `restore --recursive .`: run from a cwd inside the
     /// profile's source tree whose source-mapped location has nothing tracked under it (only

@@ -196,6 +196,24 @@ public class ErrorReportingTests
     }
 
     [Fact]
+    public void RestoreTargetIsDirectoryException_takes_the_friendly_message_path()
+    {
+        var console = new TestConsole { EmitAnsiSequences = true };
+        console.Profile.Width = 200;
+        console.Profile.Capabilities.Ansi = true;
+        console.Profile.Capabilities.ColorSystem = Spectre.Console.ColorSystem.EightBit;
+
+        var exitCode = ErrorReporting.Run(
+            () => throw new Vara.Core.Snapshots.RestoreTargetIsDirectoryException(@"src\docs"),
+            console);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Error: 'src\\docs' is a directory. Pass --recursive to restore it as a directory.", console.Output);
+        Assert.DoesNotContain("Unhandled exception", console.Output);
+        Assert.DoesNotContain("RestoreTargetIsDirectoryException", console.Output);
+    }
+
+    [Fact]
     public void ProfileConfigWriteFailedException_takes_the_friendly_message_path()
     {
         var console = new TestConsole { EmitAnsiSequences = true };

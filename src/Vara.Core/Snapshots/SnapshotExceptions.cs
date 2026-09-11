@@ -11,6 +11,19 @@ public sealed class NoHistoryForPathException(string relativePath)
 }
 
 /// <summary>
+/// A single-file <c>restore</c> (i.e. without <c>--recursive</c>) was invoked for a path that
+/// does not match any tracked file, but does match a tracked directory - some tracked path, live
+/// or deleted, falls under it (snapshot-history spec: "Unknown path or version reported
+/// clearly"). Distinct from <see cref="NoHistoryForPathException"/>: that path is not "never
+/// tracked at all," it just needs <c>--recursive</c> to restore it as a directory.
+/// </summary>
+public sealed class RestoreTargetIsDirectoryException(string relativePath)
+    : Exception($"'{relativePath}' is a directory. Pass --recursive to restore it as a directory.")
+{
+    public string RelativePath { get; } = relativePath;
+}
+
+/// <summary>
 /// A directory-listing command (backup-browsing capability) was invoked for a directory
 /// path under which no tracked path, at any point in history, falls - regardless of
 /// whether deleted entries were requested, since a directory with only deleted content is

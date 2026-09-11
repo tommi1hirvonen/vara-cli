@@ -68,6 +68,7 @@ public static class ErrorReporting
                 or RunLockAccessDeniedException
                 or PruneConfirmationRequiredException
                 or NoHistoryForPathException
+                or RestoreTargetIsDirectoryException
                 or NoMatchingVersionException
                 or RestoreLinkedEntryException
                 or RestoreDestinationInMirrorException

@@ -103,14 +103,29 @@ public static class RestoreCommand
                     return;
                 }
 
-                path = SnapshotPathResolver.TryResolve(
+                var fileResolved = SnapshotPathResolver.TryResolve(
                     profile.TargetRoot,
                     path,
                     candidate => services.Repository.GetFileHistory(candidate).Count > 0,
                     services.ContentStore.IsWithinMirror,
-                    out var resolvedPath)
-                    ? resolvedPath
-                    : path;
+                    out var resolvedPath);
+                path = fileResolved ? resolvedPath : path;
+
+                // No candidate matched a tracked file - before falling through to the
+                // file-history lookups below (which would raise the generic
+                // NoHistoryForPathException), re-run the same flexible-path resolution order
+                // with a "is this a tracked directory" predicate instead, so a directory that
+                // just needs --recursive gets its own actionable error instead of being
+                // conflated with "never tracked at all".
+                if (!fileResolved && SnapshotPathResolver.TryResolve(
+                        profile.TargetRoot,
+                        path,
+                        candidate => IsDirectoryTracked(history, candidate),
+                        services.ContentStore.IsWithinMirror,
+                        out var resolvedDirectoryPath))
+                {
+                    throw new RestoreTargetIsDirectoryException(resolvedDirectoryPath);
+                }
 
                 if (at is null && version is null)
                 {
@@ -424,7 +439,7 @@ public static class RestoreCommand
     /// <see cref="SnapshotHistoryService.ListDirectory"/>'s own "any tracked path" check rather
     /// than duplicating it.
     /// </summary>
-    private static bool IsDirectoryTracked(SnapshotHistoryService history, string candidate)
+    internal static bool IsDirectoryTracked(SnapshotHistoryService history, string candidate)
     {
         try
         {

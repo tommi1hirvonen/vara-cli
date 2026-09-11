@@ -33,14 +33,21 @@ a path that was genuinely never tracked at all.
 
 ## Decisions
 
-**Decision: Reuse the existing `IsDirectoryTracked(history, candidate)` helper, called on the raw
-(pre-resolution) input, only after the single-file resolver fails to match a tracked file.**
-`IsDirectoryTracked` already wraps `SnapshotHistoryService.ListDirectory` with the
-tracked/not-tracked `NoSuchDirectoryException` check `RunRecursiveRestore` relies on, so no new
-history-querying logic is needed. It is currently `private`; change it to `internal` (or hoist to
-a shared location) so the single-file branch in the same class can call it. Running it only after
-file resolution fails - not as a first check - keeps the common, successful case (an actual
-tracked file) exactly as fast as today.
+**Decision: Re-run `SnapshotPathResolver.TryResolve` with an `IsDirectoryTracked`-backed
+predicate, not a single literal check on the raw input, only after the single-file resolver
+fails to match a tracked file.** A literal-only check on the unresolved raw input is not enough:
+the same cwd-relative/absolute-source-path candidates that let a *file* path work when typed
+relative to the source tree (not just the mirror) apply equally to a directory argument -
+confirmed by reproducing `restore subdir` from inside the profile's source directory, where
+`subdir`'s real mirror-relative path is derived from the absolute source path, not the literal
+string `subdir`. So the directory check reuses the same `SnapshotPathResolver.TryResolve` entry
+point already used for the file check, just parameterized with `IsDirectoryTracked` as its
+`hasHistory` predicate instead of `GetFileHistory(...).Count > 0` - mirroring how
+`DirectoryArgumentResolver`'s own non-root/non-blank case already falls through to this same
+resolver. `IsDirectoryTracked` (a private helper wrapping `SnapshotHistoryService.ListDirectory`)
+is currently `private`; change it to `internal` so the single-file branch in the same class can
+call it. Running it only after file resolution fails - not as a first check - keeps the common,
+successful case (an actual tracked file) exactly as fast as today.
 
 **Decision: New exception type `RestoreTargetIsDirectoryException`, not a reused/extended
 `NoHistoryForPathException`.** The two errors mean different things ("nothing is tracked here" vs.
