@@ -146,7 +146,13 @@ public class ProfilesCommandTests
     public void ApplyDelete_removes_only_the_matching_profile_and_writes_the_remaining_list()
     {
         var writer = new RecordingProfileConfigWriter();
-        var toDelete = new Profile("files", @"D:\backup", [new Source(@"C:\data")], retention: null);
+
+        // Use a unique, never-created temp path (rather than a fixed literal like
+        // @"D:\backup") for the profile being deleted, so the "never touches disk" check
+        // below can't coincidentally pass/fail based on what a real drive on the machine
+        // running this test happens to contain.
+        var toDeleteTarget = Path.Combine(Path.GetTempPath(), $"vara-profiles-cli-test-{Guid.NewGuid():N}");
+        var toDelete = new Profile("files", toDeleteTarget, [new Source(@"C:\data")], retention: null);
         var toKeep = new Profile("photos", @"D:\photos", [new Source(@"C:\photos")], retention: null);
         var profiles = new List<Profile> { toDelete, toKeep };
 
