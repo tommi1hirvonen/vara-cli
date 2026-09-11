@@ -185,7 +185,7 @@ creating, editing, and deleting profiles - see [`vara profiles`](#usage) below.
 | `vara browse [directory] [--profile <name>] [--at <date>] [--deleted]` | List a mirror directory's contents, optionally as of a past date, optionally including deleted entries. |
 | `vara deleted [directory] [--profile <name>] [--since <date>]` | Report deleted files, most recently deleted first. |
 | `vara restore <path> (--out <dest> \| --in-place) (--at <date> \| --version <id>) [--force]` | Extract a historical version to a destination (or back to its original source location) without touching the live mirror. |
-| `vara restore <path> --recursive (--out <dest> \| --in-place) [--at <date>] [--force]` | Restore an entire directory (subtree) to its exact tracked state as of `--at`, or its current tracked state if `--at` is omitted; reports planned writes/removals and asks for one confirmation before applying them unless `--force` is given. Mutually exclusive with `--version`. |
+| `vara restore <path> --recursive (--out <dest> \| --in-place) [--at <date> \| --snapshot <id>] [--force]` | Restore an entire directory (subtree) to its exact tracked state as of `--at` or `--snapshot <id>`, or its current tracked state if neither is given non-interactively; in an interactive session, omitting both instead presents a selectable list of candidate snapshots (plus a "current tracked state" entry) with directory-scoped stats. Reports planned writes/removals and asks for one confirmation before applying them unless `--force` is given. Mutually exclusive with `--version`; `--at` and `--snapshot` are mutually exclusive with each other. |
 | `vara show <path> (--at <date> \| --version <id>)` | Stream a historical version's content to stdout. |
 | `vara diff <path> (--left-at <date> \| --left-version <id>) (--right-at <date> \| --right-version <id>)` | Show a textual diff between two versions of a file. |
 | `vara prune --profile <name> [--yes]` | Apply the profile's tiered retention policy and garbage-collect unreferenced content. |
@@ -219,8 +219,14 @@ current directory - Vara resolves whichever form matches recorded history.
 `--at <date>` (the version current as of that date). For single-file `restore`, in an
 interactive session, omitting both presents a selectable list of versions instead of
 erroring; `show` always requires one of the two and errors if both are omitted. This
-picker does not apply to `restore --recursive` - a directory restore has no single
-per-file version history to pick from.
+single-file picker does not apply to `restore --recursive` - a directory restore has no
+single per-file version history to pick from. Instead, `restore --recursive` accepts
+`--at <date>` or `--snapshot <id>` (a specific snapshot id, from `snapshots`' output);
+in an interactive session, omitting both presents a selectable list of candidate
+snapshots that touched the directory - each showing its directory-scoped added/changed/
+moved/deleted counts, net byte change, and point-in-time file/byte/symlink totals - plus
+a "current tracked state" entry pre-selected as the default, so accepting it without
+changing the selection reproduces the same result as omitting both non-interactively.
 
 `vara profiles` (optionally with `--config <path>`, matching the same option accepted by
 the other commands) opens a full-screen interactive editor over the configuration file:

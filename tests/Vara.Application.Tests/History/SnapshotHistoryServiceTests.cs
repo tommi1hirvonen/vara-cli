@@ -1219,5 +1219,177 @@ public class SnapshotHistoryServiceTests
             Directory.Delete(tempRoot, recursive: true);
         }
     }
+
+    [Fact]
+    public void ListDirectorySnapshotCandidates_for_a_directory_with_no_history_returns_an_empty_list_without_throwing()
+    {
+        var repository = new FakeSnapshotRepository();
+        var s1 = repository.BeginSnapshot(DateTimeOffset.UtcNow);
+        repository.RecordFileVersion(s1, @"other\a.txt", null, "hash-1", 10, DateTimeOffset.UtcNow, FileChangeKind.Added, DateTimeOffset.UtcNow);
+        repository.CompleteSnapshot(s1, DateTimeOffset.UtcNow, SnapshotStats.Empty);
+        var service = new SnapshotHistoryService(repository, new FakeContentStore());
+
+        var candidates = service.ListDirectorySnapshotCandidates("src");
+
+        Assert.Empty(candidates);
+    }
+
+    [Fact]
+    public void ListDirectorySnapshotCandidates_returns_multiple_qualifying_snapshots_most_recent_first()
+    {
+        var repository = new FakeSnapshotRepository();
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, @"src\a.txt", null, "hash-1", 10, t0, FileChangeKind.Added, t0);
+        repository.CompleteSnapshot(s1, t0, SnapshotStats.Empty);
+        var t1 = t0.AddDays(1);
+        var s2 = repository.BeginSnapshot(t1);
+        repository.RecordFileVersion(s2, @"src\a.txt", null, "hash-2", 20, t1, FileChangeKind.Changed, t1);
+        repository.CompleteSnapshot(s2, t1, SnapshotStats.Empty);
+        var service = new SnapshotHistoryService(repository, new FakeContentStore());
+
+        var candidates = service.ListDirectorySnapshotCandidates("src");
+
+        Assert.Equal([s2, s1], candidates.Select(c => c.Snapshot.Id));
+    }
+
+    [Fact]
+    public void ListDirectorySnapshotCandidates_excludes_a_Running_or_Failed_snapshot_that_touched_the_directory()
+    {
+        var repository = new FakeSnapshotRepository();
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, @"src\a.txt", null, "hash-1", 10, t0, FileChangeKind.Added, t0);
+        repository.CompleteSnapshot(s1, t0, SnapshotStats.Empty);
+
+        var t1 = t0.AddDays(1);
+        var runningSnapshot = repository.BeginSnapshot(t1);
+        repository.RecordFileVersion(runningSnapshot, @"src\b.txt", null, "hash-2", 5, t1, FileChangeKind.Added, t1);
+        // Left in Running status - never completed/failed/cancelled.
+
+        var t2 = t1.AddDays(1);
+        var failedSnapshot = repository.BeginSnapshot(t2);
+        repository.RecordFileVersion(failedSnapshot, @"src\c.txt", null, "hash-3", 5, t2, FileChangeKind.Added, t2);
+        repository.FailSnapshot(failedSnapshot, t2, SnapshotStats.Empty);
+
+        var service = new SnapshotHistoryService(repository, new FakeContentStore());
+
+        var candidates = service.ListDirectorySnapshotCandidates("src");
+
+        Assert.Equal([s1], candidates.Select(c => c.Snapshot.Id));
+    }
+
+    [Fact]
+    public void ListDirectorySnapshotCandidates_excludes_a_snapshot_that_only_touched_an_unrelated_path()
+    {
+        var repository = new FakeSnapshotRepository();
+        var t0 = DateTimeOffset.UtcNow;
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, @"other\a.txt", null, "hash-1", 10, t0, FileChangeKind.Added, t0);
+        repository.CompleteSnapshot(s1, t0, SnapshotStats.Empty);
+        var service = new SnapshotHistoryService(repository, new FakeContentStore());
+
+        var candidates = service.ListDirectorySnapshotCandidates("src");
+
+        Assert.Empty(candidates);
+    }
+
+    [Fact]
+    public void ListDirectorySnapshotCandidates_reports_directory_scoped_delta_counts_and_net_bytes()
+    {
+        var repository = new FakeSnapshotRepository();
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, @"src\added.txt", null, "hash-added", 10, t0, FileChangeKind.Added, t0);
+        repository.RecordFileVersion(s1, @"src\changed.txt", null, "hash-changed-1", 5, t0, FileChangeKind.Added, t0);
+        repository.CompleteSnapshot(s1, t0, SnapshotStats.Empty);
+
+        var t1 = t0.AddDays(1);
+        var s2 = repository.BeginSnapshot(t1);
+        repository.RecordFileVersion(s2, @"src\changed.txt", null, "hash-changed-2", 8, t1, FileChangeKind.Changed, t1);
+        repository.RecordFileVersion(s2, @"src\deleted.txt", null, null, 0, t1, FileChangeKind.Deleted, t1);
+        repository.RecordFileVersion(s2, @"src\old.txt", null, "hash-old", 4, t1, FileChangeKind.Deleted, t1);
+        repository.RecordFileVersion(s2, @"src\moved.txt", @"other\moved.txt", "hash-moved", 6, t1, FileChangeKind.Moved, t1);
+        repository.CompleteSnapshot(s2, t1, SnapshotStats.Empty);
+
+        var service = new SnapshotHistoryService(repository, new FakeContentStore());
+
+        var candidates = service.ListDirectorySnapshotCandidates("src");
+        var latest = candidates.Single(c => c.Snapshot.Id == s2);
+
+        Assert.Equal(0, latest.FilesAdded);
+        Assert.Equal(1, latest.FilesChanged);
+        Assert.Equal(1, latest.FilesMoved);
+        Assert.Equal(2, latest.FilesDeleted);
+        // +8 (changed) - 0 (deleted, size 0) - 4 (deleted, size 4) + 6 (moved in) = 10
+        Assert.Equal(10, latest.NetBytesDelta);
+    }
+
+    [Fact]
+    public void ListDirectorySnapshotCandidates_reports_point_in_time_totals_with_symlinks_counted_separately()
+    {
+        var repository = new FakeSnapshotRepository();
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, @"src\a.txt", null, "hash-a", 10, t0, FileChangeKind.Added, t0);
+        repository.RecordFileVersion(s1, @"src\b.txt", null, "hash-b", 15, t0, FileChangeKind.Added, t0);
+        repository.RecordFileVersion(s1, @"src\link", null, null, 0, t0, FileChangeKind.Linked, t0, linkTarget: @"C:\target");
+        repository.CompleteSnapshot(s1, t0, SnapshotStats.Empty);
+        var service = new SnapshotHistoryService(repository, new FakeContentStore());
+
+        var candidate = Assert.Single(service.ListDirectorySnapshotCandidates("src"));
+
+        Assert.Equal(2, candidate.TotalFiles);
+        Assert.Equal(25, candidate.TotalBytes);
+        Assert.Equal(1, candidate.TotalLinks);
+    }
+
+    [Fact]
+    public void ResolveDirectorySnapshot_for_a_valid_id_returns_its_StartedAt()
+    {
+        var repository = new FakeSnapshotRepository();
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, @"src\a.txt", null, "hash-1", 10, t0, FileChangeKind.Added, t0);
+        repository.CompleteSnapshot(s1, t0, SnapshotStats.Empty);
+        var service = new SnapshotHistoryService(repository, new FakeContentStore());
+
+        var resolved = service.ResolveDirectorySnapshot("src", s1);
+
+        Assert.Equal(t0, resolved);
+    }
+
+    [Fact]
+    public void ResolveDirectorySnapshot_for_an_id_from_an_unrelated_directory_throws()
+    {
+        var repository = new FakeSnapshotRepository();
+        var t0 = DateTimeOffset.UtcNow;
+        var s1 = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(s1, @"other\a.txt", null, "hash-1", 10, t0, FileChangeKind.Added, t0);
+        repository.CompleteSnapshot(s1, t0, SnapshotStats.Empty);
+        var service = new SnapshotHistoryService(repository, new FakeContentStore());
+
+        var ex = Assert.Throws<NoMatchingDirectorySnapshotException>(() => service.ResolveDirectorySnapshot("src", s1));
+        Assert.Equal("src", ex.DirectoryPath);
+        Assert.Equal(s1, ex.SnapshotId);
+    }
+
+    [Fact]
+    public void ResolveDirectorySnapshot_for_a_Running_or_Failed_snapshot_throws()
+    {
+        var repository = new FakeSnapshotRepository();
+        var t0 = DateTimeOffset.UtcNow;
+        var running = repository.BeginSnapshot(t0);
+        repository.RecordFileVersion(running, @"src\a.txt", null, "hash-1", 10, t0, FileChangeKind.Added, t0);
+        var service = new SnapshotHistoryService(repository, new FakeContentStore());
+
+        Assert.Throws<NoMatchingDirectorySnapshotException>(() => service.ResolveDirectorySnapshot("src", running));
+
+        var failed = repository.BeginSnapshot(t0.AddDays(1));
+        repository.RecordFileVersion(failed, @"src\b.txt", null, "hash-2", 10, t0.AddDays(1), FileChangeKind.Added, t0.AddDays(1));
+        repository.FailSnapshot(failed, t0.AddDays(1), SnapshotStats.Empty);
+
+        Assert.Throws<NoMatchingDirectorySnapshotException>(() => service.ResolveDirectorySnapshot("src", failed));
+    }
 }
 

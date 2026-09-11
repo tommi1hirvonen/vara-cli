@@ -26,15 +26,16 @@ public static class RestoreCommand
         var pathArgument = new Argument<string>("path") { Description = "The file (or, with --recursive, directory) to restore - a mirror-relative path, an absolute source path, or a path relative to the current directory." };
         var outOption = new Option<string?>("--out") { Description = "Destination path to write the restored content to. Mutually exclusive with --in-place." };
         var inPlaceOption = new Option<bool>("--in-place") { Description = "Restore back to the original source location instead of an explicit --out destination. Mutually exclusive with --out." };
-        var atOption = new Option<string?>("--at") { Description = "Restore the version current as of this date/time (for example, '2025-01-15' or '2025-01-15 14:30'). With --recursive, omitting this restores the directory's current tracked state." };
+        var atOption = new Option<string?>("--at") { Description = "Restore the version current as of this date/time (for example, '2025-01-15' or '2025-01-15 14:30'). With --recursive, omitting this (and --snapshot) restores the directory's current tracked state in a non-interactive session, or presents a snapshot picker interactively. Mutually exclusive with --snapshot." };
         var versionOption = new Option<long?>("--version") { Description = "Restore this specific version id (see the 'history' command). If neither this nor --at is given in an interactive session, a version picker is shown instead. Mutually exclusive with --recursive." };
         var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
         var forceOption = new Option<bool>("--force") { Description = "Skip the overwrite confirmation (single-file restore) or the single directory-restore confirmation (--recursive) without prompting." };
-        var recursiveOption = new Option<bool>("--recursive") { Description = "Restore an entire directory (subtree) instead of a single file, reconstructing its exact tracked state as of --at (or the current state if --at is omitted). Mutually exclusive with --version." };
+        var recursiveOption = new Option<bool>("--recursive") { Description = "Restore an entire directory (subtree) instead of a single file, reconstructing its exact tracked state as of --at/--snapshot (or the current state if neither is given). Mutually exclusive with --version." };
+        var snapshotOption = new Option<long?>("--snapshot") { Description = "Restore the directory's tracked state as of this specific snapshot id (see the 'snapshots' command) - the non-interactive equivalent of selecting it from the --recursive snapshot picker. Only valid with --recursive. Mutually exclusive with --at." };
 
         var command = new Command("restore", "Restore a file's historical content, without touching the live mirror.")
         {
-            pathArgument, profileOption, outOption, inPlaceOption, atOption, versionOption, configOption, forceOption, recursiveOption,
+            pathArgument, profileOption, outOption, inPlaceOption, atOption, versionOption, configOption, forceOption, recursiveOption, snapshotOption,
         };
 
         command.SetAction(parseResult =>
@@ -48,6 +49,7 @@ public static class RestoreCommand
             var configPath = parseResult.GetValue(configOption);
             var force = parseResult.GetValue(forceOption);
             var recursive = parseResult.GetValue(recursiveOption);
+            var snapshotId = parseResult.GetValue(snapshotOption);
 
             if (outPath is not null && inPlace)
             {
@@ -73,12 +75,27 @@ public static class RestoreCommand
                 return 1;
             }
 
-            // Whether an interactive version picker can be shown when neither --at nor
-            // --version is given - requires both a real, non-redirected input stream (to read
-            // the user's selection) and a console capable of rendering the picker itself.
-            // Only relevant to single-file restore; a recursive restore has no single per-file
-            // version history to pick from (per the "Interactive version selection when
-            // restoring" requirement's "does not apply to a recursive directory restore" note).
+            if (snapshotId is not null && at is not null)
+            {
+                OutcomeStyle.WriteLineError(StandardError.Console, "Error: --snapshot and --at are mutually exclusive.");
+                return 1;
+            }
+
+            if (snapshotId is not null && !recursive)
+            {
+                OutcomeStyle.WriteLineError(StandardError.Console, "Error: --snapshot only applies to a recursive directory restore (--recursive).");
+                return 1;
+            }
+
+            // Whether an interactive picker can be shown when neither --at nor --version (for
+            // a single-file restore) or neither --at nor --snapshot (for a --recursive
+            // directory restore) is given - requires both a real, non-redirected input stream
+            // (to read the user's selection) and a console capable of rendering the picker
+            // itself. Single-file restore's picker offers the path's version history; a
+            // --recursive restore's own picker (per the "Interactive and explicit snapshot
+            // selection for a directory restore" requirement) offers candidate snapshots plus
+            // a "current tracked state" entry instead, since a directory has no single
+            // per-file version history to pick from.
             var console = ansiConsole;
             var canPromptForVersion = !Console.IsInputRedirected && OutputMode.IsLiveCapable(console);
 
@@ -99,7 +116,7 @@ public static class RestoreCommand
 
                 if (recursive)
                 {
-                    RunRecursiveRestore(history, profile.TargetRoot, path, at, outPath, inPlace, force, console, services.ContentStore.IsWithinMirror, cancellationToken, ref cancelled, ref gracefullyCancelled);
+                    RunRecursiveRestore(history, profile.TargetRoot, path, at, snapshotId, outPath, inPlace, force, console, services.ContentStore.IsWithinMirror, canPromptForVersion, cancellationToken, ref cancelled, ref gracefullyCancelled);
                     return;
                 }
 
@@ -332,11 +349,13 @@ public static class RestoreCommand
         string mirrorRoot,
         string path,
         string? at,
+        long? snapshotId,
         string? outPath,
         bool inPlace,
         bool force,
         IAnsiConsole console,
         Func<string, bool> isWithinMirror,
+        bool canPromptForVersion,
         CancellationToken cancellationToken,
         ref bool cancelled,
         ref bool gracefullyCancelled)
@@ -353,9 +372,27 @@ public static class RestoreCommand
             OutcomeStyle.WriteLineNeutral(console, "The current directory has no recorded history; falling back to the mirror root.");
         }
 
-        var asOf = at is null
-            ? (DateTimeOffset?)null
-            : DateTimeOptionParser.Parse("--at", at);
+        // --snapshot resolves directly, bypassing the picker (task 3.2). Otherwise, --at
+        // resolves directly as before. When neither is given and the session is interactive,
+        // the picker (task 3.3) decides asOf; when neither is given and the session is not
+        // interactive, today's default is preserved: silently restore the current state.
+        DateTimeOffset? asOf;
+        if (snapshotId is not null)
+        {
+            asOf = history.ResolveDirectorySnapshot(resolvedPath, snapshotId.Value);
+        }
+        else if (at is not null)
+        {
+            asOf = DateTimeOptionParser.Parse("--at", at);
+        }
+        else if (canPromptForVersion)
+        {
+            asOf = PromptForDirectorySnapshot(history, resolvedPath);
+        }
+        else
+        {
+            asOf = null;
+        }
 
         var plan = history.PlanDirectoryRestore(resolvedPath, asOf, outPath, inPlace);
         var stoppedEarlyByCtrlC = false;
@@ -418,6 +455,75 @@ public static class RestoreCommand
         {
             cancelled = true;
         }
+    }
+
+    /// <summary>
+    /// Presents the directory restore's interactive snapshot picker: a "current tracked
+    /// state" entry (pre-selected as the default, so accepting it without changing the
+    /// selection reproduces today's plain <c>--recursive</c> default) followed by every
+    /// candidate snapshot for <paramref name="directoryPath"/>, most-recent-first, per the
+    /// snapshot-history capability's "Interactive and explicit snapshot selection for a
+    /// directory restore" requirement. Returns <c>null</c> (the same "current" sentinel
+    /// <see cref="RunRecursiveRestore"/> otherwise uses) when the user accepts the default
+    /// entry, or the selected candidate's <see cref="Snapshots.Snapshot.StartedAt"/> otherwise.
+    /// </summary>
+    private static DateTimeOffset? PromptForDirectorySnapshot(SnapshotHistoryService history, string directoryPath)
+    {
+        var candidates = history.ListDirectorySnapshotCandidates(directoryPath);
+
+        var current = new DirectorySnapshotChoice(null, "Current tracked state");
+        var choices = new List<DirectorySnapshotChoice> { current };
+        choices.AddRange(candidates.Select(c => new DirectorySnapshotChoice(c, FormatDirectorySnapshotChoice(c))));
+
+        var prompt = new SelectionPrompt<DirectorySnapshotChoice>()
+            .Title("Select a point in time to restore:")
+            .PageSize(10)
+            .UseConverter(choice => choice.Label)
+            .AddChoices(choices);
+        prompt.DefaultValue = current;
+
+        var selected = StandardError.Console.Prompt(prompt);
+        return selected.Candidate?.Snapshot.StartedAt;
+    }
+
+    /// <summary>
+    /// One choice in the directory restore's interactive snapshot picker: either the
+    /// "current tracked state" sentinel (<see cref="Candidate"/> is <c>null</c>, mapping to
+    /// <c>asOf = null</c>) or a specific <see cref="DirectorySnapshotCandidate"/>.
+    /// </summary>
+    private sealed record DirectorySnapshotChoice(DirectorySnapshotCandidate? Candidate, string Label);
+
+    /// <summary>
+    /// Builds a directory snapshot picker candidate's row text: directory-scoped delta counts
+    /// (added/changed/moved/deleted) and net byte change, followed by the directory's
+    /// point-in-time totals (file count, byte size, and symlink/junction count kept separate
+    /// from the file count), per the "Interactive and explicit snapshot selection for a
+    /// directory restore" requirement's per-entry reporting. The snapshot's status is colored
+    /// via embedded Spectre markup (rather than a <see cref="Spectre.Console.Style"/>-carrying
+    /// cell, since <see cref="SelectionPrompt{T}"/>'s converter only produces plain strings),
+    /// matching the exact same <c>Complete</c>/<c>Cancelled</c> colors
+    /// <see cref="SnapshotsTablePresenter"/> already uses. Every interpolated value here is
+    /// either numeric or an enum's own text - never a user-controlled path - so no markup
+    /// escaping is needed.
+    /// </summary>
+    internal static string FormatDirectorySnapshotChoice(DirectorySnapshotCandidate candidate)
+    {
+        var statusMarkup = candidate.Snapshot.Status switch
+        {
+            SnapshotStatus.Complete => "[bold palegreen1]Complete[/]",
+            SnapshotStatus.Cancelled => "[bold lightgoldenrod2]Cancelled[/]",
+            _ => candidate.Snapshot.Status.ToString(),
+        };
+
+        var netBytes = candidate.NetBytesDelta >= 0
+            ? $"+{BackupRunSummaryFormatter.FormatBytes(candidate.NetBytesDelta)}"
+            : $"-{BackupRunSummaryFormatter.FormatBytes(-candidate.NetBytesDelta)}";
+
+        var linksClause = candidate.TotalLinks > 0 ? $", {candidate.TotalLinks} link(s)" : string.Empty;
+
+        return $"#{candidate.Snapshot.Id} - {candidate.Snapshot.StartedAt:yyyy-MM-dd HH:mm:ss zzz} - {statusMarkup} - " +
+            $"+{candidate.FilesAdded}/~{candidate.FilesChanged}/\u2192{candidate.FilesMoved}/-{candidate.FilesDeleted} ({netBytes}) - " +
+            $"{candidate.TotalFiles} file(s), {BackupRunSummaryFormatter.FormatBytes(candidate.TotalBytes)}{linksClause}";
     }
 
     /// <summary>

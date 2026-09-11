@@ -27,6 +27,30 @@ public sealed record DirectoryRestorePlan(
     IReadOnlyList<string> Skipped);
 
 /// <summary>
+/// One candidate snapshot offered by the directory restore snapshot picker: a snapshot that
+/// recorded at least one file-version change under the requested directory, together with that
+/// run's directory-scoped delta statistics and the directory's point-in-time totals as of that
+/// snapshot, per the snapshot-history capability's "Interactive and explicit snapshot selection
+/// for a directory restore" requirement. <see cref="FilesAdded"/>/<see cref="FilesChanged"/>/
+/// <see cref="FilesMoved"/>/<see cref="FilesDeleted"/> and <see cref="NetBytesDelta"/> are scoped
+/// to file-version rows recorded under the directory by this specific run; <see cref="TotalFiles"/>/
+/// <see cref="TotalBytes"/>/<see cref="TotalLinks"/> are the directory's contents as of this
+/// snapshot's <see cref="Snapshots.Snapshot.StartedAt"/>, with symlink/junction entries counted
+/// separately from regular files (<see cref="TotalLinks"/>) rather than folded into
+/// <see cref="TotalFiles"/>.
+/// </summary>
+public sealed record DirectorySnapshotCandidate(
+    Snapshot Snapshot,
+    int FilesAdded,
+    int FilesChanged,
+    int FilesMoved,
+    int FilesDeleted,
+    long NetBytesDelta,
+    int TotalFiles,
+    long TotalBytes,
+    int TotalLinks);
+
+/// <summary>
 /// Browsing recorded snapshots/versions and restoring historical file content for a
 /// single profile, per the snapshot-history spec. One instance is scoped to one
 /// profile's manifest and content store.
@@ -515,6 +539,127 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Enumerates the candidate snapshots the directory restore snapshot picker offers for
+    /// <paramref name="directoryPath"/>: every recorded snapshot, in <see cref="SnapshotStatus.Complete"/>
+    /// or <see cref="SnapshotStatus.Cancelled"/> status, for which at least one file-version
+    /// record exists under the directory - a snapshot in <see cref="SnapshotStatus.Running"/> or
+    /// <see cref="SnapshotStatus.Failed"/> status is never included, per the snapshot-history
+    /// capability's "Interactive and explicit snapshot selection for a directory restore"
+    /// requirement. Returned most-recent-first. Empty (not an exception) when the directory has
+    /// no recorded history at all - the caller decides what "no candidates" means (for the
+    /// interactive picker, only the "current tracked state" entry is offered).
+    /// </summary>
+    public IReadOnlyList<DirectorySnapshotCandidate> ListDirectorySnapshotCandidates(string directoryPath)
+    {
+        var prefix = NormalizeDirectoryPrefix(directoryPath);
+        var rows = repository.GetFileHistoryUnderPrefix(prefix);
+        if (rows.Count == 0)
+        {
+            return [];
+        }
+
+        var snapshotsById = repository.ListSnapshots().ToDictionary(s => s.Id);
+
+        var candidates = new List<DirectorySnapshotCandidate>();
+        foreach (var group in rows.GroupBy(r => r.SnapshotId))
+        {
+            if (!snapshotsById.TryGetValue(group.Key, out var snapshot)
+                || snapshot.Status is not (SnapshotStatus.Complete or SnapshotStatus.Cancelled))
+            {
+                continue;
+            }
+
+            var added = 0;
+            var changed = 0;
+            var moved = 0;
+            var deleted = 0;
+            var netBytesDelta = 0L;
+            foreach (var row in group)
+            {
+                switch (row.ChangeKind)
+                {
+                    case FileChangeKind.Added:
+                        added++;
+                        netBytesDelta += row.Size;
+                        break;
+                    case FileChangeKind.Changed:
+                        changed++;
+                        netBytesDelta += row.Size;
+                        break;
+                    case FileChangeKind.Moved:
+                        // A row of a move that lands inside the directory (whether the move
+                        // stayed entirely within it or brought a path in from outside) adds
+                        // that path's bytes to the directory; see GetFileHistoryUnderPrefix's
+                        // own documentation for why the corresponding Deleted row (at the old
+                        // path) is the only other row this move could have produced.
+                        moved++;
+                        netBytesDelta += row.Size;
+                        break;
+                    case FileChangeKind.Deleted:
+                        deleted++;
+                        netBytesDelta -= row.Size;
+                        break;
+                }
+            }
+
+            var (totalFiles, totalBytes, totalLinks) = DirectoryTotalsAsOf(prefix, snapshot.StartedAt);
+            candidates.Add(new DirectorySnapshotCandidate(snapshot, added, changed, moved, deleted, netBytesDelta, totalFiles, totalBytes, totalLinks));
+        }
+
+        return candidates.OrderByDescending(c => c.Snapshot.Id).ToList();
+    }
+
+    /// <summary>
+    /// Resolves the point in time a <c>--snapshot &lt;id&gt;</c> recursive restore should target:
+    /// <paramref name="snapshotId"/> must be a member of
+    /// <see cref="ListDirectorySnapshotCandidates"/> for <paramref name="directoryPath"/>, so the
+    /// interactive picker and this non-interactive equivalent can never disagree about what
+    /// counts as a valid target.
+    /// </summary>
+    /// <exception cref="NoMatchingDirectorySnapshotException">
+    /// <paramref name="snapshotId"/> does not exist, is not in <see cref="SnapshotStatus.Complete"/>
+    /// or <see cref="SnapshotStatus.Cancelled"/> status, or has no file-version record under
+    /// <paramref name="directoryPath"/>.
+    /// </exception>
+    public DateTimeOffset ResolveDirectorySnapshot(string directoryPath, long snapshotId)
+    {
+        var match = ListDirectorySnapshotCandidates(directoryPath).FirstOrDefault(c => c.Snapshot.Id == snapshotId);
+        return match?.Snapshot.StartedAt ?? throw new NoMatchingDirectorySnapshotException(directoryPath, snapshotId);
+    }
+
+    /// <summary>
+    /// The directory's total live-file count, byte size, and symlink/junction count as of
+    /// <paramref name="asOf"/>, scoped to <paramref name="prefix"/> - shared by
+    /// <see cref="ListDirectorySnapshotCandidates"/> for each candidate's point-in-time totals.
+    /// </summary>
+    private (int TotalFiles, long TotalBytes, int TotalLinks) DirectoryTotalsAsOf(string prefix, DateTimeOffset asOf)
+    {
+        var state = repository.GetStateAsOf(asOf);
+        var totalFiles = 0;
+        var totalBytes = 0L;
+        var totalLinks = 0;
+        foreach (var (path, fileState) in state)
+        {
+            if (!TryGetDescendantSubPath(path, prefix, out _))
+            {
+                continue;
+            }
+
+            if (fileState.IsLinked)
+            {
+                totalLinks++;
+            }
+            else
+            {
+                totalFiles++;
+                totalBytes += fileState.Size;
+            }
+        }
+
+        return (totalFiles, totalBytes, totalLinks);
     }
 
     /// <summary>

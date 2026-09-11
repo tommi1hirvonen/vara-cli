@@ -387,4 +387,26 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
             Directory.Delete(sourceRootB, recursive: true);
         }
     }
+
+    [Fact]
+    public void GetFileHistoryUnderPrefix_reflects_real_rows_recorded_across_multiple_snapshots()
+    {
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = Repository.BeginSnapshot(t0);
+        Repository.RecordFileVersion(s1, @"src\a.txt", null, "hash-a", 10, t0, FileChangeKind.Added, t0);
+        Repository.RecordFileVersion(s1, @"other\b.txt", null, "hash-b", 10, t0, FileChangeKind.Added, t0);
+        Repository.CompleteSnapshot(s1, t0, SnapshotStats.Empty);
+
+        var t1 = t0.AddDays(1);
+        var s2 = Repository.BeginSnapshot(t1);
+        Repository.RecordFileVersion(s2, @"src\a.txt", null, "hash-a2", 12, t1, FileChangeKind.Changed, t1);
+        Repository.CompleteSnapshot(s2, t1, SnapshotStats.Empty);
+
+        var history = Repository.GetFileHistoryUnderPrefix(@"src\");
+
+        Assert.Equal(2, history.Count);
+        Assert.Equal(s2, history[0].SnapshotId);
+        Assert.Equal(s1, history[1].SnapshotId);
+        Assert.All(history, r => Assert.StartsWith(@"src\", r.RelativePath, StringComparison.OrdinalIgnoreCase));
+    }
 }

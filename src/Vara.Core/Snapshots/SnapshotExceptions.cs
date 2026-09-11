@@ -61,6 +61,21 @@ public sealed class NoMatchingVersionException : Exception
 }
 
 /// <summary>
+/// A directory restore's <c>--snapshot &lt;id&gt;</c> option (or an interactive directory
+/// snapshot picker selection) named a snapshot id that is not a valid candidate for the given
+/// directory: it does not exist, is not in <see cref="SnapshotStatus.Complete"/> or
+/// <see cref="SnapshotStatus.Cancelled"/> status, or has no file-version record under the
+/// directory (snapshot-history spec: "`--snapshot` naming a snapshot that never touched the
+/// directory").
+/// </summary>
+public sealed class NoMatchingDirectorySnapshotException(string directoryPath, long snapshotId)
+    : Exception($"Snapshot {snapshotId} is not a valid candidate for directory '{directoryPath}': it does not exist, never touched that directory, or is not Complete/Cancelled.")
+{
+    public string DirectoryPath { get; } = directoryPath;
+    public long SnapshotId { get; } = snapshotId;
+}
+
+/// <summary>
 /// A diff was requested where at least one resolved version's recorded size exceeds the diff
 /// size limit (snapshot-history spec: "Refusing an oversized version"). Raised before either
 /// version's full content is read into memory. Only the side(s) that actually exceed the limit

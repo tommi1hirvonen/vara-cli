@@ -569,6 +569,101 @@ public class SqliteSnapshotRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void GetFileHistoryUnderPrefix_includes_a_file_directly_under_the_prefix()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = Repository.BeginSnapshot(now);
+        Repository.RecordFileVersion(snapshot, @"docs\a.txt", null, "hash-a", 10, now, FileChangeKind.Added, now);
+        Repository.CompleteSnapshot(snapshot, now, SnapshotStats.Empty);
+
+        var history = Repository.GetFileHistoryUnderPrefix(@"docs\");
+
+        Assert.Single(history);
+        Assert.Equal(@"docs\a.txt", history[0].RelativePath);
+    }
+
+    [Fact]
+    public void GetFileHistoryUnderPrefix_includes_a_file_several_levels_deeper()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = Repository.BeginSnapshot(now);
+        Repository.RecordFileVersion(snapshot, @"docs\nested\deep\a.txt", null, "hash-a", 10, now, FileChangeKind.Added, now);
+        Repository.CompleteSnapshot(snapshot, now, SnapshotStats.Empty);
+
+        var history = Repository.GetFileHistoryUnderPrefix(@"docs\");
+
+        Assert.Single(history);
+        Assert.Equal(@"docs\nested\deep\a.txt", history[0].RelativePath);
+    }
+
+    [Fact]
+    public void GetFileHistoryUnderPrefix_excludes_a_file_outside_the_prefix()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = Repository.BeginSnapshot(now);
+        Repository.RecordFileVersion(snapshot, @"docs\a.txt", null, "hash-a", 10, now, FileChangeKind.Added, now);
+        Repository.RecordFileVersion(snapshot, @"other\b.txt", null, "hash-b", 10, now, FileChangeKind.Added, now);
+        Repository.CompleteSnapshot(snapshot, now, SnapshotStats.Empty);
+
+        var history = Repository.GetFileHistoryUnderPrefix(@"docs\");
+
+        Assert.Single(history);
+        Assert.Equal(@"docs\a.txt", history[0].RelativePath);
+    }
+
+    [Fact]
+    public void GetFileHistoryUnderPrefix_includes_both_rows_of_a_move_into_the_prefix()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = Repository.BeginSnapshot(now);
+        Repository.RecordFileVersion(snapshot, @"other\a.txt", null, "hash-a", 10, now, FileChangeKind.Deleted, now);
+        Repository.RecordFileVersion(snapshot, @"docs\a.txt", @"other\a.txt", "hash-a", 10, now, FileChangeKind.Moved, now);
+        Repository.CompleteSnapshot(snapshot, now, SnapshotStats.Empty);
+
+        var history = Repository.GetFileHistoryUnderPrefix(@"docs\");
+
+        Assert.Single(history);
+        Assert.Equal(@"docs\a.txt", history[0].RelativePath);
+        Assert.Equal(FileChangeKind.Moved, history[0].ChangeKind);
+    }
+
+    [Fact]
+    public void GetFileHistoryUnderPrefix_includes_both_rows_of_a_move_out_of_the_prefix()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = Repository.BeginSnapshot(now);
+        Repository.RecordFileVersion(snapshot, @"docs\a.txt", null, "hash-a", 10, now, FileChangeKind.Deleted, now);
+        Repository.RecordFileVersion(snapshot, @"other\a.txt", @"docs\a.txt", "hash-a", 10, now, FileChangeKind.Moved, now);
+        Repository.CompleteSnapshot(snapshot, now, SnapshotStats.Empty);
+
+        var history = Repository.GetFileHistoryUnderPrefix(@"docs\");
+
+        Assert.Single(history);
+        Assert.Equal(@"docs\a.txt", history[0].RelativePath);
+        Assert.Equal(FileChangeKind.Deleted, history[0].ChangeKind);
+    }
+
+    [Fact]
+    public void GetFileHistoryUnderPrefix_with_an_empty_prefix_returns_every_row_most_recent_first()
+    {
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var s1 = Repository.BeginSnapshot(t0);
+        Repository.RecordFileVersion(s1, "a.txt", null, "hash-a", 10, t0, FileChangeKind.Added, t0);
+        Repository.CompleteSnapshot(s1, t0, SnapshotStats.Empty);
+
+        var t1 = t0.AddDays(1);
+        var s2 = Repository.BeginSnapshot(t1);
+        Repository.RecordFileVersion(s2, "b.txt", null, "hash-b", 10, t1, FileChangeKind.Added, t1);
+        Repository.CompleteSnapshot(s2, t1, SnapshotStats.Empty);
+
+        var history = Repository.GetFileHistoryUnderPrefix(string.Empty);
+
+        Assert.Equal(2, history.Count);
+        Assert.Equal("b.txt", history[0].RelativePath);
+        Assert.Equal("a.txt", history[1].RelativePath);
+    }
+
+    [Fact]
     public void FindVersionAsOf_returns_the_version_current_at_that_time()
     {
         var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);

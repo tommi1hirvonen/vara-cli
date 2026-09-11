@@ -1,6 +1,7 @@
 using System.Threading;
 using Microsoft.Data.Sqlite;
 using Spectre.Console.Testing;
+using Vara.Application.History;
 using Vara.Application.Profiles;
 using Vara.Cli.Commands;
 using Vara.Cli.Composition;
@@ -321,5 +322,142 @@ public class RestoreCommandTests : IDisposable
         var selectable = RestoreCommand.SelectableVersionsForInteractivePicker(history);
 
         Assert.Empty(selectable);
+    }
+
+    [Fact]
+    public void Snapshot_combined_with_at_is_rejected_before_any_profile_resolution()
+    {
+        var command = CreateCommand();
+
+        var exitCode = command.Parse(["src", "--recursive", "--snapshot", "5", "--at", "2025-01-15", "--out", @"C:\out"]).Invoke();
+
+        Assert.Equal(1, exitCode);
+    }
+
+    [Fact]
+    public void Snapshot_without_recursive_is_rejected_before_any_profile_resolution()
+    {
+        var command = CreateCommand();
+
+        var exitCode = command.Parse(["src", "--snapshot", "5", "--out", @"C:\out"]).Invoke();
+
+        Assert.Equal(1, exitCode);
+    }
+
+    [Fact]
+    public void Snapshot_with_a_valid_id_resolves_and_restores_without_prompting()
+    {
+        var contentStore = new FileSystemContentStore(_targetRoot, _hasher);
+        var (hashA, sizeA) = contentStore.StoreFromStream(new MemoryStream("content a"u8.ToArray()));
+        var (hashB, sizeB) = contentStore.StoreFromStream(new MemoryStream("content b"u8.ToArray()));
+
+        var dbPath = Path.Combine(_targetRoot, ".vara", "profile.db");
+        long firstSnapshotId;
+        using (var repository = new SqliteSnapshotRepository(dbPath))
+        {
+            var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+            firstSnapshotId = repository.BeginSnapshot(t0);
+            repository.RecordFileVersion(firstSnapshotId, @"src\a.txt", null, hashA, sizeA, t0, FileChangeKind.Added, t0);
+            repository.CompleteSnapshot(firstSnapshotId, t0, SnapshotStats.Empty);
+
+            var t1 = t0.AddDays(1);
+            var secondSnapshotId = repository.BeginSnapshot(t1);
+            repository.RecordFileVersion(secondSnapshotId, @"src\b.txt", null, hashB, sizeB, t1, FileChangeKind.Added, t1);
+            repository.CompleteSnapshot(secondSnapshotId, t1, SnapshotStats.Empty);
+        }
+
+        var command = CreateRealCommand();
+
+        // --force skips the (unrelated) write/removal confirmation; --snapshot's own
+        // resolution never prompts regardless of --force, since it bypasses the picker
+        // entirely (task 3.2).
+        var exitCode = command.Parse(["src", "--profile", "test-profile", "--recursive", "--snapshot", firstSnapshotId.ToString(), "--out", _outRoot, "--force"]).Invoke();
+
+        Assert.Equal(ExitCodes.Success, exitCode);
+        Assert.True(File.Exists(Path.Combine(_outRoot, "a.txt")));
+        Assert.False(File.Exists(Path.Combine(_outRoot, "b.txt")));
+    }
+
+    [Fact]
+    public void Snapshot_naming_an_id_that_never_touched_the_directory_fails_with_a_hard_error()
+    {
+        SeedTwoTrackedFiles();
+        var command = CreateRealCommand();
+
+        var exitCode = command.Parse(["src", "--profile", "test-profile", "--recursive", "--snapshot", "999999", "--out", _outRoot, "--force"]).Invoke();
+
+        Assert.Equal(ExitCodes.HardError, exitCode);
+    }
+
+    /// <summary>
+    /// The test process's own console/input is never interactive (xunit redirects both), so
+    /// <c>canPromptForVersion</c> is always <c>false</c> here - exercising exactly the branch
+    /// the directory snapshot picker must NOT be shown for. If the picker were mistakenly
+    /// shown regardless of interactivity, this would hang waiting for input (or throw, for a
+    /// non-interactive <see cref="TestConsole"/>) instead of completing and restoring the
+    /// directory's current tracked state, per the "Recursive restore without an explicit date"
+    /// requirement's non-interactive fallback.
+    /// </summary>
+    [Fact]
+    public void Recursive_restore_without_at_or_snapshot_in_a_non_interactive_session_restores_current_state_without_showing_the_picker()
+    {
+        SeedTwoTrackedFiles();
+        var command = CreateRealCommand();
+
+        var exitCode = command.Parse(["src", "--profile", "test-profile", "--recursive", "--out", _outRoot, "--force"]).Invoke();
+
+        Assert.Equal(ExitCodes.Success, exitCode);
+        Assert.True(File.Exists(Path.Combine(_outRoot, "a.txt")));
+        Assert.True(File.Exists(Path.Combine(_outRoot, "b.txt")));
+    }
+
+    [Fact]
+    public void FormatDirectorySnapshotChoice_colors_a_Complete_snapshot_with_the_success_color()
+    {
+        var snapshot = new Snapshot(7, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, SnapshotStatus.Complete, SnapshotStats.Empty);
+        var candidate = new DirectorySnapshotCandidate(snapshot, 1, 2, 0, 1, 500, 10, 2048, 1);
+
+        var label = RestoreCommand.FormatDirectorySnapshotChoice(candidate);
+
+        Assert.Contains("#7", label);
+        Assert.Contains("[bold palegreen1]Complete[/]", label);
+        Assert.Contains("+1/~2/\u21920/-1", label);
+        Assert.Contains("+500 B", label);
+        Assert.Contains("10 file(s)", label);
+        Assert.Contains("1 link(s)", label);
+    }
+
+    [Fact]
+    public void FormatDirectorySnapshotChoice_colors_a_Cancelled_snapshot_distinctly_from_Complete()
+    {
+        var snapshot = new Snapshot(8, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, SnapshotStatus.Cancelled, SnapshotStats.Empty);
+        var candidate = new DirectorySnapshotCandidate(snapshot, 0, 0, 0, 0, 0, 0, 0, 0);
+
+        var label = RestoreCommand.FormatDirectorySnapshotChoice(candidate);
+
+        Assert.Contains("[bold lightgoldenrod2]Cancelled[/]", label);
+        Assert.DoesNotContain("palegreen1", label);
+    }
+
+    [Fact]
+    public void FormatDirectorySnapshotChoice_formats_a_negative_net_bytes_delta_with_a_leading_minus()
+    {
+        var snapshot = new Snapshot(9, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, SnapshotStatus.Complete, SnapshotStats.Empty);
+        var candidate = new DirectorySnapshotCandidate(snapshot, 0, 0, 0, 1, -1024, 0, 0, 0);
+
+        var label = RestoreCommand.FormatDirectorySnapshotChoice(candidate);
+
+        Assert.Contains("-1 KB", label);
+    }
+
+    [Fact]
+    public void FormatDirectorySnapshotChoice_omits_the_links_clause_when_there_are_no_links()
+    {
+        var snapshot = new Snapshot(10, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, SnapshotStatus.Complete, SnapshotStats.Empty);
+        var candidate = new DirectorySnapshotCandidate(snapshot, 1, 0, 0, 0, 10, 1, 10, 0);
+
+        var label = RestoreCommand.FormatDirectorySnapshotChoice(candidate);
+
+        Assert.DoesNotContain("link(s)", label);
     }
 }

@@ -121,6 +121,25 @@ public interface ISnapshotRepository : IDisposable
     IReadOnlyList<FileVersionRecord> GetFileHistory(string relativePath);
 
     /// <summary>
+    /// Every recorded file-version row whose <see cref="FileVersionRecord.RelativePath"/> is a
+    /// descendant of <paramref name="prefix"/>, across all snapshots, most-recent-first.
+    /// <paramref name="prefix"/> is expected to already be normalized the same way
+    /// <c>SnapshotHistoryService.NormalizeDirectoryPrefix</c> normalizes a directory path
+    /// (trimmed, with exactly one trailing separator, or empty for the mirror root) - the
+    /// descendant test performed here is a plain ordinal, case-insensitive "starts with"
+    /// against that prefix, matching <c>SnapshotHistoryService.TryGetDescendantSubPath</c>'s
+    /// own test so the two can never disagree about what falls "under" a directory. Because a
+    /// move writes two rows (one at the old path, one at the new path) in the same snapshot,
+    /// filtering purely on <see cref="FileVersionRecord.RelativePath"/> already captures a file
+    /// moving into or out of the prefix correctly - no separate handling of
+    /// <see cref="FileVersionRecord.PreviousRelativePath"/> is needed. Used to enumerate the
+    /// snapshots that touched a directory subtree and their directory-scoped delta statistics
+    /// (see the snapshot-history capability's "Interactive and explicit snapshot selection for
+    /// a directory restore" requirement).
+    /// </summary>
+    IReadOnlyList<FileVersionRecord> GetFileHistoryUnderPrefix(string prefix);
+
+    /// <summary>
     /// The version of a path that was current as of <paramref name="asOf"/>, or <c>null</c>
     /// if the path had no recorded version at that time.
     /// </summary>

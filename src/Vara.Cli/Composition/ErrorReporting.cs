@@ -75,6 +75,7 @@ public static class ErrorReporting
                 or DestinationExistsException
                 or RestoreDirectoryConfirmationRequiredException
                 or NoSuchDirectoryException
+                or NoMatchingDirectorySnapshotException
                 or InvalidDateTimeOptionException
                 or DiffContentTooLargeException
                 or DiffBinaryContentException

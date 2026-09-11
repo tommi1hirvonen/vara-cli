@@ -593,6 +593,34 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
         return match is { ChangeKind: FileChangeKind.Deleted } ? null : match;
     }
 
+    public IReadOnlyList<FileVersionRecord> GetFileHistoryUnderPrefix(string prefix)
+    {
+        if (_connection is null)
+        {
+            return [];
+        }
+
+        using var command = _connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, snapshot_id, relative_path, previous_relative_path, content_hash, size, source_modified_at, change_kind, recorded_at, quick_hash, quick_hash_scheme, link_target
+            FROM file_versions
+            ORDER BY id DESC
+            """;
+
+        var results = new List<FileVersionRecord>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            var record = ReadFileVersionRecord(reader);
+            if (prefix.Length == 0 || record.RelativePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                results.Add(record);
+            }
+        }
+
+        return results;
+    }
+
     public void DeleteSnapshot(long snapshotId)
     {
         var connection = RequireConnection();
