@@ -304,4 +304,21 @@ public class ProfilesCommandTests
 
         Assert.Empty(exitCalls);
     }
+
+    [Fact]
+    public void RegisterCancellationExit_invokes_cleanup_before_exit()
+    {
+        var callOrder = new List<string>();
+        using var cts = new CancellationTokenSource();
+
+        using (ProfilesCommand.RegisterCancellationExit(
+            cts.Token,
+            code => callOrder.Add($"exit:{code}"),
+            () => callOrder.Add("cleanup")))
+        {
+            cts.Cancel();
+        }
+
+        Assert.Equal(["cleanup", $"exit:{Vara.Cli.Composition.ExitCodes.Success}"], callOrder);
+    }
 }

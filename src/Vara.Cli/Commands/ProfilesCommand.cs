@@ -39,27 +39,62 @@ public static class ProfilesCommand
                 return 1;
             }
 
-            // A single Ctrl+C exits this command promptly instead of cooperating with the
-            // shared token the way backup/restore/prune/check do: the editor never writes
-            // outside an explicit Save/delete confirm, so an interrupt at any prompt is
-            // simply a discard, with nothing to drain - see design.md's "Ctrl+C: cancel the
-            // session, do not cooperate with it" decision. Disposed via `using` so the
-            // registration cannot fire for a later command in the same process once this
-            // one returns.
-            using var cancellationRegistration = RegisterCancellationExit(cancellationToken, Environment.Exit);
+            var console = AnsiConsole.Console;
 
-            return ErrorReporting.Run(() => RunMenu(AnsiConsole.Console, configLoader, configWriter, configPath));
+            // A single Ctrl+C exits this command promptly. The cleanup callback ensures
+            // that the alternate screen buffer is exited and cursor restored before process
+            // termination, so the user's terminal is never left in an inconsistent state.
+            using var cancellationRegistration = RegisterCancellationExit(
+                cancellationToken,
+                Environment.Exit,
+                () => RestorePrimaryScreenBuffer(console));
+
+            string? lastSavedProfile = null;
+
+            var exitCode = ErrorReporting.Run(() =>
+            {
+                console.AlternateScreen(() =>
+                {
+                    lastSavedProfile = RunMenu(console, configLoader, configWriter, configPath);
+                });
+            });
+
+            if (exitCode == ExitCodes.Success && lastSavedProfile is not null)
+            {
+                OutcomeStyle.WriteLineSuccess(console, $"Saved profile '{lastSavedProfile}'.");
+            }
+
+            return exitCode;
         });
 
         return command;
     }
 
+    /// <summary>
+    /// Emits the terminal control sequences to exit the alternate screen buffer and make
+    /// the cursor visible. Safe to call as a cleanup step on cancellation or abnormal exit.
+    /// </summary>
+    internal static void RestorePrimaryScreenBuffer(IAnsiConsole console)
+    {
+        try
+        {
+            console.Write(new ControlCode("\u001b[?1049l\u001b[?25h"));
+        }
+        catch
+        {
+            // Best-effort cleanup on cancellation or abnormal termination
+        }
+    }
+
     // Extracted so a test can invoke cancellation directly without a live terminal or a
-    // real Environment.Exit call. The callback only ever calls <paramref name="exit"/> -
-    // it has no access to any IProfileConfigWriter, so cancellation structurally cannot
-    // trigger a configuration write.
-    internal static IDisposable RegisterCancellationExit(CancellationToken cancellationToken, Action<int> exit) =>
-        cancellationToken.Register(() => exit(ExitCodes.Success));
+    // real Environment.Exit call. The callback only ever calls <paramref name="exit"/>
+    // after running any optional <paramref name="cleanup"/> action.
+    internal static IDisposable RegisterCancellationExit(CancellationToken cancellationToken, Action<int> exit, Action? cleanup = null) =>
+        cancellationToken.Register(() =>
+        {
+            cleanup?.Invoke();
+            exit(ExitCodes.Success);
+        });
 
     // Internal (rather than private) so Vara.Cli.Tests can exercise the "missing file"
     // behavior directly - the rest of the interactive menu can't be driven from an
@@ -69,26 +104,66 @@ public static class ProfilesCommand
         // file does not yet exist" scenario), rather than the loader's own not-found error.
         File.Exists(configPath) ? [.. configLoader.LoadProfiles(configPath)] : [];
 
-    private static void RunMenu(IAnsiConsole console, IProfileConfigLoader configLoader, IProfileConfigWriter configWriter, string configPath)
+    private static string? RunMenu(IAnsiConsole console, IProfileConfigLoader configLoader, IProfileConfigWriter configWriter, string configPath)
     {
         var profiles = LoadProfilesOrEmpty(configLoader, configPath);
+        string? statusMessage = null;
+        var isErrorStatus = false;
+        string? lastSavedProfile = null;
 
         while (true)
         {
+            console.Clear();
+
+            if (!string.IsNullOrEmpty(statusMessage))
+            {
+                if (isErrorStatus)
+                {
+                    OutcomeStyle.WriteLineError(console, statusMessage);
+                }
+                else
+                {
+                    OutcomeStyle.WriteLineSuccess(console, statusMessage);
+                }
+
+                console.WriteLine();
+                statusMessage = null;
+                isErrorStatus = false;
+            }
+
             var row = console.Prompt(BuildMainMenuPrompt(profiles));
 
             switch (row.Kind)
             {
                 case MenuRowKind.Quit:
-                    return;
+                    return lastSavedProfile;
                 case MenuRowKind.AddNew:
-                    RunEditScreen(console, ProfileDraft.ForNewProfile(), profiles, configWriter, configPath);
+                    var newSaved = RunEditScreen(console, ProfileDraft.ForNewProfile(), profiles, configWriter, configPath);
+                    if (newSaved is not null)
+                    {
+                        statusMessage = $"Saved profile '{newSaved.Name}'.";
+                        lastSavedProfile = newSaved.Name;
+                    }
                     break;
                 case MenuRowKind.DeletePrompt:
-                    RunDeleteFlow(console, profiles, configWriter, configPath);
+                    var deletedName = RunDeleteFlow(console, profiles, configWriter, configPath, out var deleteError);
+                    if (deletedName is not null)
+                    {
+                        statusMessage = $"Deleted profile '{deletedName}'.";
+                    }
+                    else if (deleteError is not null)
+                    {
+                        statusMessage = $"Error: {deleteError}";
+                        isErrorStatus = true;
+                    }
                     break;
                 case MenuRowKind.Profile:
-                    RunEditScreen(console, ProfileDraft.FromProfile(row.Profile!), profiles, configWriter, configPath);
+                    var editSaved = RunEditScreen(console, ProfileDraft.FromProfile(row.Profile!), profiles, configWriter, configPath);
+                    if (editSaved is not null)
+                    {
+                        statusMessage = $"Saved profile '{editSaved.Name}'.";
+                        lastSavedProfile = editSaved.Name;
+                    }
                     break;
             }
         }
@@ -138,8 +213,11 @@ public static class ProfilesCommand
         return prompt;
     }
 
-    private static void RunDeleteFlow(IAnsiConsole console, List<Profile> profiles, IProfileConfigWriter configWriter, string configPath)
+    private static string? RunDeleteFlow(IAnsiConsole console, List<Profile> profiles, IProfileConfigWriter configWriter, string configPath, out string? errorMessage)
     {
+        errorMessage = null;
+        console.Clear();
+
         var prompt = new SelectionPrompt<MenuRow>()
             .Title("Select a profile to delete:")
             .PageSize(15)
@@ -160,7 +238,7 @@ public static class ProfilesCommand
         var selected = console.Prompt(prompt);
         if (selected.Kind != MenuRowKind.Profile)
         {
-            return;
+            return null;
         }
 
         var target = selected.Profile!;
@@ -170,13 +248,13 @@ public static class ProfilesCommand
 
         if (!confirmed)
         {
-            return;
+            return null;
         }
 
         try
         {
             ApplyDelete(profiles, target, configWriter, configPath);
-            OutcomeStyle.WriteLineSuccess(console, $"Deleted profile '{target.Name}'.");
+            return target.Name;
         }
         catch (ProfileConfigWriteFailedException ex)
         {
@@ -184,7 +262,8 @@ public static class ProfilesCommand
             // ordering - see design.md's "Order of operations on delete" decision): the
             // profile is still listed, and returning to the main menu here reflects that
             // accurately rather than showing it as deleted.
-            OutcomeStyle.WriteLineError(console, $"Error: {ex.Message}");
+            errorMessage = ex.Message;
+            return null;
         }
     }
 
@@ -213,29 +292,22 @@ public static class ProfilesCommand
 
     private sealed record EditActionRow(EditAction Action, string Label);
 
-    private static void RunEditScreen(IAnsiConsole console, ProfileDraft draft, List<Profile> profiles, IProfileConfigWriter configWriter, string configPath)
+    private static Profile? RunEditScreen(IAnsiConsole console, ProfileDraft draft, List<Profile> profiles, IProfileConfigWriter configWriter, string configPath)
     {
         draft.Revalidate(profiles);
-
-        // Captured once, when this screen is first entered: the terminal row immediately
-        // below whatever is already on screen (which may be completely unrelated to vara -
-        // earlier shell commands, output from before `profiles` was even run). Every
-        // subsequent redraw repositions the cursor back to exactly this row and blanks
-        // everything below it (see ClearOwnRegion), so this screen can never leave a stale
-        // copy of itself behind - without ever touching anything above this row. A global
-        // `IAnsiConsole.Clear()` was tried first and rejected: it clears the whole terminal
-        // (and on some terminals, the scrollback), which wipes unrelated content that has
-        // nothing to do with vara - see design.md's "console.Clear() placement in
-        // RunEditScreen" decision for the full rationale.
-        // + 1 => preserve the vara command
-        var screenStartRow = System.Console.CursorTop + 1;
+        string? errorMessage = null;
 
         while (true)
         {
-            // Erased before every (re-)render - including on returning here after editing a
-            // field or a sub-screen - so a previously rendered copy of the draft's summary is
-            // never left on screen underneath the new one.
-            ClearOwnRegion(console, screenStartRow);
+            console.Clear();
+
+            if (!string.IsNullOrEmpty(errorMessage))
+            {
+                OutcomeStyle.WriteLineError(console, errorMessage);
+                console.WriteLine();
+                errorMessage = null;
+            }
+
             ProfileDraftPresenter.Render(console, draft);
 
             var rows = new List<EditActionRow>
@@ -282,16 +354,10 @@ public static class ProfilesCommand
                     {
                         if (TrySave(draft, profiles, configWriter, configPath, out var saved))
                         {
-                            // Erased before the confirmation, not after: this wipes the edit
-                            // screen's last render so it can't linger underneath whatever the
-                            // main menu displays next, while still leaving the confirmation
-                            // itself visible on the now-clean screen.
-                            ClearOwnRegion(console, screenStartRow);
-                            OutcomeStyle.WriteLineSuccess(console, $"Saved profile '{saved!.Name}'.");
-                            return;
+                            return saved;
                         }
 
-                        OutcomeStyle.WriteLineError(console, $"Cannot save - validation error: {draft.CurrentError}");
+                        errorMessage = $"Cannot save - validation error: {draft.CurrentError}";
                     }
                     catch (ProfileConfigWriteFailedException ex)
                     {
@@ -299,49 +365,14 @@ public static class ProfilesCommand
                         // draft are both untouched here, so staying on the edit screen lets
                         // the user retry Save once the cause is resolved without re-entering
                         // any field.
-                        OutcomeStyle.WriteLineError(console, $"Error: {ex.Message}");
+                        errorMessage = $"Error: {ex.Message}";
                     }
 
                     break;
                 case EditAction.Discard:
-                    // Erased before returning, so the edit screen's last render doesn't
-                    // linger underneath the main menu's next prompt.
-                    ClearOwnRegion(console, screenStartRow);
-                    return;
+                    return null;
             }
         }
-    }
-
-    /// <summary>
-    /// Repositions the cursor to <paramref name="startRow"/> and blanks every row from there
-    /// to the bottom of the visible window, then returns the cursor to
-    /// <paramref name="startRow"/> - erasing only the region a caller has drawn since that row,
-    /// never anything above it. Deliberately does not use <see cref="IAnsiConsole.Clear"/>
-    /// (which clears the whole terminal, including content unrelated to vara - see
-    /// design.md's "console.Clear() placement in RunEditScreen" decision) or
-    /// <c>IAnsiConsole.WriteAnsi</c>'s ANSI erase-in-display sequence (which silently does
-    /// nothing under Spectre's legacy, non-VT console backend). <see cref="IAnsiConsoleCursor.SetPosition"/>
-    /// is an absolute-position move in both of Spectre's cursor backends (an ANSI CSI `H`
-    /// sequence, or a direct <see cref="System.Console.CursorLeft"/>/<see
-    /// cref="System.Console.CursorTop"/> set), so blanking line-by-line via plain text writes
-    /// works identically regardless of which backend is active.
-    /// </summary>
-    private static void ClearOwnRegion(IAnsiConsole console, int startRow)
-    {
-        // One character short of the full width, not the full width itself - writing all
-        // the way to the last column of a row risks some terminals eagerly wrapping/
-        // scrolling once that column is filled, which would shift what "startRow" means for
-        // every SetPosition call after that point.
-        var blankLine = new string(' ', Math.Max(1, console.Profile.Width - 1));
-        var height = Math.Max(startRow + 1, console.Profile.Height);
-
-        for (var row = startRow; row < height; row++)
-        {
-            console.Cursor.SetPosition(0, row);
-            console.Write(blankLine);
-        }
-
-        console.Cursor.SetPosition(0, startRow);
     }
 
     /// <summary>
@@ -418,6 +449,7 @@ public static class ProfilesCommand
 
     private static void EditRetention(IAnsiConsole console, ProfileDraft draft)
     {
+        console.Clear();
         draft.HasRetention = console.Confirm("Configure a retention policy for this profile?", draft.HasRetention);
         if (!draft.HasRetention)
         {
@@ -432,6 +464,7 @@ public static class ProfilesCommand
 
     private static void EditConcurrency(IAnsiConsole console, ProfileDraft draft)
     {
+        console.Clear();
         draft.HasConcurrency = console.Confirm("Configure concurrency settings for this profile?", draft.HasConcurrency);
         if (!draft.HasConcurrency)
         {
@@ -450,6 +483,8 @@ public static class ProfilesCommand
     {
         while (true)
         {
+            console.Clear();
+
             var rows = new List<SourceRow>();
             for (var i = 0; i < draft.Sources.Count; i++)
             {
@@ -490,6 +525,7 @@ public static class ProfilesCommand
     {
         while (true)
         {
+            console.Clear();
             ProfileDraftPresenter.RenderSource(console, source, draft.CurrentError);
 
             var rows = new List<SourceFieldActionRow>
@@ -547,8 +583,19 @@ public static class ProfilesCommand
 
     private static void EditStringList(IAnsiConsole console, string itemLabel, List<string> list)
     {
+        string? errorMessage = null;
+
         while (true)
         {
+            console.Clear();
+
+            if (!string.IsNullOrEmpty(errorMessage))
+            {
+                OutcomeStyle.WriteLineError(console, errorMessage);
+                console.WriteLine();
+                errorMessage = null;
+            }
+
             console.WriteLine($"Current {itemLabel} entries: {ProfileDraftPresenter.FormatList(list)}");
 
             // Plain strings are on Spectre's intrinsic primitive converter list, so no
@@ -561,12 +608,15 @@ public static class ProfilesCommand
             {
                 case "Add entry":
                     var entry = console.Prompt(new TextPrompt<string>($"New {itemLabel}:"));
-                    list.Add(entry);
+                    if (!string.IsNullOrWhiteSpace(entry))
+                    {
+                        list.Add(entry.Trim());
+                    }
                     break;
                 case "Remove entry":
                     if (list.Count == 0)
                     {
-                        OutcomeStyle.WriteLineError(console, "There are no entries to remove.");
+                        errorMessage = "There are no entries to remove.";
                         break;
                     }
 
