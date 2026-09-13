@@ -48,7 +48,7 @@
 
 - [x] 5.1 Run the full `Vara.Cli.Tests` suite (`dotnet test tests/Vara.Cli.Tests`) and confirm all
   tests pass, including the new/updated tests from tasks 1-4.
-- [ ] 5.2 Manually verify in a real terminal: `restore` (single-file and `--recursive`) on a
+- [x] 5.2 Manually verify in a real terminal: `restore` (single-file and `--recursive`) on a
   deeply nested path shows a full-width progress bar with a shortened path label; `profiles` ->
   select a profile -> Discard -> select a profile again shows the profile summary exactly once,
   with no stale content above it.
