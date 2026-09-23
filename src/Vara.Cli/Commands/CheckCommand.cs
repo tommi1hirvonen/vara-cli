@@ -13,14 +13,14 @@ public static class CheckCommand
 {
     public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory, IHasher hasher, CancellationToken cancellationToken = default)
     {
-        var profileOption = new Option<string>("--profile") { Description = "The profile to check.", Required = true };
+        var profileArgument = new Argument<string>("profile") { Description = "The profile to check." };
         var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
         var quickOption = new Option<bool>("--quick") { Description = "Only check that each referenced blob is physically present in the store, without re-reading and re-hashing its content." };
-        var command = new Command("check", "Verify that content physically stored in a profile's target still matches the manifest.") { profileOption, configOption, quickOption };
+        var command = new Command("check", "Verify that content physically stored in a profile's target still matches the manifest.") { profileArgument, configOption, quickOption };
 
         command.SetAction(parseResult =>
         {
-            var profileName = parseResult.GetValue(profileOption)!;
+            var profileName = parseResult.GetValue(profileArgument)!;
             var configPath = parseResult.GetValue(configOption);
             var quick = parseResult.GetValue(quickOption);
 

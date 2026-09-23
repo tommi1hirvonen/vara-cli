@@ -31,15 +31,15 @@ public static class BackupCommand
         var jsonWriter = jsonOutput ?? Console.Out;
         var ansiConsole = console ?? AnsiConsole.Console;
 
-        var profileOption = new Option<string>("--profile") { Description = "The profile to back up.", Required = true };
+        var profileArgument = new Argument<string>("profile") { Description = "The profile to back up." };
         var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
         var dryRunOption = new Option<bool>("--dry-run") { Description = "Preview the planned added/changed/moved/deleted changes and bytes to transfer without performing any writes." };
         var jsonOption = new Option<bool>("--json") { Description = "Print a single machine-readable JSON summary of the outcome to stdout instead of the human-oriented output, and suppress the progress display." };
-        var command = new Command("backup", "Run an incremental backup for a profile.") { profileOption, configOption, dryRunOption, jsonOption };
+        var command = new Command("backup", "Run an incremental backup for a profile.") { profileArgument, configOption, dryRunOption, jsonOption };
 
         command.SetAction(parseResult =>
         {
-            var profileName = parseResult.GetValue(profileOption)!;
+            var profileName = parseResult.GetValue(profileArgument)!;
             var configPath = parseResult.GetValue(configOption);
             var dryRun = parseResult.GetValue(dryRunOption);
             var json = parseResult.GetValue(jsonOption);

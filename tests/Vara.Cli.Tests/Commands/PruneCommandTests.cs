@@ -89,7 +89,7 @@ public class PruneCommandTests : IDisposable
         SeedThreeSnapshotsTwoEligible();
         var command = CreateCommand(new RetentionPolicy(keepDaily: 1, keepWeekly: 0, keepMonthly: 0, keepYearly: 0));
 
-        var exitCode = command.Parse(["--profile", "test-profile", "--yes"]).Invoke();
+        var exitCode = command.Parse(["test-profile", "--yes"]).Invoke();
 
         Assert.Equal(0, exitCode);
         Assert.Single(CurrentSnapshotIds());
@@ -111,7 +111,7 @@ public class PruneCommandTests : IDisposable
 
         // No --yes given, and only one (always-retained) snapshot exists, so nothing is
         // eligible: this must proceed without hitting the confirmation-required error.
-        var exitCode = command.Parse(["--profile", "test-profile"]).Invoke();
+        var exitCode = command.Parse(["test-profile"]).Invoke();
 
         Assert.Equal(0, exitCode);
         Assert.Single(CurrentSnapshotIds());
@@ -125,7 +125,7 @@ public class PruneCommandTests : IDisposable
 
         // This test host's stdin is redirected (as in CI), so the command takes its
         // non-interactive path: it must refuse rather than silently prune or hang.
-        var exitCode = command.Parse(["--profile", "test-profile"]).Invoke();
+        var exitCode = command.Parse(["test-profile"]).Invoke();
 
         Assert.Equal(1, exitCode);
         Assert.Equal(3, CurrentSnapshotIds().Count);
@@ -143,9 +143,29 @@ public class PruneCommandTests : IDisposable
         // directly - the pre-cancelled token then causes it to skip retention
         // evaluation/removal and garbage collection altogether, per the coarse
         // cancellation-granularity decision in design.md.
-        var exitCode = command.Parse(["--profile", "test-profile", "--yes"]).Invoke();
+        var exitCode = command.Parse(["test-profile", "--yes"]).Invoke();
 
         Assert.Equal(ExitCodes.PartialFailure, exitCode);
         Assert.Equal(3, CurrentSnapshotIds().Count); // nothing was removed
+    }
+
+    [Fact]
+    public void Missing_profile_argument_fails()
+    {
+        var command = CreateCommand(new RetentionPolicy(keepDaily: 1, keepWeekly: 0, keepMonthly: 0, keepYearly: 0));
+        var parseResult = command.Parse([]);
+        Assert.NotEmpty(parseResult.Errors);
+        var exitCode = parseResult.Invoke();
+        Assert.NotEqual(0, exitCode);
+    }
+
+    [Fact]
+    public void Passing_profile_option_fails_as_unrecognized_option()
+    {
+        var command = CreateCommand(new RetentionPolicy(keepDaily: 1, keepWeekly: 0, keepMonthly: 0, keepYearly: 0));
+        var parseResult = command.Parse(["--profile", "test-profile"]);
+        Assert.NotEmpty(parseResult.Errors);
+        var exitCode = parseResult.Invoke();
+        Assert.NotEqual(0, exitCode);
     }
 }

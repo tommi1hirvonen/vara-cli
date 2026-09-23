@@ -108,7 +108,7 @@ public class BackupCommandExitCodeTests : IDisposable
     {
         var command = CreateCommand(new FakeFileSystemScanner());
 
-        var exitCode = command.Parse(["--profile", "test-profile"]).Invoke();
+        var exitCode = command.Parse(["test-profile"]).Invoke();
 
         Assert.Equal(ExitCodes.Success, exitCode);
     }
@@ -119,7 +119,7 @@ public class BackupCommandExitCodeTests : IDisposable
         var failure = new ScanFailure(@"D:\missing-drive\app-data", ScanFailureReason.SourceUnavailable, "app-data");
         var command = CreateCommand(new FakeFileSystemScanner([failure]));
 
-        var exitCode = command.Parse(["--profile", "test-profile"]).Invoke();
+        var exitCode = command.Parse(["test-profile"]).Invoke();
 
         Assert.Equal(ExitCodes.PartialFailure, exitCode);
     }
@@ -132,7 +132,7 @@ public class BackupCommandExitCodeTests : IDisposable
         // Requests a profile name the loader doesn't know about, so ProfileResolver.Resolve
         // throws UnknownProfileException before `result` is ever assigned - guards against the
         // partial-failure override in BackupCommand firing on an unassigned/default result.
-        var exitCode = command.Parse(["--profile", "no-such-profile"]).Invoke();
+        var exitCode = command.Parse(["no-such-profile"]).Invoke();
 
         Assert.Equal(ExitCodes.HardError, exitCode);
     }
@@ -144,7 +144,7 @@ public class BackupCommandExitCodeTests : IDisposable
         cts.Cancel();
         var command = CreateCommand(new FakeFileSystemScanner(), cts.Token);
 
-        var exitCode = command.Parse(["--profile", "test-profile"]).Invoke();
+        var exitCode = command.Parse(["test-profile"]).Invoke();
 
         Assert.Equal(ExitCodes.PartialFailure, exitCode);
     }
@@ -164,7 +164,7 @@ public class BackupCommandExitCodeTests : IDisposable
         var testConsole = new TestConsole();
         var command = CreateCommand(new FakeFileSystemScanner(entries: [entry]), console: testConsole);
 
-        var exitCode = command.Parse(["--profile", "test-profile", "--dry-run"]).Invoke();
+        var exitCode = command.Parse(["test-profile", "--dry-run"]).Invoke();
 
         Assert.Equal(ExitCodes.Success, exitCode);
         var output = testConsole.Output;
@@ -190,7 +190,7 @@ public class BackupCommandExitCodeTests : IDisposable
         var writer = new StringWriter();
         var command = CreateCommand(new FakeFileSystemScanner(), jsonOutput: writer);
 
-        var exitCode = command.Parse(["--profile", "test-profile", "--json"]).Invoke();
+        var exitCode = command.Parse(["test-profile", "--json"]).Invoke();
 
         Assert.Equal(ExitCodes.Success, exitCode);
         var line = Assert.Single(writer.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries)).TrimEnd('\r');
@@ -206,12 +206,32 @@ public class BackupCommandExitCodeTests : IDisposable
         var writer = new StringWriter();
         var command = CreateCommand(new FakeFileSystemScanner(), jsonOutput: writer);
 
-        var exitCode = command.Parse(["--profile", "test-profile", "--dry-run", "--json"]).Invoke();
+        var exitCode = command.Parse(["test-profile", "--dry-run", "--json"]).Invoke();
 
         Assert.Equal(ExitCodes.Success, exitCode);
         var line = Assert.Single(writer.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries)).TrimEnd('\r');
         using var parsed = JsonDocument.Parse(line);
         Assert.Equal("dry-run", parsed.RootElement.GetProperty("mode").GetString());
         Assert.False(parsed.RootElement.GetProperty("cancelled").GetBoolean());
+    }
+
+    [Fact]
+    public void Missing_profile_argument_fails()
+    {
+        var command = CreateCommand(new FakeFileSystemScanner());
+        var parseResult = command.Parse([]);
+        Assert.NotEmpty(parseResult.Errors);
+        var exitCode = parseResult.Invoke();
+        Assert.NotEqual(ExitCodes.Success, exitCode);
+    }
+
+    [Fact]
+    public void Passing_profile_option_fails_as_unrecognized_option()
+    {
+        var command = CreateCommand(new FakeFileSystemScanner());
+        var parseResult = command.Parse(["--profile", "test-profile"]);
+        Assert.NotEmpty(parseResult.Errors);
+        var exitCode = parseResult.Invoke();
+        Assert.NotEqual(ExitCodes.Success, exitCode);
     }
 }

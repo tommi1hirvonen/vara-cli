@@ -6,7 +6,7 @@ history underneath - deduplicated and space-efficient - so nothing you overwrite
 delete is ever really gone until you decide to prune it.
 
 ```
-vara backup --profile files
+vara backup files
 ```
 
 runs an incremental backup for a profile named `files`; `vara snapshots`, `vara history`,
@@ -179,8 +179,8 @@ creating, editing, and deleting profiles - see [`vara profiles`](#usage) below.
 
 | Command | Purpose |
 |---|---|
-| `vara backup --profile <name> [--dry-run] [--json]` | Run an incremental backup for a profile; `--dry-run` previews planned changes without writing anything; `--json` prints a single machine-readable JSON summary instead of the human-oriented output. |
-| `vara snapshots [--profile <name>]` | List recorded snapshots (timestamp, stats, outcome). |
+| `vara backup <profile> [--dry-run] [--json]` | Run an incremental backup for a profile; `--dry-run` previews planned changes without writing anything; `--json` prints a single machine-readable JSON summary instead of the human-oriented output. |
+| `vara snapshots [profile]` | List recorded snapshots (timestamp, stats, outcome). |
 | `vara history <path> [--profile <name>]` | List a file's recorded versions, most recent first. |
 | `vara browse [directory] [--profile <name>] [--at <date>] [--deleted]` | List a mirror directory's contents, optionally as of a past date, optionally including deleted entries. |
 | `vara deleted [directory] [--profile <name>] [--since <date>]` | Report deleted files, most recently deleted first. |
@@ -188,27 +188,25 @@ creating, editing, and deleting profiles - see [`vara profiles`](#usage) below.
 | `vara restore <path> --recursive (--out <dest> \| --in-place) [--at <date> \| --snapshot <id>] [--force]` | Restore an entire directory (subtree) to its exact tracked state as of `--at` or `--snapshot <id>`, or its current tracked state if neither is given non-interactively; in an interactive session, omitting both instead presents a selectable list of candidate snapshots (plus a "current tracked state" entry) with directory-scoped stats. Reports planned writes/removals and asks for one confirmation before applying them unless `--force` is given. Mutually exclusive with `--version`; `--at` and `--snapshot` are mutually exclusive with each other. |
 | `vara show <path> (--at <date> \| --version <id>)` | Stream a historical version's content to stdout. |
 | `vara diff <path> (--left-at <date> \| --left-version <id>) (--right-at <date> \| --right-version <id>)` | Show a textual diff between two versions of a file. |
-| `vara prune --profile <name> [--yes]` | Apply the profile's tiered retention policy and garbage-collect unreferenced content. |
-| `vara check --profile <name> [--quick]` | Verify content physically stored in the target still matches the manifest across the full snapshot history; reports missing/corrupt/orphaned blobs. |
+| `vara prune <profile> [--yes]` | Apply the profile's tiered retention policy and garbage-collect unreferenced content. |
+| `vara check <profile> [--quick]` | Verify content physically stored in the target still matches the manifest across the full snapshot history; reports missing/corrupt/orphaned blobs. |
 | `vara profiles [--config <path>]` | Open an interactive terminal UI to create, edit, and delete profiles in the configuration file, instead of hand-editing YAML. Requires an interactive terminal (fails cleanly if input or output is redirected). |
 
-The profile is always given via a `--profile` option, never a positional argument -
-including for `backup`, which took a positional `<profile>` in earlier versions. This
-is deliberate: once path-taking commands (`history`, `restore`, `show`, `diff`) needed
-their profile to become optional, `System.CommandLine` could no longer redistribute a
-single leftover positional token to the still-required `<path>` argument, so every
-command was made consistent by moving the profile to `--profile` instead.
+Profile-level commands (`backup`, `prune`, `check`) require the profile as a positional
+argument (`vara backup <profile>`, `vara prune <profile>`, `vara check <profile>`), and
+`snapshots` takes an optional positional profile (`vara snapshots [profile]`). These
+commands do not accept a `--profile` option. When `[profile]` is omitted from `snapshots`,
+Vara walks upward from the current directory looking for a `.vara\profile.db` file, the same
+way Git locates `.git` - so you can `cd` into a mirror and run `vara snapshots` without
+naming the profile.
 
-`--profile` is required for `backup` and `prune` (they mutate data) and for `check`
-(it always targets one explicit profile rather than falling back to directory-based
-resolution), but optional for
-the read-only browsing/restore commands (`snapshots`, `history`, `restore`, `show`,
-`diff`, `browse`, `deleted`): if omitted, Vara walks upward from the current directory
-looking for a `.vara\profile.db` file, the same way Git locates `.git` - so you can `cd`
-into a mirror and run `vara snapshots` without naming the profile. This directory-based
-resolution works even without `~/.vara/profiles.yml` existing at all (e.g. against a
-mirror copied to another machine), and is only consulted when `--profile` is omitted -
-an explicit `--profile <name>` always resolves via the configuration file instead,
+Path- and directory-targeting commands (`history`, `restore`, `show`, `diff`, `browse`,
+`deleted`) keep their path or directory as the positional argument (`<path>` or
+`[directory]`) and take `--profile <name>` as an optional option. When `--profile` is
+omitted, they also fall back to working-directory auto-detection inside a mirror. This
+directory-based resolution works even without `~/.vara/profiles.yml` existing at all (e.g.
+against a mirror copied to another machine), and is only consulted when `--profile` is
+omitted - an explicit `--profile <name>` always resolves via the configuration file instead,
 regardless of the current directory.
 
 A `path` argument to `history`/`restore`/`show`/`diff`/`browse` accepts a mirror-relative

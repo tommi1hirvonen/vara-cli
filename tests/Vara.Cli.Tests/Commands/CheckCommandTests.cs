@@ -93,7 +93,7 @@ public class CheckCommandTests : IDisposable
         SeedReferencedBlob("a.txt", "hello world");
         var command = CreateCommand();
 
-        var exitCode = command.Parse(["--profile", "test-profile"]).Invoke();
+        var exitCode = command.Parse(["test-profile"]).Invoke();
 
         Assert.Equal(0, exitCode);
     }
@@ -104,7 +104,7 @@ public class CheckCommandTests : IDisposable
         SeedMissingReference("a.txt", "hash-never-stored");
         var command = CreateCommand();
 
-        var exitCode = command.Parse(["--profile", "test-profile"]).Invoke();
+        var exitCode = command.Parse(["test-profile"]).Invoke();
 
         Assert.Equal(2, exitCode);
     }
@@ -117,12 +117,12 @@ public class CheckCommandTests : IDisposable
         var command = CreateCommand();
 
         // Quick mode never re-hashes, so the corrupted-but-present blob is not detected.
-        var quickExitCode = command.Parse(["--profile", "test-profile", "--quick"]).Invoke();
+        var quickExitCode = command.Parse(["test-profile", "--quick"]).Invoke();
         Assert.Equal(0, quickExitCode);
 
         // The same corrupted blob, checked in full (default) mode, is detected and
         // fails the run - proving --quick genuinely changed the outcome above.
-        var fullExitCode = command.Parse(["--profile", "test-profile"]).Invoke();
+        var fullExitCode = command.Parse(["test-profile"]).Invoke();
         Assert.Equal(2, fullExitCode);
     }
 
@@ -134,8 +134,28 @@ public class CheckCommandTests : IDisposable
         cts.Cancel();
         var command = CreateCommand(cts.Token);
 
-        var exitCode = command.Parse(["--profile", "test-profile"]).Invoke();
+        var exitCode = command.Parse(["test-profile"]).Invoke();
 
         Assert.Equal(ExitCodes.PartialFailure, exitCode);
+    }
+
+    [Fact]
+    public void Missing_profile_argument_fails()
+    {
+        var command = CreateCommand();
+        var parseResult = command.Parse([]);
+        Assert.NotEmpty(parseResult.Errors);
+        var exitCode = parseResult.Invoke();
+        Assert.NotEqual(0, exitCode);
+    }
+
+    [Fact]
+    public void Passing_profile_option_fails_as_unrecognized_option()
+    {
+        var command = CreateCommand();
+        var parseResult = command.Parse(["--profile", "test-profile"]);
+        Assert.NotEmpty(parseResult.Errors);
+        var exitCode = parseResult.Invoke();
+        Assert.NotEqual(0, exitCode);
     }
 }

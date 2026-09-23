@@ -11,13 +11,17 @@ public static class SnapshotsCommand
 {
     public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory)
     {
-        var profileOption = new Option<string?>("--profile") { Description = "The profile whose snapshots to list. Optional when the current directory is inside a profile's target root." };
+        var profileArgument = new Argument<string?>("profile")
+        {
+            Description = "The profile whose snapshots to list. Optional when the current directory is inside a profile's target root.",
+            Arity = ArgumentArity.ZeroOrOne,
+        };
         var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
-        var command = new Command("snapshots", "List recorded snapshots for a profile.") { profileOption, configOption };
+        var command = new Command("snapshots", "List recorded snapshots for a profile.") { profileArgument, configOption };
 
         command.SetAction(parseResult =>
         {
-            var profileName = parseResult.GetValue(profileOption);
+            var profileName = parseResult.GetValue(profileArgument);
             var configPath = parseResult.GetValue(configOption);
 
             return ErrorReporting.Run(() =>
