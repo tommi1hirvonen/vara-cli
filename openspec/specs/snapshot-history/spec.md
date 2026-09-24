@@ -7,11 +7,23 @@ Lets a user see what backups have been taken over time and recover a file's cont
 ## Requirements
 
 ### Requirement: List snapshots
-The system SHALL provide a command that lists the recorded snapshots for a profile, including each snapshot's timestamp and summary statistics, presented as an aligned table with column headers so each field lines up across rows, with each row's status rendered in the severity style matching that snapshot's outcome (per the `cli-presentation` capability), and numeric fields right-aligned within their column. Listing snapshots SHALL NOT itself create the profile's backing storage (its manifest database or on-disk profile directory) as a side effect; it is a read-only operation.
+The system SHALL provide a `vara snapshots [profile]` command that lists the recorded snapshots for a profile, accepting an optional positional argument for the profile name. The command SHALL NOT accept a `--profile` option. If the positional argument is omitted and the current working directory is inside a profile's target root (or below a directory containing `.vara\profile.db`), the system SHALL resolve the profile from the working directory; if outside any profile root, the command SHALL report an error stating that a profile name is required. The output SHALL include each snapshot's timestamp and summary statistics, presented as an aligned table with column headers so each field lines up across rows, with each row's status rendered in the severity style matching that snapshot's outcome (per the `cli-presentation` capability), and numeric fields right-aligned within their column. Listing snapshots SHALL NOT itself create the profile's backing storage (its manifest database or on-disk profile directory) as a side effect; it is a read-only operation.
 
 #### Scenario: Listing snapshot history
 - **WHEN** a user requests the snapshot history for a profile that has completed at least one backup run
 - **THEN** the system displays each recorded snapshot's timestamp and summary statistics, such as files changed and bytes transferred, as a row of an aligned table
+
+#### Scenario: Listing snapshot history with positional profile
+- **WHEN** a user runs `vara snapshots <profile>` for a profile that has completed at least one backup run
+- **THEN** the system displays each recorded snapshot's timestamp and summary statistics, such as files changed and bytes transferred, as a row of an aligned table
+
+#### Scenario: Listing snapshot history from target root without arguments
+- **WHEN** a user runs `vara snapshots` without arguments while inside a profile's target root
+- **THEN** the system resolves the profile from the working directory and displays the snapshot history table
+
+#### Scenario: Listing snapshots without arguments outside target root
+- **WHEN** a user runs `vara snapshots` without arguments outside any profile's target root
+- **THEN** the system reports that a profile name is required and performs no action
 
 #### Scenario: No snapshots recorded
 - **WHEN** a user requests the snapshot history for a profile that has not yet completed any backup run

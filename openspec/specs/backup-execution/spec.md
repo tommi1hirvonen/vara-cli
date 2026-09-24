@@ -6,6 +6,21 @@ Defines the incremental backup pipeline that keeps a target mirror in sync with 
 
 ## Requirements
 
+### Requirement: Backup command accepts profile as a positional argument
+The system SHALL provide a `vara backup <profile>` command that requires the profile name as a positional argument. The command SHALL NOT accept a `--profile` option. Supplying `--profile` or omitting the profile positional argument SHALL be rejected as a syntax error.
+
+#### Scenario: Running backup with positional profile argument
+- **WHEN** a user runs `vara backup <profile>` with a valid profile name as a positional argument
+- **THEN** the system resolves the profile by name and executes the incremental backup pipeline
+
+#### Scenario: Running backup without a positional profile argument
+- **WHEN** a user runs `vara backup` without specifying a profile argument
+- **THEN** the system rejects the invocation with an error indicating the required profile argument is missing
+
+#### Scenario: Running backup with legacy --profile option
+- **WHEN** a user runs `vara backup --profile <name>`
+- **THEN** the system rejects the option as unrecognized
+
 ### Requirement: One-to-one mirror of source state
 After a successful backup run, the target mirror directory SHALL contain exactly the set of files and directories present in the profile's sources (respecting excludes and glob patterns), with each entry located at a mirror path derived from that entry's full absolute source path rather than a path relative to its own source's root, so that entries from different sources can never collide at the same mirror location. For a drive-letter source path, the mirror path SHALL be formed by stripping the colon after the drive letter and preserving every other path segment unchanged (for example, `C:\Users\john\Programming\src\main.py` mirrors to `C\Users\john\Programming\src\main.py` under the target). A source path for which no mirror path derivation is defined (for example, a UNC network path such as `\\srv\share\file.txt`) SHALL NOT be mirrored by falling back to any other location, including the source path itself or a location outside the target root; every entry from such a source SHALL instead be treated as failed per the "Mirror writes are confined to the target root" requirement. This one-to-one correspondence applies to the portion of each source that was successfully scanned and successfully mirrored during the run; a source, subtree, or file that could not be scanned or could not be mirrored is exempted for that run per the "Unreadable files do not abort the run" requirement, and its prior mirror entries and manifest state are left unchanged rather than removed.
 
