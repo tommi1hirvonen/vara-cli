@@ -1,4 +1,3 @@
-using System.Threading;
 using Microsoft.Data.Sqlite;
 using Spectre.Console.Testing;
 using Vara.Application.History;

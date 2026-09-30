@@ -1,8 +1,6 @@
-using System.Linq;
 using Spectre.Console;
 using Spectre.Console.Rendering;
 using Spectre.Console.Testing;
-using Vara.Application.Backup;
 using Vara.Application.Reporting;
 using Vara.Cli.Presentation;
 using Xunit;

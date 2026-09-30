@@ -1,6 +1,5 @@
 using Microsoft.Data.Sqlite;
 using Vara.Application.Backup;
-using Vara.Core.Backup;
 using Vara.Infrastructure.Snapshots;
 using Xunit;
 

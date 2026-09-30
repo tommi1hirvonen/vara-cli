@@ -1,4 +1,3 @@
-using System.Threading;
 using Vara.Core.Abstractions;
 
 namespace Vara.Application.Integrity;

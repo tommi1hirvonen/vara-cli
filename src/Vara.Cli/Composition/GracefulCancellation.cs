@@ -1,5 +1,3 @@
-using System.Threading;
-
 namespace Vara.Cli.Composition;
 
 /// <summary>

@@ -1,4 +1,3 @@
-using System.Threading;
 using Vara.Application.Backup;
 using Vara.Core.Abstractions;
 using Xunit;

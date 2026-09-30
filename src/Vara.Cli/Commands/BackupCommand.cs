@@ -1,6 +1,5 @@
 using System.CommandLine;
 using System.Text.Json;
-using System.Threading;
 using Spectre.Console;
 using Vara.Application.Backup;
 using Vara.Application.Profiles;

@@ -1,4 +1,3 @@
-using System.Threading;
 using Vara.Application.Retention;
 using Vara.Application.Tests.Backup;
 using Vara.Core.Backup;

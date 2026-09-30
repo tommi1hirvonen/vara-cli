@@ -1,5 +1,4 @@
 using System.CommandLine;
-using System.Threading;
 using Spectre.Console;
 using Vara.Application.Profiles;
 using Vara.Application.Retention;

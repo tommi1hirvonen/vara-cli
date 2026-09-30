@@ -1,4 +1,3 @@
-using System.Threading;
 using Vara.Core.Abstractions;
 using Vara.Core.Hashing;
 using Vara.Core.Snapshots;

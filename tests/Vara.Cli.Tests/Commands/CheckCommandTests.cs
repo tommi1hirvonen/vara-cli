@@ -1,5 +1,4 @@
 using Microsoft.Data.Sqlite;
-using System.Threading;
 using Vara.Application.Profiles;
 using Vara.Cli.Commands;
 using Vara.Cli.Composition;

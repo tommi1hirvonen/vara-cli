@@ -1,6 +1,5 @@
 using Microsoft.Data.Sqlite;
 using Vara.Application.Retention;
-using Vara.Core.Backup;
 using Vara.Core.Configuration;
 using Vara.Core.Snapshots;
 using Vara.Infrastructure.Hashing;

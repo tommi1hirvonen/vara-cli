@@ -1,6 +1,5 @@
 using Microsoft.Data.Sqlite;
 using System.Text.Json;
-using System.Threading;
 using Spectre.Console;
 using Spectre.Console.Testing;
 using Vara.Application.Backup;
