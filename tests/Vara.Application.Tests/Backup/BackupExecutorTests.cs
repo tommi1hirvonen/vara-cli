@@ -920,4 +920,74 @@ public class BackupExecutorTests : IDisposable
         Assert.Empty(_repository.GetFileHistory("vanishing.txt"));
         Assert.False(_contentStore.Mirror.ContainsKey("vanishing.txt"));
     }
+
+    [Fact]
+    public void Transfer_on_non_hardlink_store_apportions_progress_across_both_passes_and_sums_to_exact_file_size()
+    {
+        _contentStore.ForceHardlinkSupportForTesting(false);
+        const int contentLength = 200 * 1024; // > 64KB SimulatedChunkSize, multiple chunks
+        var path = Path.Combine(_root, "large.bin");
+        var bytes = new byte[contentLength];
+        Random.Shared.NextBytes(bytes);
+        File.WriteAllBytes(path, bytes);
+
+        var plan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Add, "large.bin", null, path, contentLength, ScanTimeModifiedAt(path), null)],
+            contentLength);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        var reports = new List<long>();
+        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, onBytesTransferred: delta => reports.Add(delta));
+
+        Assert.Equal(1, outcome.FilesAdded);
+        Assert.Equal(contentLength, outcome.BytesTransferred);
+        Assert.True(reports.Count > 2, $"Expected multiple progress reports across both passes, observed {reports.Count}");
+        Assert.All(reports, r => Assert.True(r > 0, "All reported progress deltas must be positive"));
+        Assert.Equal(contentLength, reports.Sum());
+    }
+
+    [Fact]
+    public void Transfer_on_non_hardlink_store_reconciles_odd_file_size_exactly()
+    {
+        _contentStore.ForceHardlinkSupportForTesting(false);
+        var path = WriteFile("odd.txt", "1234567"); // 7 bytes (odd size)
+        var size = new FileInfo(path).Length;
+        Assert.Equal(7, size);
+
+        var plan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Add, "odd.txt", null, path, size, ScanTimeModifiedAt(path), null)],
+            size);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        var reports = new List<long>();
+        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, onBytesTransferred: delta => reports.Add(delta));
+
+        Assert.Equal(1, outcome.FilesAdded);
+        Assert.Equal(size, outcome.BytesTransferred);
+        Assert.Equal(size, reports.Sum());
+    }
+
+    [Fact]
+    public void Transfer_on_hardlink_capable_store_suppresses_mirror_progress_on_placement()
+    {
+        _contentStore.ForceHardlinkSupportForTesting(true);
+        var path = WriteFile("linkable.txt", "content for hardlinkable mirror placement");
+        var size = new FileInfo(path).Length;
+
+        var plan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Add, "linkable.txt", null, path, size, ScanTimeModifiedAt(path), null)],
+            size);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        var reports = new List<long>();
+        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, onBytesTransferred: delta => reports.Add(delta));
+
+        Assert.Equal(1, outcome.FilesAdded);
+        Assert.Equal(size, outcome.BytesTransferred);
+        Assert.Null(_contentStore.LastOnBytesCopiedPassedToPlace);
+        Assert.Equal(size, reports.Sum());
+    }
 }

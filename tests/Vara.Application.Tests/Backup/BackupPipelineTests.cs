@@ -176,6 +176,33 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
+    public void Dry_run_live_progress_and_run_summary_all_agree_on_total_bytes_when_target_has_no_hardlink_support()
+    {
+        var entries = WriteFiles(_root, count: 5);
+        var expectedTotal = entries.Sum(e => e.Size);
+
+        var repository = new FakeSnapshotRepository();
+        var contentStore = new FakeContentStore();
+        contentStore.ForceHardlinkSupportForTesting(false);
+        var scanner = new FakeFileSystemScanner(entries);
+
+        var dryRun = new BackupPipeline(scanner, new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .PlanOnly(SimpleProfile(_root));
+
+        var progress = new SyncProgress<BackupProgress>();
+        var realRun = new BackupPipeline(scanner, new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .Run(SimpleProfile(_root), progress);
+
+        // Dry run planned total, live progress TotalBytes & max BytesTransferred, and
+        // post-run completion summary BytesTransferred must all equal expectedTotal.
+        Assert.Equal(expectedTotal, dryRun.TotalBytesToTransfer);
+        Assert.NotEmpty(progress.Reports);
+        Assert.All(progress.Reports, r => Assert.Equal(expectedTotal, r.TotalBytes));
+        Assert.Equal(expectedTotal, progress.Reports.Max(r => r.BytesTransferred));
+        Assert.Equal(expectedTotal, realRun.Stats.BytesTransferred);
+    }
+
+    [Fact]
     public void PlanOnly_reports_scan_failures_as_paths_a_real_run_would_skip_without_aborting()
     {
         var scanFailure = new ScanFailure("denied-dir", ScanFailureReason.UnreadableDirectory, "denied-dir");
@@ -281,20 +308,27 @@ public class BackupPipelineTests : IDisposable
     public void Progress_never_exceeds_100_percent_when_the_target_has_no_hardlink_support()
     {
         var entries = WriteFiles(_root, count: 10);
+        var expectedTotal = entries.Sum(e => e.Size);
         var contentStore = new FakeContentStore();
         contentStore.ForceHardlinkSupportForTesting(false);
         var pipeline = new BackupPipeline(
             new FakeFileSystemScanner(entries), new FakeHasher(), contentStore, new FakeSnapshotRepository(), new FakeRunLock());
         var progress = new SyncProgress<BackupProgress>();
 
-        pipeline.Run(SimpleProfile(_root), progress);
+        var result = pipeline.Run(SimpleProfile(_root), progress);
 
-        // Every file's placement falls back to a real streamed copy (no hardlink support),
-        // so its bytes are reported twice (source read + mirror placement). The progress
-        // denominator must account for that upfront so the percentage stays bounded.
+        // Every file's placement falls back to a real streamed copy (no hardlink support).
+        // Progress is scaled across both passes so that TotalBytes remains equal to the
+        // planned total bytes, cumulative BytesTransferred reaches expectedTotal exactly,
+        // and progress never exceeds 100%.
         Assert.NotEmpty(progress.Reports);
-        Assert.All(progress.Reports, r => Assert.True(
-            r.BytesTransferred <= r.TotalBytes, $"progress {r.BytesTransferred}/{r.TotalBytes} exceeded 100%"));
+        Assert.All(progress.Reports, r =>
+        {
+            Assert.Equal(expectedTotal, r.TotalBytes);
+            Assert.True(r.BytesTransferred <= r.TotalBytes, $"progress {r.BytesTransferred}/{r.TotalBytes} exceeded 100%");
+        });
+        Assert.Equal(expectedTotal, progress.Reports.Max(r => r.BytesTransferred));
+        Assert.Equal(expectedTotal, result.Stats.BytesTransferred);
     }
 
     [Fact]

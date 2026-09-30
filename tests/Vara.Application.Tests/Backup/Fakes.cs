@@ -161,8 +161,11 @@ internal sealed class FakeContentStore : IContentStore
         }
     }
 
+    public Action<long>? LastOnBytesCopiedPassedToPlace { get; private set; }
+
     public void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null, string? previousContentHash = null)
     {
+        LastOnBytesCopiedPassedToPlace = onBytesCopied;
         if (ThrowOnPlace is not null && (ThrowOnPlaceForPath is null || string.Equals(ThrowOnPlaceForPath, mirrorRelativePath, StringComparison.OrdinalIgnoreCase)))
         {
             throw ThrowOnPlace;

@@ -69,19 +69,12 @@ public sealed class BackupPipeline(
             {
                 var (scanResult, plan) = ScanDiffAndPlan(profile);
 
-                // The live progress denominator can differ from plan.TotalBytesToTransfer
-                // (which keeps its plain "total changed source bytes" meaning everywhere
-                // else): when the target doesn't support hardlinks at all, every Add/Change
-                // operation's PlaceAtMirrorPath call is known upfront to re-stream its
-                // content as a fallback copy in addition to the source-read pass, so the
-                // denominator is doubled to keep the reported percentage from exceeding
-                // 100% over the course of the run (stream-large-file-transfer-progress
-                // change's design.md - "Avoiding double-counting when a mirror placement
-                // also streams"). The rare remaining case - hardlinks supported at the
-                // volume level but a specific blob's own link limit reached - isn't knowable
-                // upfront and can still cause a small, transient overshoot; accepted as a
-                // bounded edge case.
-                var progressTotalBytes = contentStore.SupportsHardlinks ? plan.TotalBytesToTransfer : plan.TotalBytesToTransfer * 2;
+                // The live progress denominator always equals plan.TotalBytesToTransfer
+                // (matching dry-run estimates and post-run completion summary statistics).
+                // When hardlinks are not supported, BackupExecutor apportions progress
+                // proportionally across the store-write and mirror-copy passes so the total
+                // bytes reported matches plan.TotalBytesToTransfer without overshooting 100%.
+                var progressTotalBytes = plan.TotalBytesToTransfer;
 
                 // bytesSoFar is updated from chunk-level callbacks that may arrive
                 // concurrently across multiple in-flight file transfers once

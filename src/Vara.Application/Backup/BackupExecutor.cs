@@ -219,18 +219,61 @@ public sealed class BackupExecutor(
             // across threads. The quick hash is computed from the same bytes already
             // being read here (see StreamingContentSignature), so recording it costs no
             // extra I/O and lets a future run's move detection pre-filter against this
-            // file without a full-content read. onBytesTransferred is forwarded directly
-            // into both StoreFromStream and PlaceAtMirrorPath as a chunk-level progress
-            // callback (stream-large-file-transfer-progress change), so progress advances
-            // continuously during a large file's transfer instead of jumping once it
-            // completes; the once-per-file summary counters below are unaffected, since
-            // they're driven by StoreFromStream's returned size, not by how many times
-            // the callback fires.
+            // file without a full-content read.
+            // When hardlinks are not supported, placing content at the mirror path also
+            // streams the whole file as a fallback copy. In that case, chunk progress is
+            // apportioned 50% to StoreFromStream and 50% to PlaceAtMirrorPath (reconciling
+            // any integer remainder upon completion), so progress advances continuously
+            // without exceeding the file's size or doubling the planned total bytes.
+            // When hardlinks are supported, StoreFromStream receives 100% of progress,
+            // and PlaceAtMirrorPath suppresses callbacks so hardlink-limit fallbacks do
+            // not double-count.
+            Action<long>? storeCallback = null;
+            Action<long>? mirrorCallback = null;
+            var reportedSoFar = 0L;
+
+            if (onBytesTransferred is not null)
+            {
+                if (contentStore.SupportsHardlinks)
+                {
+                    storeCallback = onBytesTransferred;
+                    mirrorCallback = null;
+                }
+                else
+                {
+                    var storeSoFar = 0L;
+                    storeCallback = chunk =>
+                    {
+                        storeSoFar += chunk;
+                        var target = storeSoFar / 2;
+                        var delta = target - reportedSoFar;
+                        if (delta > 0)
+                        {
+                            reportedSoFar += delta;
+                            onBytesTransferred(delta);
+                        }
+                    };
+
+                    var mirrorSoFar = 0L;
+                    mirrorCallback = chunk =>
+                    {
+                        mirrorSoFar += chunk;
+                        var target = (operation.Size / 2) + (mirrorSoFar / 2);
+                        var delta = target - reportedSoFar;
+                        if (delta > 0)
+                        {
+                            reportedSoFar += delta;
+                            onBytesTransferred(delta);
+                        }
+                    };
+                }
+            }
+
             using (var sourceStream = File.OpenRead(operation.SourceAbsolutePath!))
             {
                 var signature = new StreamingContentSignature(sourceStream, hasher);
                 quickHash = signature.ComputeQuickHash();
-                (hash, size) = contentStore.StoreFromStream(signature.ReplayFromStart(), onBytesTransferred);
+                (hash, size) = contentStore.StoreFromStream(signature.ReplayFromStart(), storeCallback);
             }
 
             // Re-stat the source right after the read completes - and before placing
@@ -256,7 +299,16 @@ public sealed class BackupExecutor(
                 return;
             }
 
-            contentStore.PlaceAtMirrorPath(hash, operation.RelativePath, onBytesTransferred, operation.PreviousContentHash);
+            contentStore.PlaceAtMirrorPath(hash, operation.RelativePath, mirrorCallback, operation.PreviousContentHash);
+
+            if (!contentStore.SupportsHardlinks && onBytesTransferred is not null)
+            {
+                var remainder = size - reportedSoFar;
+                if (remainder > 0)
+                {
+                    onBytesTransferred(remainder);
+                }
+            }
 
             lock (reportLock)
             {
