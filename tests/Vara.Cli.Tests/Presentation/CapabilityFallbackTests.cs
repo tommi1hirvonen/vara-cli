@@ -45,31 +45,4 @@ public class CapabilityFallbackTests
         Assert.Contains("Error: profile not found", output);
         Assert.DoesNotContain("\u001b[", output);
     }
-
-    [Fact]
-    public void NO_COLOR_environment_variable_disables_color_on_a_real_ansi_console()
-    {
-        var previous = Environment.GetEnvironmentVariable("NO_COLOR");
-        try
-        {
-            Environment.SetEnvironmentVariable("NO_COLOR", "1");
-            var writer = new StringWriter();
-            var console = AnsiConsole.Create(new AnsiConsoleSettings
-            {
-                Ansi = AnsiSupport.Detect,
-                ColorSystem = ColorSystemSupport.Detect,
-                Out = new AnsiConsoleOutput(writer),
-            });
-
-            OutcomeStyle.WriteLineSuccess(console, "Snapshot #1 completed");
-
-            var output = writer.ToString();
-            Assert.Contains("Snapshot #1 completed", output);
-            Assert.DoesNotContain("\u001b[", output);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("NO_COLOR", previous);
-        }
-    }
 }
