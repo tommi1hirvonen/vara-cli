@@ -264,26 +264,32 @@ public class BackupProgressColumnTests
     }
 
     [Fact]
-    public void Stats_role_fields_do_not_shift_when_a_value_crosses_a_digit_count_boundary()
+    public void Stats_role_renders_two_aligned_rows_when_values_cross_digit_count_boundaries()
     {
         var start = new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
-        var shortThroughputConsole = new TestConsole();
-        shortThroughputConsole.Profile.Width = 100;
-        var shortThroughputColumn = new BackupProgressColumn(new BackupProgressCalculator(() => start.AddSeconds(1)));
-        var shortTask = CreateTask(BackupProgressRole.Stats, new BackupProgressState(5, 10_000));
-        shortThroughputConsole.Write(shortThroughputColumn.Render(CreateOptions(shortThroughputConsole), shortTask, TimeSpan.Zero));
-        var etaIndex1 = shortThroughputConsole.Lines[0].IndexOf("ETA", StringComparison.Ordinal);
+        static string[] RenderStats(DateTimeOffset now, BackupProgressState state)
+        {
+            var console = new TestConsole();
+            console.Profile.Width = 100;
+            var column = new BackupProgressColumn(new BackupProgressCalculator(() => now));
+            var task = CreateTask(BackupProgressRole.Stats, state);
+            console.Write(column.Render(CreateOptions(console), task, TimeSpan.Zero));
+            return console.Lines.ToArray();
+        }
 
-        var longThroughputConsole = new TestConsole();
-        longThroughputConsole.Profile.Width = 100;
-        var longThroughputColumn = new BackupProgressColumn(new BackupProgressCalculator(() => start.AddSeconds(1)));
-        var longTask = CreateTask(BackupProgressRole.Stats, new BackupProgressState(50_000_000, 100_000_000));
-        longThroughputConsole.Write(longThroughputColumn.Render(CreateOptions(longThroughputConsole), longTask, TimeSpan.Zero));
-        var etaIndex2 = longThroughputConsole.Lines[0].IndexOf("ETA", StringComparison.Ordinal);
+        var shorter = RenderStats(start.AddSeconds(1), new BackupProgressState(5, 10_000, 1, 9));
+        var longer = RenderStats(start.AddSeconds(1), new BackupProgressState(50_000_000, 100_000_000, 100, 1_000));
 
-        Assert.True(etaIndex1 >= 0);
-        Assert.Equal(etaIndex1, etaIndex2);
+        Assert.Equal(2, shorter.Length);
+        Assert.Equal(2, longer.Length);
+        Assert.Contains(" / ", shorter[0]);
+        Assert.Contains("Files 1 / 9", shorter[0]);
+        Assert.Contains(" / ", longer[0]);
+        Assert.Contains("Files 100 / 1000", longer[0]);
+        Assert.Equal(shorter[0].IndexOf("Files", StringComparison.Ordinal), longer[0].IndexOf("Files", StringComparison.Ordinal));
+        Assert.True(shorter[1].IndexOf("ETA", StringComparison.Ordinal) >= 0);
+        Assert.Equal(shorter[1].IndexOf("ETA", StringComparison.Ordinal), longer[1].IndexOf("ETA", StringComparison.Ordinal));
     }
 
     [Fact]

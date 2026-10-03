@@ -301,6 +301,54 @@ public class BackupPipelineTests : IDisposable
         // of every file's size - no update lost.
         var maxReported = progress.Reports.Max(r => r.BytesTransferred);
         Assert.Equal(expectedTotal, maxReported);
+        Assert.All(progress.Reports, report => Assert.Equal(entries.Count, report.TotalFiles));
+        Assert.Equal(entries.Count, progress.Reports.Max(r => r.FilesTransferred));
+    }
+
+    [Fact]
+    public void Failed_content_transfers_remain_in_the_total_but_not_the_completed_file_count()
+    {
+        var lockedPath = Path.Combine(_root, "locked.txt");
+        File.WriteAllText(lockedPath, "cannot read me");
+        var okPath = Path.Combine(_root, "ok.txt");
+        File.WriteAllText(okPath, "this one is fine");
+        var entries = new[]
+        {
+            new ScannedEntry("locked.txt", lockedPath, new FileInfo(lockedPath).Length, File.GetLastWriteTimeUtc(lockedPath), false, null),
+            new ScannedEntry("ok.txt", okPath, new FileInfo(okPath).Length, File.GetLastWriteTimeUtc(okPath), false, null),
+        };
+        using var exclusiveHold = new FileStream(lockedPath, FileMode.Open, FileAccess.Read, FileShare.None);
+        var progress = new SyncProgress<BackupProgress>();
+        var pipeline = new BackupPipeline(
+            new FakeFileSystemScanner(entries), new FakeHasher(), new FakeContentStore(), new FakeSnapshotRepository(), new FakeRunLock());
+
+        pipeline.Run(SimpleProfile(_root), progress);
+
+        Assert.All(progress.Reports, report => Assert.Equal(2, report.TotalFiles));
+        Assert.Equal(1, progress.Reports.Max(report => report.FilesTransferred));
+    }
+
+    [Fact]
+    public void Metadata_only_operations_report_zero_files_transferred_out_of_zero_planned()
+    {
+        var entry = WriteFiles(_root, count: 1).Single();
+        var repository = new FakeSnapshotRepository();
+        var contentStore = new FakeContentStore();
+        new BackupPipeline(
+                new FakeFileSystemScanner([entry]), new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .Run(SimpleProfile(_root));
+
+        var progress = new SyncProgress<BackupProgress>();
+        new BackupPipeline(
+                new FakeFileSystemScanner([]), new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .Run(SimpleProfile(_root), progress);
+
+        Assert.NotEmpty(progress.Reports);
+        Assert.All(progress.Reports, report =>
+        {
+            Assert.Equal(0, report.FilesTransferred);
+            Assert.Equal(0, report.TotalFiles);
+        });
     }
 
     [Fact]

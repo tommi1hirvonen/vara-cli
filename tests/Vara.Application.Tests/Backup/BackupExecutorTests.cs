@@ -64,10 +64,12 @@ public class BackupExecutorTests : IDisposable
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
         var reports = new List<long>();
-        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, reports.Add);
+        var completedFiles = 0;
+        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, reports.Add, onFileTransferred: () => completedFiles++);
 
         Assert.True(reports.Count > 1, $"expected more than one progress report for a large file, observed {reports.Count}");
         Assert.Equal(size, reports.Sum());
+        Assert.Equal(1, completedFiles);
     }
 
     [Fact]
@@ -124,12 +126,14 @@ public class BackupExecutorTests : IDisposable
             32);
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+        var completedFiles = 0;
 
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, onFileTransferred: () => completedFiles++);
 
         Assert.Equal(1, outcome.FilesFailed);
         Assert.Equal(["locked.txt"], outcome.FailedPaths);
         Assert.Equal(1, outcome.FilesAdded);
+        Assert.Equal(1, completedFiles);
         Assert.True(_contentStore.Mirror.ContainsKey("ok.txt"));
         Assert.False(_contentStore.Mirror.ContainsKey("locked.txt"));
     }

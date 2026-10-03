@@ -82,6 +82,7 @@ public sealed class BackupPipeline(
                 // (which continues to serialize only the once-per-file manifest write and
                 // summary counter, independent of this live-progress counter).
                 var bytesSoFar = 0L;
+                var filesSoFar = 0;
 
                 // The first progress report - which seeds the live display's
                 // throughput/ETA clock (BackupProgressCalculator lazily starts its own
@@ -99,11 +100,20 @@ public sealed class BackupPipeline(
                     transferred =>
                     {
                         var total = Interlocked.Add(ref bytesSoFar, transferred);
-                        progress?.Report(new BackupProgress(total, progressTotalBytes));
+                        progress?.Report(new BackupProgress(total, progressTotalBytes, Volatile.Read(ref filesSoFar), plan.TotalFilesToTransfer));
                     },
-                    onTransferPhaseStarting: () => progress?.Report(new BackupProgress(0, progressTotalBytes)),
+                    onTransferPhaseStarting: () => progress?.Report(new BackupProgress(0, progressTotalBytes, 0, plan.TotalFilesToTransfer)),
                     manifestBatch: manifestBatch,
-                    cancellationToken: cancellationToken);
+                    cancellationToken: cancellationToken,
+                    onFileTransferred: () =>
+                    {
+                        var completedFiles = Interlocked.Increment(ref filesSoFar);
+                        progress?.Report(new BackupProgress(
+                            Interlocked.Read(ref bytesSoFar),
+                            progressTotalBytes,
+                            completedFiles,
+                            plan.TotalFilesToTransfer));
+                    });
 
                 // BackupDiffer.Diff above fully enumerates scanResult.Entries, so
                 // scanResult.Failures is guaranteed complete by this point. Scan-time

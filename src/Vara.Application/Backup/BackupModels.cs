@@ -74,15 +74,19 @@ public sealed record PlannedOperation(
     string? LinkTarget = null);
 
 /// <summary>
-/// The full backup plan: every operation to carry out, and the total bytes that will
-/// actually be transferred (excluding moves and deletions, which are near-instant) -
-/// known before execution begins, per the progress-reporting spec's "Upfront work
-/// estimation" requirement.
+/// The full backup plan: every operation to carry out, and the total bytes and
+/// Add/Change files that will actually be transferred (excluding metadata-only
+/// operations) - known before execution begins, per the progress-reporting spec's
+/// "Upfront work estimation" requirement.
 /// </summary>
-public sealed record BackupPlan(IReadOnlyList<PlannedOperation> Operations, long TotalBytesToTransfer);
+public sealed record BackupPlan(IReadOnlyList<PlannedOperation> Operations, long TotalBytesToTransfer)
+{
+    /// <summary>The planned Add/Change operations that will transfer file content.</summary>
+    public int TotalFilesToTransfer => Operations.Count(o => o.Kind is PlannedOperationKind.Add or PlannedOperationKind.Change);
+}
 
-/// <summary>Live progress during the execute stage: bytes transferred so far vs. the plan's total.</summary>
-public sealed record BackupProgress(long BytesTransferred, long TotalBytes);
+/// <summary>Live execute-stage progress: successfully transferred files and bytes vs. planned totals.</summary>
+public sealed record BackupProgress(long BytesTransferred, long TotalBytes, int FilesTransferred = 0, int TotalFiles = 0);
 
 /// <summary>The outcome of executing a plan: final counts, bytes moved, and any files that failed.</summary>
 public sealed record ExecutionOutcome(

@@ -92,4 +92,17 @@ public class ProgressDisplayGateTests
 
         Assert.Equal([0L, 1000L], rendered);
     }
+
+    [Fact]
+    public void File_completion_renders_immediately_even_when_byte_progress_is_unchanged()
+    {
+        var current = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var gate = new ProgressDisplayGate(() => current);
+        var rendered = new List<BackupProgress>();
+
+        gate.Report(new BackupProgress(500, 1000, 0, 2), rendered.Add);
+        gate.Report(new BackupProgress(500, 1000, 1, 2), rendered.Add);
+
+        Assert.Equal([0, 1], rendered.Select(progress => progress.FilesTransferred));
+    }
 }

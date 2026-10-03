@@ -57,7 +57,8 @@ public sealed class BackupExecutor(
         Action<long>? onBytesTransferred = null,
         Action? onTransferPhaseStarting = null,
         IManifestBatch? manifestBatch = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action? onFileTransferred = null)
     {
         var counts = new Counts { LastCheckpointUtc = DateTime.UtcNow };
         var failedPaths = new List<string>();
@@ -99,7 +100,7 @@ public sealed class BackupExecutor(
                     return;
                 }
 
-                ExecuteTransfer(operation, snapshotId, recordedAt, counts, failedPaths, reportLock, onBytesTransferred, manifestBatch);
+                ExecuteTransfer(operation, snapshotId, recordedAt, counts, failedPaths, reportLock, onBytesTransferred, manifestBatch, onFileTransferred);
             });
 
         return new ExecutionOutcome(counts.BytesTransferred, counts.Added, counts.Changed, counts.Moved, counts.Deleted, counts.Failed, failedPaths);
@@ -205,8 +206,10 @@ public sealed class BackupExecutor(
         List<string> failedPaths,
         object reportLock,
         Action<long>? onBytesTransferred,
-        IManifestBatch? manifestBatch)
+        IManifestBatch? manifestBatch,
+        Action? onFileTransferred)
     {
+        var transferredSuccessfully = false;
         try
         {
             string hash;
@@ -319,6 +322,7 @@ public sealed class BackupExecutor(
                 counts.BytesTransferred += size;
                 if (changeKind == FileChangeKind.Added) counts.Added++; else counts.Changed++;
                 CheckpointIfDue(counts, manifestBatch);
+                transferredSuccessfully = true;
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -329,6 +333,11 @@ public sealed class BackupExecutor(
                 failedPaths.Add(operation.RelativePath);
                 CheckpointIfDue(counts, manifestBatch);
             }
+        }
+
+        if (transferredSuccessfully)
+        {
+            onFileTransferred?.Invoke();
         }
     }
 

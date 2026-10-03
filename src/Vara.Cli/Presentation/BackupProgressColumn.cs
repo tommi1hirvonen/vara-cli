@@ -45,9 +45,9 @@ public enum BackupProgressOutcome
 /// accepts <c>struct</c> values, so this wraps <see cref="BackupProgress"/> (a
 /// reference-type record) in a storable value type.
 /// </summary>
-public readonly record struct BackupProgressState(long BytesTransferred, long TotalBytes)
+public readonly record struct BackupProgressState(long BytesTransferred, long TotalBytes, int FilesTransferred = 0, int TotalFiles = 0)
 {
-    public BackupProgress ToProgress() => new(BytesTransferred, TotalBytes);
+    public BackupProgress ToProgress() => new(BytesTransferred, TotalBytes, FilesTransferred, TotalFiles);
 }
 
 /// <summary>
@@ -211,27 +211,25 @@ public sealed class BackupProgressColumn(BackupProgressCalculator calculator) : 
 
     private Grid RenderStats(ProgressTask task)
     {
-        var snapshot = calculator.Calculate(task.State.Get<BackupProgressState>(ProgressKey).ToProgress());
-        return BuildStatsRow(snapshot);
+        var progress = task.State.Get<BackupProgressState>(ProgressKey);
+        var snapshot = calculator.Calculate(progress.ToProgress());
+        return BuildStatsRow(snapshot, progress);
     }
 
-    private static Grid BuildStatsRow(ProgressSnapshot snapshot)
+    private static Grid BuildStatsRow(ProgressSnapshot snapshot, BackupProgressState progress)
     {
         var transferred = $"{BackupRunSummaryFormatter.FormatBytes(snapshot.BytesTransferred)} / {BackupRunSummaryFormatter.FormatBytes(snapshot.TotalBytes)}";
+        var files = $"Files {progress.FilesTransferred} / {progress.TotalFiles}";
         var throughput = $"{BackupRunSummaryFormatter.FormatBytes((long)snapshot.ThroughputBytesPerSecond)}/s";
         var eta = snapshot.EstimatedTimeRemaining is { } remaining
             ? $"ETA {BackupRunSummaryFormatter.FormatDuration(remaining)}"
             : "ETA calculating...";
 
-        // Widths are generous upper bounds for each field's longest realistic rendering
-        // (e.g. "999.99 GB / 999.99 GB"), so normal content never needs to overflow or
-        // wrap - the fixed Width, not the content, is what determines each column's
-        // horizontal footprint.
         var stats = new Grid()
-            .AddColumn(new GridColumn { Width = 26, NoWrap = true })
-            .AddColumn(new GridColumn { Width = 14, NoWrap = true })
-            .AddColumn(new GridColumn { Width = 20, NoWrap = true });
-        stats.AddRow(new Text(transferred), new Text(throughput), new Text(eta));
+            .AddColumn(new GridColumn { Width = 32, NoWrap = true, Padding = new Padding(0) })
+            .AddColumn(new GridColumn { Width = 28, NoWrap = true, Padding = new Padding(0) });
+        stats.AddRow(new Text(transferred), new Text(files));
+        stats.AddRow(new Text(throughput), new Text(eta));
         return stats;
     }
 }

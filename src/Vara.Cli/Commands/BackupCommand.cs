@@ -174,7 +174,8 @@ public static class BackupCommand
                     // BackupProgressCalculator's percent) - it does not read raw
                     // bytes/total directly, so both tasks just get the raw admitted
                     // state stashed here.
-                    var state = new BackupProgressState(admitted.BytesTransferred, admitted.TotalBytes);
+                    var state = new BackupProgressState(
+                        admitted.BytesTransferred, admitted.TotalBytes, admitted.FilesTransferred, admitted.TotalFiles);
                     barTask.State.Update(BackupProgressColumn.ProgressKey, (BackupProgressState _) => state);
                     statsTask!.Value = admitted.BytesTransferred;
                     statsTask.State.Update(BackupProgressColumn.ProgressKey, (BackupProgressState _) => state);
@@ -250,11 +251,11 @@ public static class BackupCommand
                 : "calculating...";
             console.WriteLine(
                 $"{BackupRunSummaryFormatter.FormatBytes(snapshot.BytesTransferred)} / {BackupRunSummaryFormatter.FormatBytes(snapshot.TotalBytes)} " +
-                $"({snapshot.PercentComplete:0.0}%) - {BackupRunSummaryFormatter.FormatBytes((long)snapshot.ThroughputBytesPerSecond)}/s - ETA {eta}");
+                $"({snapshot.PercentComplete:0.0}%) - Files {admitted.FilesTransferred} / {admitted.TotalFiles} - " +
+                $"{BackupRunSummaryFormatter.FormatBytes((long)snapshot.ThroughputBytesPerSecond)}/s - ETA {eta}");
         }
 
         var progress = new Progress<BackupProgress>(p => displayGate.Report(p, Render));
         return pipeline.Run(profile, progress, cancellationToken);
     }
 }
-

@@ -68,6 +68,15 @@ public class BackupCommandExitCodeTests : IDisposable
         SqliteConnection.ClearAllPools();
         if (Directory.Exists(_targetRoot))
         {
+            foreach (var file in Directory.EnumerateFiles(_targetRoot, "*", SearchOption.AllDirectories))
+            {
+                var attributes = File.GetAttributes(file);
+                if (attributes.HasFlag(FileAttributes.ReadOnly))
+                {
+                    File.SetAttributes(file, attributes & ~FileAttributes.ReadOnly);
+                }
+            }
+
             Directory.Delete(_targetRoot, recursive: true);
         }
     }
@@ -197,6 +206,25 @@ public class BackupCommandExitCodeTests : IDisposable
         Assert.Equal("executed", parsed.RootElement.GetProperty("mode").GetString());
         Assert.Equal("test-profile", parsed.RootElement.GetProperty("profile").GetString());
         Assert.False(parsed.RootElement.GetProperty("cancelled").GetBoolean());
+    }
+
+    [Fact]
+    public void Non_interactive_progress_includes_transferred_file_count_and_existing_statistics()
+    {
+        Directory.CreateDirectory(_sourceRoot);
+        var sourceFile = Path.Combine(_sourceRoot, "a.txt");
+        File.WriteAllText(sourceFile, "hello");
+        var entry = new ScannedEntry("a.txt", sourceFile, new FileInfo(sourceFile).Length, File.GetLastWriteTimeUtc(sourceFile), false, null);
+        var console = new TestConsole();
+        var command = CreateCommand(new FakeFileSystemScanner(entries: [entry]), console: console);
+
+        var exitCode = command.Parse(["test-profile"]).Invoke();
+
+        Assert.Equal(ExitCodes.Success, exitCode);
+        Assert.Contains("Files 1 / 1", console.Output);
+        Assert.Contains("%", console.Output);
+        Assert.Contains("/s", console.Output);
+        Assert.Contains("ETA", console.Output);
     }
 
     [Fact]
