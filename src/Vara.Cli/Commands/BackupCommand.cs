@@ -81,7 +81,9 @@ public static class BackupCommand
                 if (dryRun)
                 {
                     var startedAt = DateTimeOffset.UtcNow;
-                    var summary = pipeline.PlanOnly(profile);
+                    var summary = !json && OutputMode.IsLiveCapable(ansiConsole)
+                        ? RunDryRunWithLiveDisplay(() => pipeline.PlanOnly(profile), ansiConsole)
+                        : pipeline.PlanOnly(profile);
                     var completedAt = DateTimeOffset.UtcNow;
                     failedPaths = summary.FailedPaths;
 
@@ -350,6 +352,37 @@ public static class BackupCommand
             });
 
         return result;
+    }
+
+    private static BackupPlanSummary RunDryRunWithLiveDisplay(Func<BackupPlanSummary> plan, IAnsiConsole console)
+    {
+        var column = new BackupProgressColumn(new BackupProgressCalculator());
+        BackupPlanSummary summary = null!;
+
+        console.Progress()
+            .Columns(column)
+            .Start(ctx =>
+            {
+                var scanTask = ctx.AddTask("Scanning", autoStart: true);
+                scanTask.IsIndeterminate = true;
+                scanTask.State.Update(BackupProgressColumn.RoleKey, (BackupProgressRole _) => BackupProgressRole.Scan);
+                ctx.Refresh();
+
+                try
+                {
+                    summary = plan();
+                    scanTask.State.Update(BackupProgressColumn.OutcomeKey, (BackupProgressOutcome _) => BackupProgressOutcome.Success);
+                    ctx.Refresh();
+                }
+                catch
+                {
+                    scanTask.State.Update(BackupProgressColumn.OutcomeKey, (BackupProgressOutcome _) => BackupProgressOutcome.Error);
+                    ctx.Refresh();
+                    throw;
+                }
+            });
+
+        return summary;
     }
 
     /// <summary>

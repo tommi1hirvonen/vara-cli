@@ -97,6 +97,25 @@ public class BackupCommandExitCodeTests : IDisposable
         public ScanResult Scan(IReadOnlyList<Source> sources) => new(entries ?? [], failures ?? []);
     }
 
+    private sealed class BlockingFileSystemScanner : IFileSystemScanner, IDisposable
+    {
+        public ManualResetEventSlim ScanStarted { get; } = new();
+        public ManualResetEventSlim ContinueScan { get; } = new();
+
+        public ScanResult Scan(IReadOnlyList<Source> sources)
+        {
+            ScanStarted.Set();
+            ContinueScan.Wait();
+            return new ScanResult([], []);
+        }
+
+        public void Dispose()
+        {
+            ScanStarted.Dispose();
+            ContinueScan.Dispose();
+        }
+    }
+
     private System.CommandLine.Command CreateCommand(
         IFileSystemScanner scanner,
         CancellationToken cancellationToken = default,
@@ -190,6 +209,7 @@ public class BackupCommandExitCodeTests : IDisposable
         Assert.Contains("Dry run", output);
         Assert.Contains("Added:       1", output);
         Assert.DoesNotContain("{", output);
+        Assert.DoesNotContain("Scanning files", output);
 
         // Zero writes: no file placed in the mirror (target root), and no snapshot
         // recorded in the manifest.
@@ -197,6 +217,33 @@ public class BackupCommandExitCodeTests : IDisposable
         var dbPath = Path.Combine(_targetRoot, ".vara", "profile.db");
         using var repository = new SqliteSnapshotRepository(dbPath, createIfMissing: false);
         Assert.Empty(repository.ListSnapshots());
+    }
+
+    [Fact]
+    public async Task Dry_run_shows_indeterminate_progress_while_planning_in_a_live_terminal()
+    {
+        using var scanner = new BlockingFileSystemScanner();
+        var console = new TestConsole();
+        console.Profile.Out = new FakeTerminalOutput(console.Profile.Out.Writer);
+        var command = CreateCommand(scanner, console: console);
+        var invocation = Task.Run(() => command.Parse(["test-profile", "--dry-run"]).Invoke());
+        int exitCode;
+
+        try
+        {
+            Assert.True(await Task.Run(() => scanner.ScanStarted.Wait(TimeSpan.FromSeconds(5))));
+            await Task.Delay(250);
+        }
+        finally
+        {
+            scanner.ContinueScan.Set();
+            exitCode = await invocation.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+
+        Assert.Equal(ExitCodes.Success, exitCode);
+        var output = console.Output;
+        Assert.True(output.IndexOf("Scanning files...", StringComparison.Ordinal) < output.IndexOf("Dry run", StringComparison.Ordinal));
+        Assert.Contains("Added:", output);
     }
 
     [Fact]
@@ -337,11 +384,14 @@ public class BackupCommandExitCodeTests : IDisposable
     public void Dry_run_and_json_together_prints_a_single_json_object_with_mode_dry_run_and_no_progress_output()
     {
         var writer = new StringWriter();
-        var command = CreateCommand(new FakeFileSystemScanner(), jsonOutput: writer);
+        var console = new TestConsole();
+        console.Profile.Out = new FakeTerminalOutput(console.Profile.Out.Writer);
+        var command = CreateCommand(new FakeFileSystemScanner(), jsonOutput: writer, console: console);
 
         var exitCode = command.Parse(["test-profile", "--dry-run", "--json"]).Invoke();
 
         Assert.Equal(ExitCodes.Success, exitCode);
+        Assert.Empty(console.Output);
         var line = Assert.Single(writer.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries)).TrimEnd('\r');
         using var parsed = JsonDocument.Parse(line);
         Assert.Equal("dry-run", parsed.RootElement.GetProperty("mode").GetString());
