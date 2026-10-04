@@ -517,6 +517,8 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
     public IReadOnlyList<FileVersionRecord> GetFileHistory(string relativePath) => _fileVersions.Where(r => r.RelativePath == relativePath).OrderByDescending(r => r.Id).ToList();
     public IReadOnlyList<FileVersionRecord> GetFileHistoryUnderPrefix(string prefix) =>
         _fileVersions.Where(r => prefix.Length == 0 || r.RelativePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).OrderByDescending(r => r.Id).ToList();
+    public IReadOnlyList<FileVersionRecord> GetSnapshotFileChanges(long snapshotId, string prefix) =>
+        _fileVersions.Where(r => r.SnapshotId == snapshotId && (prefix.Length == 0 || r.RelativePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))).OrderByDescending(r => r.Id).ToList();
     public FileVersionRecord? FindVersionAsOf(string relativePath, DateTimeOffset asOf) =>
         GetFileHistory(relativePath).FirstOrDefault(r => r.RecordedAt <= asOf) is { ChangeKind: not FileChangeKind.Deleted } match ? match : null;
 

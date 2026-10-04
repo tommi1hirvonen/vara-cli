@@ -621,6 +621,34 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
         return results;
     }
 
+    public IReadOnlyList<FileVersionRecord> GetSnapshotFileChanges(long snapshotId, string prefix)
+    {
+        if (_connection is null)
+        {
+            return [];
+        }
+
+        using var command = _connection.CreateCommand();
+        command.CommandText = """
+            SELECT id, snapshot_id, relative_path, previous_relative_path, content_hash, size, source_modified_at, change_kind, recorded_at, quick_hash, quick_hash_scheme, link_target
+            FROM file_versions
+            WHERE snapshot_id = $snapshotId
+              AND ($prefix = '' OR substr(relative_path, 1, length($prefix)) = $prefix COLLATE NOCASE)
+            ORDER BY id DESC
+            """;
+        command.Parameters.AddWithValue("$snapshotId", snapshotId);
+        command.Parameters.AddWithValue("$prefix", prefix);
+
+        var results = new List<FileVersionRecord>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            results.Add(ReadFileVersionRecord(reader));
+        }
+
+        return results;
+    }
+
     public void DeleteSnapshot(long snapshotId)
     {
         var connection = RequireConnection();

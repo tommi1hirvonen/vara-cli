@@ -409,4 +409,30 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
         Assert.Equal(s1, history[1].SnapshotId);
         Assert.All(history, r => Assert.StartsWith(@"src\", r.RelativePath, StringComparison.OrdinalIgnoreCase));
     }
+
+    [Fact]
+    public void GetSnapshotChanges_rolls_up_real_snapshot_rows_and_scopes_the_report()
+    {
+        var now = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var snapshot = Repository.BeginSnapshot(now);
+        Repository.RecordFileVersion(snapshot, @"src\added.txt", null, "hash-a", 10, now, FileChangeKind.Added, now);
+        Repository.RecordFileVersion(snapshot, @"src\nested\changed.txt", null, "hash-c", 20, now, FileChangeKind.Changed, now);
+        Repository.RecordFileVersion(snapshot, @"src\nested\moved.txt", @"old\moved.txt", "hash-m", 30, now, FileChangeKind.Moved, now);
+        Repository.RecordFileVersion(snapshot, @"other\deleted.txt", null, null, 0, now, FileChangeKind.Deleted, now);
+        Repository.CompleteSnapshot(snapshot, now, SnapshotStats.Empty);
+        var service = new SnapshotHistoryService(Repository, ContentStore);
+
+        var allChanges = service.GetSnapshotChanges(snapshot, ".", includeFiles: true)!;
+        var scopedChanges = service.GetSnapshotChanges(snapshot, @"src\nested", includeFiles: true)!;
+
+        var root = Assert.Single(allChanges.Directories, d => d.RelativePath.Length == 0);
+        var src = Assert.Single(allChanges.Directories, d => d.RelativePath == "src");
+        Assert.Equal(1, root.FilesAdded);
+        Assert.Equal(1, src.FilesChanged);
+        Assert.Equal(1, src.FilesMoved);
+        var scopedRoot = Assert.Single(scopedChanges.Directories);
+        Assert.Equal(@"src\nested", scopedRoot.RelativePath);
+        Assert.Equal((0, 1, 1, 0), (scopedRoot.FilesAdded, scopedRoot.FilesChanged, scopedRoot.FilesMoved, scopedRoot.FilesDeleted));
+        Assert.Equal(@"old\moved.txt", Assert.Single(scopedRoot.Files, f => f.ChangeKind == FileChangeKind.Moved).PreviousRelativePath);
+    }
 }

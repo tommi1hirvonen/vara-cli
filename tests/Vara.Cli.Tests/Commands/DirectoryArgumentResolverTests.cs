@@ -30,6 +30,7 @@ public class DirectoryArgumentResolverTests
         public Snapshot? GetLastCompletedSnapshot() => throw new NotSupportedException();
         public IReadOnlyList<FileVersionRecord> GetFileHistory(string relativePath) => [];
         public IReadOnlyList<FileVersionRecord> GetFileHistoryUnderPrefix(string prefix) => [];
+        public IReadOnlyList<FileVersionRecord> GetSnapshotFileChanges(long snapshotId, string prefix) => [];
         public FileVersionRecord? FindVersionAsOf(string relativePath, DateTimeOffset asOf) => throw new NotSupportedException();
         public void DeleteSnapshot(long snapshotId) => throw new NotSupportedException();
         public int PruneSnapshots(IReadOnlyList<long> snapshotIds) => throw new NotSupportedException();

@@ -140,6 +140,15 @@ public interface ISnapshotRepository : IDisposable
     IReadOnlyList<FileVersionRecord> GetFileHistoryUnderPrefix(string prefix);
 
     /// <summary>
+    /// File-version rows recorded by <paramref name="snapshotId"/> whose paths are
+    /// descendants of <paramref name="prefix"/>, most-recent-first.
+    /// <paramref name="prefix"/> is normalized like
+    /// <c>SnapshotHistoryService.NormalizeDirectoryPrefix</c>: a trailing separator, or
+    /// empty for the mirror root.
+    /// </summary>
+    IReadOnlyList<FileVersionRecord> GetSnapshotFileChanges(long snapshotId, string prefix);
+
+    /// <summary>
     /// The version of a path that was current as of <paramref name="asOf"/>, or <c>null</c>
     /// if the path had no recorded version at that time.
     /// </summary>

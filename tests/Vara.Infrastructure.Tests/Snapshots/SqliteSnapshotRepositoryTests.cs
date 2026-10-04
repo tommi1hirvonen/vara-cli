@@ -664,6 +664,56 @@ public class SqliteSnapshotRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void GetSnapshotFileChanges_filters_by_snapshot_and_directory_prefix()
+    {
+        var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var first = Repository.BeginSnapshot(t0);
+        Repository.RecordFileVersion(first, @"docs\old.txt", null, "hash-old", 10, t0, FileChangeKind.Added, t0);
+        Repository.CompleteSnapshot(first, t0, SnapshotStats.Empty);
+
+        var t1 = t0.AddDays(1);
+        var second = Repository.BeginSnapshot(t1);
+        Repository.RecordFileVersion(second, @"docs\nested\new.txt", null, "hash-new", 20, t1, FileChangeKind.Added, t1);
+        Repository.RecordFileVersion(second, @"other\ignored.txt", null, "hash-other", 30, t1, FileChangeKind.Added, t1);
+        Repository.CompleteSnapshot(second, t1, SnapshotStats.Empty);
+
+        var changes = Repository.GetSnapshotFileChanges(second, @"DOCS\");
+
+        var change = Assert.Single(changes);
+        Assert.Equal(@"docs\nested\new.txt", change.RelativePath);
+        Assert.Equal(second, change.SnapshotId);
+    }
+
+    [Fact]
+    public void GetSnapshotFileChanges_with_empty_prefix_returns_only_rows_from_snapshot()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var first = Repository.BeginSnapshot(now);
+        Repository.RecordFileVersion(first, "first.txt", null, "hash-first", 10, now, FileChangeKind.Added, now);
+        Repository.CompleteSnapshot(first, now, SnapshotStats.Empty);
+        var second = Repository.BeginSnapshot(now.AddDays(1));
+        Repository.RecordFileVersion(second, "second.txt", null, "hash-second", 10, now, FileChangeKind.Added, now);
+        Repository.CompleteSnapshot(second, now.AddDays(1), SnapshotStats.Empty);
+
+        var changes = Repository.GetSnapshotFileChanges(second, string.Empty);
+
+        var change = Assert.Single(changes);
+        Assert.Equal("second.txt", change.RelativePath);
+    }
+
+    [Fact]
+    public void GetSnapshotFileChanges_returns_empty_when_snapshot_or_prefix_has_no_rows()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = Repository.BeginSnapshot(now);
+        Repository.RecordFileVersion(snapshot, @"docs\file.txt", null, "hash", 10, now, FileChangeKind.Added, now);
+        Repository.CompleteSnapshot(snapshot, now, SnapshotStats.Empty);
+
+        Assert.Empty(Repository.GetSnapshotFileChanges(snapshot + 1, string.Empty));
+        Assert.Empty(Repository.GetSnapshotFileChanges(snapshot, @"missing\"));
+    }
+
+    [Fact]
     public void FindVersionAsOf_returns_the_version_current_at_that_time()
     {
         var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);

@@ -111,6 +111,7 @@ public class PortAbstractionsTests
         public Snapshot? GetLastCompletedSnapshot() => _snapshots.LastOrDefault(s => s.Status == SnapshotStatus.Complete);
         public IReadOnlyList<FileVersionRecord> GetFileHistory(string relativePath) => [];
         public IReadOnlyList<FileVersionRecord> GetFileHistoryUnderPrefix(string prefix) => [];
+        public IReadOnlyList<FileVersionRecord> GetSnapshotFileChanges(long snapshotId, string prefix) => [];
         public FileVersionRecord? FindVersionAsOf(string relativePath, DateTimeOffset asOf) => null;
         public void DeleteSnapshot(long snapshotId) { }
         public int PruneSnapshots(IReadOnlyList<long> snapshotIds) => 0;

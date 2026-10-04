@@ -50,6 +50,26 @@ public sealed record DirectorySnapshotCandidate(
     int TotalLinks);
 
 /// <summary>
+/// One directory in a snapshot's sparse change report. Counts include all change events in
+/// this directory and its descendants; <see cref="Files"/> contains only events directly
+/// within this directory, and is empty unless file details were requested.
+/// </summary>
+public sealed record SnapshotChangeDirectory(
+    string RelativePath,
+    int FilesAdded,
+    int FilesChanged,
+    int FilesMoved,
+    int FilesDeleted,
+    int FilesLinked,
+    IReadOnlyList<FileVersionRecord> Files);
+
+/// <summary>The recorded events and directory rollups for one snapshot scope.</summary>
+public sealed record SnapshotChangeReport(
+    Snapshot Snapshot,
+    string DirectoryPath,
+    IReadOnlyList<SnapshotChangeDirectory> Directories);
+
+/// <summary>
 /// Browsing recorded snapshots/versions and restoring historical file content for a
 /// single profile, per the snapshot-history spec. One instance is scoped to one
 /// profile's manifest and content store.
@@ -58,6 +78,107 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
 {
     /// <summary>All recorded snapshots for the profile, most recent first.</summary>
     public IReadOnlyList<Snapshot> ListSnapshots() => repository.ListSnapshots();
+
+    /// <summary>
+    /// Builds a sparse directory rollup for the recorded changes in one snapshot, optionally
+    /// retaining the changed file rows for presentation. Returns <see langword="null"/> when
+    /// the snapshot id is not recorded, and a report with no directories when the snapshot has
+    /// no events under the requested scope.
+    /// </summary>
+    public SnapshotChangeReport? GetSnapshotChanges(long snapshotId, string directoryPath, bool includeFiles = false)
+    {
+        var snapshot = repository.ListSnapshots().FirstOrDefault(s => s.Id == snapshotId);
+        if (snapshot is null)
+        {
+            return null;
+        }
+
+        var prefix = NormalizeDirectoryPrefix(directoryPath);
+        var scopePath = prefix.TrimEnd('\\');
+        var rows = repository.GetSnapshotFileChanges(snapshotId, prefix);
+        if (rows.Count == 0)
+        {
+            return new SnapshotChangeReport(snapshot, directoryPath, []);
+        }
+
+        var directories = new Dictionary<string, MutableSnapshotChangeDirectory>(StringComparer.OrdinalIgnoreCase)
+        {
+            [scopePath] = new MutableSnapshotChangeDirectory(scopePath),
+        };
+
+        foreach (var row in rows)
+        {
+            var path = row.RelativePath.Replace('/', '\\');
+            var relativePath = prefix.Length == 0
+                ? path
+                : path[prefix.Length..];
+            var fileSeparator = relativePath.LastIndexOf('\\');
+            var parentRelativePath = fileSeparator < 0 ? string.Empty : relativePath[..fileSeparator];
+            var directory = parentRelativePath.Length == 0
+                ? scopePath
+                : scopePath.Length == 0 ? parentRelativePath : $"{scopePath}\\{parentRelativePath}";
+            var fileDirectory = GetOrAddDirectory(directory);
+            if (includeFiles)
+            {
+                fileDirectory.Files.Add(row);
+            }
+
+            while (true)
+            {
+                var rollup = GetOrAddDirectory(directory);
+                switch (row.ChangeKind)
+                {
+                    case FileChangeKind.Added:
+                        rollup.FilesAdded++;
+                        break;
+                    case FileChangeKind.Changed:
+                        rollup.FilesChanged++;
+                        break;
+                    case FileChangeKind.Moved:
+                        rollup.FilesMoved++;
+                        break;
+                    case FileChangeKind.Deleted:
+                        rollup.FilesDeleted++;
+                        break;
+                    case FileChangeKind.Linked:
+                        rollup.FilesLinked++;
+                        break;
+                }
+
+                if (string.Equals(directory, scopePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+
+                var separator = directory.LastIndexOf('\\');
+                directory = separator < 0 ? scopePath : directory[..separator];
+            }
+        }
+
+        var result = directories.Values
+            .OrderBy(d => d.RelativePath, StringComparer.OrdinalIgnoreCase)
+            .Select(d => new SnapshotChangeDirectory(
+                d.RelativePath,
+                d.FilesAdded,
+                d.FilesChanged,
+                d.FilesMoved,
+                d.FilesDeleted,
+                d.FilesLinked,
+                d.Files.OrderBy(f => f.RelativePath, StringComparer.OrdinalIgnoreCase).ToList()))
+            .ToList();
+        return new SnapshotChangeReport(snapshot, directoryPath, result);
+
+        MutableSnapshotChangeDirectory GetOrAddDirectory(string path)
+        {
+            if (!directories.TryGetValue(path, out var directory))
+            {
+                directory = new MutableSnapshotChangeDirectory(path);
+                directories.Add(path, directory);
+            }
+
+            return directory;
+        }
+    }
 
     /// <summary>
     /// The full recorded history of a path, most recent first.
@@ -753,6 +874,17 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
     {
         var trimmed = directoryPath.Trim().Trim('\\', '/');
         return trimmed.Length == 0 || trimmed == "." ? string.Empty : trimmed + "\\";
+    }
+
+    private sealed class MutableSnapshotChangeDirectory(string relativePath)
+    {
+        public string RelativePath { get; } = relativePath;
+        public int FilesAdded { get; set; }
+        public int FilesChanged { get; set; }
+        public int FilesMoved { get; set; }
+        public int FilesDeleted { get; set; }
+        public int FilesLinked { get; set; }
+        public List<FileVersionRecord> Files { get; } = [];
     }
 
     /// <summary>
