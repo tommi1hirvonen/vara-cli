@@ -556,6 +556,11 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
 
     public IReadOnlySet<string> GetAllReferencedContentHashes() =>
         _fileVersions.Where(r => r.ContentHash is not null).Select(r => r.ContentHash!).ToHashSet();
+    public IReadOnlyDictionary<string, long> GetAllReferencedContentSizes() =>
+        _fileVersions
+            .Where(r => r.ContentHash is not null)
+            .GroupBy(r => r.ContentHash!)
+            .ToDictionary(g => g.Key, g => g.Max(r => r.Size));
     public IReadOnlyList<string> GetPathsForContentHash(string hash) => _fileVersions.Where(r => r.ContentHash == hash).Select(r => r.RelativePath).Distinct().ToList();
 }
 

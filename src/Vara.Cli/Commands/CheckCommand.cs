@@ -2,6 +2,7 @@ using System.CommandLine;
 using Spectre.Console;
 using Vara.Application.Integrity;
 using Vara.Application.Profiles;
+using Vara.Application.Reporting;
 using Vara.Cli.Composition;
 using Vara.Cli.Presentation;
 using Vara.Core.Abstractions;
@@ -10,7 +11,7 @@ namespace Vara.Cli.Commands;
 
 public static class CheckCommand
 {
-    public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory, IHasher hasher, CancellationToken cancellationToken = default)
+    public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory, IHasher hasher, CancellationToken cancellationToken = default, IAnsiConsole? console = null)
     {
         var profileArgument = new Argument<string>("profile") { Description = "The profile to check." };
         var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
@@ -35,12 +36,12 @@ public static class CheckCommand
                 using var services = serviceFactory.CreateFor(profile, createIfMissing: false);
                 var checkService = new IntegrityCheckService(services.Repository, services.ContentStore, hasher);
 
-                var console = AnsiConsole.Console;
-                result = OutputMode.IsLiveCapable(console)
-                    ? RunWithLiveDisplay(checkService, quick, console, cancellationToken)
-                    : RunWithPlainOutput(checkService, quick, console, cancellationToken);
+                var outputConsole = console ?? AnsiConsole.Console;
+                result = OutputMode.IsLiveCapable(outputConsole)
+                    ? RunWithLiveDisplay(checkService, quick, outputConsole, cancellationToken)
+                    : RunWithPlainOutput(checkService, quick, outputConsole, cancellationToken);
 
-                CheckOutcomeReporter.Report(console, result);
+                CheckOutcomeReporter.Report(outputConsole, result);
             });
 
             // A hard error always wins (nothing was checked). Otherwise, per the
@@ -63,14 +64,14 @@ public static class CheckCommand
 
     // Interactive path: an indeterminate spinner covers the initial referenced/stored
     // hash enumeration, whose duration isn't practically predictable upfront; the
-    // first IntegrityCheckProgress report - which only ever arrives once the
-    // per-blob verification loop is about to start - swaps it for a count-based bar,
-    // mirroring PruneCommand's own indeterminate-to-determinate swap.
+    // first IntegrityCheckProgress report swaps it for a percentage bar once total
+    // workload is known, mirroring PruneCommand's indeterminate-to-determinate swap.
     private static IntegrityCheckResult RunWithLiveDisplay(IntegrityCheckService checkService, bool quick, IAnsiConsole console, CancellationToken cancellationToken)
     {
         IntegrityCheckResult result = null!;
+        var calculator = new IntegrityCheckProgressCalculator();
         console.Progress()
-            .Columns(new TaskDescriptionColumn(), new ProgressBarColumn())
+            .Columns(new TaskDescriptionColumn(), new ProgressBarColumn(), new PercentageColumn())
             .Start(ctx =>
             {
                 var task = ctx.AddTask("Enumerating...", autoStart: true);
@@ -81,14 +82,18 @@ public static class CheckCommand
                     if (task.IsIndeterminate)
                     {
                         task.IsIndeterminate = false;
-                        task.MaxValue = p.TotalBlobs;
+                        task.MaxValue = 100;
                     }
 
-                    task.Value = p.BlobsChecked;
-                    task.Description = $"Checking blobs {p.BlobsChecked} / {p.TotalBlobs}";
+                    var snapshot = calculator.Calculate(p, quick);
+                    task.Value = snapshot.PercentComplete;
+                    var eta = snapshot.EstimatedTimeRemaining is { } remaining
+                        ? BackupRunSummaryFormatter.FormatDuration(remaining)
+                        : "calculating...";
+                    task.Description = $"Checking blobs {p.BlobsChecked} / {p.TotalBlobs} - ETA {eta}";
                 }
 
-                var progress = new Progress<IntegrityCheckProgress>(Render);
+                var progress = new InlineProgress<IntegrityCheckProgress>(Render);
                 result = checkService.Check(quick, progress, cancellationToken);
 
                 // Ensures the final count is shown immediately rather than waiting for
@@ -106,10 +111,23 @@ public static class CheckCommand
     private static IntegrityCheckResult RunWithPlainOutput(IntegrityCheckService checkService, bool quick, IAnsiConsole console, CancellationToken cancellationToken)
     {
         console.WriteLine("Enumerating...");
+        var calculator = new IntegrityCheckProgressCalculator();
 
-        var progress = new Progress<IntegrityCheckProgress>(p =>
-            console.WriteLine($"Checked {p.BlobsChecked} of {p.TotalBlobs} blobs."));
+        var progress = new InlineProgress<IntegrityCheckProgress>(p =>
+        {
+            var snapshot = calculator.Calculate(p, quick);
+            var percent = snapshot.PercentComplete.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
+            var eta = snapshot.EstimatedTimeRemaining is { } remaining
+                ? BackupRunSummaryFormatter.FormatDuration(remaining)
+                : "calculating...";
+            console.WriteLine($"Checked {p.BlobsChecked} of {p.TotalBlobs} blobs ({percent}%) - ETA {eta}.");
+        });
 
         return checkService.Check(quick, progress, cancellationToken);
+    }
+
+    private sealed class InlineProgress<T>(Action<T> handler) : IProgress<T>
+    {
+        public void Report(T value) => handler(value);
     }
 }

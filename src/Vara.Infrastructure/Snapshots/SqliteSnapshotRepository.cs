@@ -722,6 +722,31 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
         return result;
     }
 
+    public IReadOnlyDictionary<string, long> GetAllReferencedContentSizes()
+    {
+        if (_connection is null)
+        {
+            return new Dictionary<string, long>();
+        }
+
+        using var command = _connection.CreateCommand();
+        command.CommandText = """
+            SELECT content_hash, MAX(size)
+            FROM file_versions
+            WHERE content_hash IS NOT NULL
+            GROUP BY content_hash
+            """;
+
+        var result = new Dictionary<string, long>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            result.Add(reader.GetString(0), reader.GetInt64(1));
+        }
+
+        return result;
+    }
+
     public IReadOnlyList<string> GetPathsForContentHash(string hash)
     {
         if (_connection is null)

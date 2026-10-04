@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Vara.Core.Abstractions;
 
 namespace Vara.Application.Integrity;
@@ -31,11 +32,18 @@ public sealed record IntegrityCheckResult(
     bool Cancelled = false);
 
 /// <summary>
-/// Reports progress of <see cref="IntegrityCheckService.Check"/>'s blob-verification
-/// pass (blobs checked so far / total referenced blobs), consistent with
-/// <c>PruneProgress</c>'s shape.
+/// Reports blob-count, manifest-weighted byte, and observed timing progress for
+/// <see cref="IntegrityCheckService.Check"/>.
 /// </summary>
-public sealed record IntegrityCheckProgress(int BlobsChecked, int TotalBlobs);
+public sealed record IntegrityCheckProgress(
+    int BlobsChecked,
+    int TotalBlobs,
+    long BytesChecked,
+    long TotalBytes,
+    long BytesRead,
+    long RemainingPresentBytes,
+    TimeSpan Elapsed,
+    TimeSpan HashingElapsed);
 
 /// <summary>
 /// Verifies that content physically stored in a profile's target still matches what
@@ -45,6 +53,9 @@ public sealed record IntegrityCheckProgress(int BlobsChecked, int TotalBlobs);
 /// </summary>
 public sealed class IntegrityCheckService(ISnapshotRepository repository, IContentStore contentStore, IHasher hasher)
 {
+    private const long ProgressByteInterval = 1024 * 1024;
+    private static readonly TimeSpan ProgressTimeInterval = TimeSpan.FromMilliseconds(100);
+
     /// <summary>
     /// Cap on the number of affected paths attached per finding - see design.md's
     /// "capping the listed paths per hash" risk mitigation for content shared across
@@ -66,18 +77,23 @@ public sealed class IntegrityCheckService(ISnapshotRepository repository, IConte
     /// </param>
     public IntegrityCheckResult Check(bool quick, IProgress<IntegrityCheckProgress>? progress = null, CancellationToken cancellationToken = default)
     {
-        var referencedHashes = repository.GetAllReferencedContentHashes().ToList();
+        var referencedSizes = repository.GetAllReferencedContentSizes();
+        var referencedHashes = referencedSizes.Keys.ToList();
         var storedHashes = contentStore.ListAllStoredHashes();
+        var totalBytes = SumSizes(referencedSizes.Values);
+        var totalPresentBytes = SumSizes(referencedSizes.Where(pair => storedHashes.Contains(pair.Key)).Select(pair => pair.Value));
 
         var missing = new List<IntegrityFinding>();
         var corrupt = new List<IntegrityFinding>();
 
-        if (referencedHashes.Count > 0)
-        {
-            progress?.Report(new IntegrityCheckProgress(0, referencedHashes.Count));
-        }
-
         var blobsChecked = 0;
+        long bytesChecked = 0;
+        long bytesRead = 0;
+        long completedPresentBytes = 0;
+        var hashingElapsed = TimeSpan.Zero;
+        var elapsed = Stopwatch.StartNew();
+        ReportProgress();
+
         var cancelled = false;
         for (var i = 0; i < referencedHashes.Count; i++)
         {
@@ -92,6 +108,8 @@ public sealed class IntegrityCheckService(ISnapshotRepository repository, IConte
             }
 
             var hash = referencedHashes[i];
+            var blobSize = Math.Max(0, referencedSizes[hash]);
+            var blobBytesRead = 0L;
 
             if (!storedHashes.Contains(hash))
             {
@@ -100,25 +118,137 @@ public sealed class IntegrityCheckService(ISnapshotRepository repository, IConte
             else if (!quick)
             {
                 using var content = contentStore.OpenRead(hash);
-                var actualHash = hasher.ComputeHash(content);
+                var lastReportedBytes = 0L;
+                var lastReportedAt = Stopwatch.GetTimestamp();
+                var currentHashElapsed = TimeSpan.Zero;
+                var hashTimer = Stopwatch.StartNew();
+                using var countingContent = new CountingReadStream(content, read =>
+                {
+                    blobBytesRead = SaturatingAdd(blobBytesRead, read);
+                    bytesRead = SaturatingAdd(bytesRead, read);
+
+                    var now = Stopwatch.GetTimestamp();
+                    if (blobBytesRead - lastReportedBytes >= ProgressByteInterval ||
+                        Stopwatch.GetElapsedTime(lastReportedAt, now) >= ProgressTimeInterval)
+                    {
+                        lastReportedBytes = blobBytesRead;
+                        lastReportedAt = now;
+                        currentHashElapsed = hashTimer.Elapsed;
+                        ReportProgress(blobSize, blobBytesRead, currentHashElapsed);
+                    }
+                });
+                var actualHash = hasher.ComputeHash(countingContent);
+                hashTimer.Stop();
+                currentHashElapsed = TimeSpan.Zero;
+                hashingElapsed += hashTimer.Elapsed;
                 if (!string.Equals(actualHash, hash, StringComparison.Ordinal))
                 {
                     corrupt.Add(BuildFinding(hash));
                 }
+
+                completedPresentBytes = SaturatingAdd(completedPresentBytes, blobSize);
+            }
+            else
+            {
+                completedPresentBytes = SaturatingAdd(completedPresentBytes, blobSize);
             }
 
             blobsChecked = i + 1;
-            progress?.Report(new IntegrityCheckProgress(blobsChecked, referencedHashes.Count));
+            bytesChecked = SaturatingAdd(bytesChecked, blobSize);
+            ReportProgress();
         }
 
         var orphaned = storedHashes.Except(referencedHashes).ToList();
 
         return new IntegrityCheckResult(blobsChecked, missing, corrupt, orphaned, Cancelled: cancelled);
+
+        void ReportProgress(long hashSize = 0, long currentBlobBytesRead = 0, TimeSpan currentHashElapsed = default)
+        {
+            var creditedCurrentBytes = Math.Min(hashSize, Math.Max(0, currentBlobBytesRead));
+            var progressBytes = SaturatingAdd(bytesChecked, creditedCurrentBytes);
+            var remainingBytesToRead = Math.Max(0, totalPresentBytes - SaturatingAdd(completedPresentBytes, creditedCurrentBytes));
+
+            progress?.Report(new IntegrityCheckProgress(
+                blobsChecked,
+                referencedHashes.Count,
+                progressBytes,
+                totalBytes,
+                bytesRead,
+                remainingBytesToRead,
+                elapsed.Elapsed,
+                hashingElapsed + currentHashElapsed));
+        }
     }
+
+    private static long SumSizes(IEnumerable<long> sizes)
+    {
+        var total = 0L;
+        foreach (var size in sizes)
+        {
+            total = SaturatingAdd(total, Math.Max(0, size));
+        }
+
+        return total;
+    }
+
+    private static long SaturatingAdd(long left, long right) =>
+        right > long.MaxValue - left ? long.MaxValue : left + right;
 
     private IntegrityFinding BuildFinding(string hash)
     {
         var paths = repository.GetPathsForContentHash(hash);
         return new IntegrityFinding(hash, paths.Take(MaxAffectedPathsPerFinding).ToList(), paths.Count);
+    }
+
+    private sealed class CountingReadStream(Stream inner, Action<int> onRead) : Stream
+    {
+        public override bool CanRead => inner.CanRead;
+        public override bool CanSeek => inner.CanSeek;
+        public override bool CanWrite => false;
+        public override long Length => inner.Length;
+        public override long Position { get => inner.Position; set => inner.Position = value; }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            var read = inner.Read(buffer, offset, count);
+            if (read > 0)
+            {
+                onRead(read);
+            }
+
+            return read;
+        }
+
+        public override int Read(Span<byte> buffer)
+        {
+            var read = inner.Read(buffer);
+            if (read > 0)
+            {
+                onRead(read);
+            }
+
+            return read;
+        }
+
+        public override int ReadByte()
+        {
+            var value = inner.ReadByte();
+            if (value >= 0)
+            {
+                onRead(1);
+            }
+
+            return value;
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            base.Dispose(disposing);
+        }
     }
 }

@@ -169,6 +169,13 @@ public interface ISnapshotRepository : IDisposable
     IReadOnlySet<string> GetAllReferencedContentHashes();
 
     /// <summary>
+    /// The maximum recorded size for each distinct content hash still referenced by at
+    /// least one file-version row. Historical references to a deduplicated blob produce
+    /// one entry, and the maximum is deterministic if manifest rows disagree.
+    /// </summary>
+    IReadOnlyDictionary<string, long> GetAllReferencedContentSizes();
+
+    /// <summary>
     /// Every distinct relative path with a file-version row recorded against
     /// <paramref name="hash"/>, across all snapshots (not filtered to only-current
     /// rows) - a historical-only reference is still worth surfacing, since a user

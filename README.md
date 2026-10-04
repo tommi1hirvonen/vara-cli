@@ -189,7 +189,7 @@ creating, editing, and deleting profiles - see [`vara profiles`](#usage) below.
 | `vara show <path> (--at <date> \| --version <id>)` | Stream a historical version's content to stdout. |
 | `vara diff <path> (--left-at <date> \| --left-version <id>) (--right-at <date> \| --right-version <id>)` | Show a textual diff between two versions of a file. |
 | `vara prune <profile> [--yes]` | Apply the profile's tiered retention policy and garbage-collect unreferenced content. |
-| `vara check <profile> [--quick]` | Verify content physically stored in the target still matches the manifest across the full snapshot history; reports missing/corrupt/orphaned blobs. |
+| `vara check <profile> [--quick]` | Verify content physically stored in the target still matches the manifest across the full snapshot history; reports missing/corrupt/orphaned blobs with verification progress, percentage, and estimated time remaining. Full checks weight progress by distinct blob sizes; `--quick` uses blob counts. |
 | `vara profiles [--config <path>]` | Open an interactive terminal UI to create, edit, and delete profiles in the configuration file, instead of hand-editing YAML. Requires an interactive terminal (fails cleanly if input or output is redirected). |
 
 Profile-level commands (`backup`, `prune`, `check`) require the profile as a positional

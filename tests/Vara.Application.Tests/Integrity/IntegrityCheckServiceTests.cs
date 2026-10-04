@@ -31,6 +31,73 @@ public class IntegrityCheckServiceTests
     }
 
     [Fact]
+    public void Progress_weights_distinct_blobs_by_manifest_size_and_counts_missing_blobs_as_complete()
+    {
+        var contentStore = new FakeContentStore();
+        var content = new byte[2 * 1024 * 1024];
+        Random.Shared.NextBytes(content);
+        var (hash, _) = contentStore.StoreFromStream(new MemoryStream(content));
+        var repository = new FakeSnapshotRepository();
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = repository.BeginSnapshot(now);
+        repository.RecordFileVersion(snapshot, "large.bin", null, hash, content.LongLength, now, FileChangeKind.Added, now);
+        repository.RecordFileVersion(snapshot, "missing.bin", null, "hash-missing", 11, now, FileChangeKind.Added, now);
+        repository.CompleteSnapshot(snapshot, now, SnapshotStats.Empty);
+
+        var reports = new List<IntegrityCheckProgress>();
+        var service = new IntegrityCheckService(repository, contentStore, new FakeHasher());
+
+        var result = service.Check(quick: false, new InlineProgress<IntegrityCheckProgress>(reports.Add));
+
+        Assert.Equal(2, result.BlobsChecked);
+        Assert.Contains(reports, p => p.BytesChecked > 0 && p.BytesChecked < p.TotalBytes);
+        var final = reports[^1];
+        Assert.Equal(2, final.BlobsChecked);
+        Assert.Equal(content.LongLength + 11, final.BytesChecked);
+        Assert.Equal(content.LongLength, final.BytesRead);
+        Assert.Equal(0, final.RemainingPresentBytes);
+    }
+
+    [Fact]
+    public void Missing_blob_contributes_its_manifest_size_without_counting_read_bytes()
+    {
+        var repository = new FakeSnapshotRepository();
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = repository.BeginSnapshot(now);
+        repository.RecordFileVersion(snapshot, "missing.bin", null, "hash-missing", 17, now, FileChangeKind.Added, now);
+        repository.CompleteSnapshot(snapshot, now, SnapshotStats.Empty);
+        var reports = new List<IntegrityCheckProgress>();
+        var service = new IntegrityCheckService(repository, new FakeContentStore(), new FakeHasher());
+
+        service.Check(quick: false, new InlineProgress<IntegrityCheckProgress>(reports.Add));
+
+        var final = reports[^1];
+        Assert.Equal(17, final.BytesChecked);
+        Assert.Equal(0, final.BytesRead);
+        Assert.Equal(0, final.RemainingPresentBytes);
+    }
+
+    [Fact]
+    public void Progress_is_capped_at_manifest_size_when_blob_content_is_larger()
+    {
+        var contentStore = new FakeContentStore();
+        var (hash, _) = contentStore.StoreFromStream(new MemoryStream(new byte[4096]));
+        var repository = new FakeSnapshotRepository();
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = repository.BeginSnapshot(now);
+        repository.RecordFileVersion(snapshot, "blob.bin", null, hash, 7, now, FileChangeKind.Added, now);
+        repository.CompleteSnapshot(snapshot, now, SnapshotStats.Empty);
+        var reports = new List<IntegrityCheckProgress>();
+        var service = new IntegrityCheckService(repository, contentStore, new FakeHasher());
+
+        service.Check(quick: false, new InlineProgress<IntegrityCheckProgress>(reports.Add));
+
+        Assert.All(reports, p => Assert.InRange(p.BytesChecked, 0, 7));
+        Assert.Equal(7, reports[^1].BytesChecked);
+        Assert.Equal(4096, reports[^1].BytesRead);
+    }
+
+    [Fact]
     public void A_tracked_symlink_or_junction_is_not_reported_as_a_missing_or_corrupt_blob()
     {
         var contentStore = new FakeContentStore();
@@ -218,5 +285,10 @@ public class IntegrityCheckServiceTests
                 cts.Cancel();
             }
         }
+    }
+
+    private sealed class InlineProgress<T>(Action<T> callback) : IProgress<T>
+    {
+        public void Report(T value) => callback(value);
     }
 }

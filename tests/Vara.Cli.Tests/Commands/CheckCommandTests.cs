@@ -1,7 +1,10 @@
 using Microsoft.Data.Sqlite;
+using Spectre.Console.Testing;
 using Vara.Application.Profiles;
 using Vara.Cli.Commands;
 using Vara.Cli.Composition;
+using IAnsiConsole = Spectre.Console.IAnsiConsole;
+using IAnsiConsoleOutput = Spectre.Console.IAnsiConsoleOutput;
 using Vara.Core.Abstractions;
 using Vara.Core.Configuration;
 using Vara.Core.Snapshots;
@@ -38,14 +41,15 @@ public class CheckCommandTests : IDisposable
         public string DefaultConfigPath => "unused";
     }
 
-    private System.CommandLine.Command CreateCommand(CancellationToken cancellationToken = default)
+    private System.CommandLine.Command CreateCommand(CancellationToken cancellationToken = default, IAnsiConsole? console = null)
     {
         var profile = new Profile("test-profile", _targetRoot, [new Source(_sourceRoot)], null);
         return CheckCommand.Create(
             new ProfileResolver(new SingleProfileConfigLoader(profile)),
             new ProfileServiceFactory(_hasher),
             _hasher,
-            cancellationToken);
+            cancellationToken,
+            console);
     }
 
     /// <summary>Stores <paramref name="content"/> in the profile's real content store
@@ -95,6 +99,75 @@ public class CheckCommandTests : IDisposable
         var exitCode = command.Parse(["test-profile"]).Invoke();
 
         Assert.Equal(0, exitCode);
+    }
+
+    [Fact]
+    public void Redirected_progress_includes_percentage_blob_count_and_eta()
+    {
+        SeedReferencedBlob("a.txt", "hello world");
+        var console = new TestConsole();
+        var command = CreateCommand(console: console);
+
+        var exitCode = command.Parse(["test-profile"]).Invoke();
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("100.0%", console.Output);
+        Assert.Contains("1 of 1 blobs", console.Output);
+        Assert.Contains("ETA 0s", console.Output);
+    }
+
+    [Fact]
+    public void Live_progress_includes_percentage_blob_count_and_eta()
+    {
+        SeedReferencedBlob("a.txt", "hello world");
+        var console = CreateLiveConsole();
+        var command = CreateCommand(console: console);
+
+        var exitCode = command.Parse(["test-profile", "--quick"]).Invoke();
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("100", console.Output);
+        Assert.Contains("Checking blobs 1 / 1 - ETA 0s", console.Output);
+    }
+
+    [Fact]
+    public void Live_full_check_reports_weighted_progress()
+    {
+        SeedReferencedBlob("a.txt", "hello world");
+        var console = CreateLiveConsole();
+        var command = CreateCommand(console: console);
+
+        var exitCode = command.Parse(["test-profile"]).Invoke();
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("100", console.Output);
+        Assert.Contains("Checking blobs 1 / 1 - ETA 0s", console.Output);
+    }
+
+    [Fact]
+    public void Live_progress_completes_for_missing_manifest()
+    {
+        SeedMissingReference("missing.txt", "hash-missing");
+        var missingConsole = CreateLiveConsole();
+        var missingCommand = CreateCommand(console: missingConsole);
+
+        var missingExitCode = missingCommand.Parse(["test-profile"]).Invoke();
+
+        Assert.Equal(ExitCodes.PartialFailure, missingExitCode);
+        Assert.Contains("Checking blobs 1 / 1 - ETA 0s", missingConsole.Output);
+    }
+
+    [Fact]
+    public void Live_progress_completes_for_empty_manifest()
+    {
+        var emptyConsole = CreateLiveConsole();
+        var emptyCommand = CreateCommand(console: emptyConsole);
+
+        var emptyExitCode = emptyCommand.Parse(["test-profile"]).Invoke();
+
+        Assert.Equal(0, emptyExitCode);
+        Assert.Contains("Checking blobs 0 / 0 - ETA 0s", emptyConsole.Output);
+        Assert.Contains("100", emptyConsole.Output);
     }
 
     [Fact]
@@ -156,5 +229,27 @@ public class CheckCommandTests : IDisposable
         Assert.NotEmpty(parseResult.Errors);
         var exitCode = parseResult.Invoke();
         Assert.NotEqual(0, exitCode);
+    }
+
+    private sealed class FakeTerminalOutput(TextWriter writer) : IAnsiConsoleOutput
+    {
+        public TextWriter Writer { get; } = writer;
+        public bool IsTerminal => true;
+        public int Width => 120;
+        public int Height => 30;
+
+        public void SetEncoding(System.Text.Encoding encoding)
+        {
+        }
+    }
+
+    private static TestConsole CreateLiveConsole()
+    {
+        var console = new TestConsole { EmitAnsiSequences = true };
+        console.Profile.Out = new FakeTerminalOutput(console.Profile.Out.Writer);
+        console.Profile.Capabilities.Ansi = true;
+        console.Profile.Capabilities.Interactive = true;
+        console.Profile.Width = 120;
+        return console;
     }
 }

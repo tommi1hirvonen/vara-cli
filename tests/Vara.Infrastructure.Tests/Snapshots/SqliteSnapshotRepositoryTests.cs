@@ -769,6 +769,29 @@ public class SqliteSnapshotRepositoryTests : IDisposable
     }
 
     [Fact]
+    public void GetAllReferencedContentSizes_returns_one_maximum_size_per_distinct_hash_and_excludes_links()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var first = Repository.BeginSnapshot(now);
+        Repository.RecordFileVersion(first, "a.txt", null, "hash-shared", 10, now, FileChangeKind.Added, now);
+        Repository.RecordFileVersion(first, "b.txt", null, "hash-shared", 15, now, FileChangeKind.Added, now);
+        Repository.RecordFileVersion(first, "link", null, null, 0, now, FileChangeKind.Linked, now, linkTarget: @"C:\target");
+        Repository.CompleteSnapshot(first, now, SnapshotStats.Empty);
+
+        var second = Repository.BeginSnapshot(now.AddMinutes(1));
+        Repository.RecordFileVersion(second, "a.txt", null, "hash-shared", 12, now.AddMinutes(1), FileChangeKind.Changed, now.AddMinutes(1));
+        Repository.RecordFileVersion(second, "c.txt", null, "hash-other", 20, now.AddMinutes(1), FileChangeKind.Added, now.AddMinutes(1));
+        Repository.CompleteSnapshot(second, now.AddMinutes(1), SnapshotStats.Empty);
+
+        var sizes = Repository.GetAllReferencedContentSizes();
+
+        Assert.Equal(15, sizes["hash-shared"]);
+        Assert.Equal(20, sizes["hash-other"]);
+        Assert.Equal(2, sizes.Count);
+        Assert.DoesNotContain(null!, sizes.Keys);
+    }
+
+    [Fact]
     public void GetAllReferencedContentHashes_returns_hashes_still_present_after_a_deletion()
     {
         var now = DateTimeOffset.UtcNow;

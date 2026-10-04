@@ -34,6 +34,7 @@ public class DirectoryArgumentResolverTests
         public void DeleteSnapshot(long snapshotId) => throw new NotSupportedException();
         public int PruneSnapshots(IReadOnlyList<long> snapshotIds) => throw new NotSupportedException();
         public IReadOnlySet<string> GetAllReferencedContentHashes() => throw new NotSupportedException();
+        public IReadOnlyDictionary<string, long> GetAllReferencedContentSizes() => throw new NotSupportedException();
         public IReadOnlyList<string> GetPathsForContentHash(string hash) => throw new NotSupportedException();
     }
 
