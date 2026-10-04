@@ -97,7 +97,13 @@ public class BackupCommandExitCodeTests : IDisposable
         public ScanResult Scan(IReadOnlyList<Source> sources) => new(entries ?? [], failures ?? []);
     }
 
-    private System.CommandLine.Command CreateCommand(IFileSystemScanner scanner, CancellationToken cancellationToken = default, TextWriter? jsonOutput = null, IAnsiConsole? console = null)
+    private System.CommandLine.Command CreateCommand(
+        IFileSystemScanner scanner,
+        CancellationToken cancellationToken = default,
+        TextWriter? jsonOutput = null,
+        IAnsiConsole? console = null,
+        IBackupPowerRequestFactory? powerRequestFactory = null,
+        IAnsiConsole? errorConsole = null)
     {
         var profile = new Vara.Core.Configuration.Profile("test-profile", _targetRoot, [new Source(_sourceRoot)], null);
         var hasher = new XxHash128Hasher();
@@ -108,7 +114,9 @@ public class BackupCommandExitCodeTests : IDisposable
             hasher,
             cancellationToken,
             jsonOutput,
-            console);
+            console,
+            powerRequestFactory,
+            errorConsole);
     }
 
     [Fact]
@@ -150,11 +158,14 @@ public class BackupCommandExitCodeTests : IDisposable
     {
         using var cts = new CancellationTokenSource();
         cts.Cancel();
-        var command = CreateCommand(new FakeFileSystemScanner(), cts.Token);
+        var powerRequest = new FakeBackupPowerRequestFactory();
+        var command = CreateCommand(new FakeFileSystemScanner(), cts.Token, powerRequestFactory: powerRequest);
 
         var exitCode = command.Parse(["test-profile"]).Invoke();
 
         Assert.Equal(ExitCodes.PartialFailure, exitCode);
+        Assert.Equal(1, powerRequest.AcquireCount);
+        Assert.Equal(1, powerRequest.DisposeCount);
     }
 
     [Fact]
@@ -196,7 +207,8 @@ public class BackupCommandExitCodeTests : IDisposable
         // swapping the process-wide Console.Out - the latter would race other tests'
         // console output when the suite runs with its default parallelization.
         var writer = new StringWriter();
-        var command = CreateCommand(new FakeFileSystemScanner(), jsonOutput: writer);
+        var powerRequest = new FakeBackupPowerRequestFactory();
+        var command = CreateCommand(new FakeFileSystemScanner(), jsonOutput: writer, powerRequestFactory: powerRequest);
 
         var exitCode = command.Parse(["test-profile", "--json"]).Invoke();
 
@@ -206,6 +218,8 @@ public class BackupCommandExitCodeTests : IDisposable
         Assert.Equal("executed", parsed.RootElement.GetProperty("mode").GetString());
         Assert.Equal("test-profile", parsed.RootElement.GetProperty("profile").GetString());
         Assert.False(parsed.RootElement.GetProperty("cancelled").GetBoolean());
+        Assert.Equal(1, powerRequest.AcquireCount);
+        Assert.Equal(1, powerRequest.DisposeCount);
     }
 
     [Fact]
@@ -225,6 +239,98 @@ public class BackupCommandExitCodeTests : IDisposable
         Assert.Contains("%", console.Output);
         Assert.Contains("/s", console.Output);
         Assert.Contains("ETA", console.Output);
+    }
+
+    [Fact]
+    public void Interactive_progress_acquires_and_releases_a_power_request()
+    {
+        var console = new TestConsole();
+        console.Profile.Out = new FakeTerminalOutput(console.Profile.Out.Writer);
+        var powerRequest = new FakeBackupPowerRequestFactory();
+        var command = CreateCommand(
+            new FakeFileSystemScanner(),
+            console: console,
+            powerRequestFactory: powerRequest);
+
+        var exitCode = command.Parse(["test-profile"]).Invoke();
+
+        Assert.Equal(ExitCodes.Success, exitCode);
+        Assert.Equal(1, powerRequest.AcquireCount);
+        Assert.Equal(1, powerRequest.DisposeCount);
+    }
+
+    [Fact]
+    public void Dry_run_does_not_acquire_or_release_a_power_request()
+    {
+        var powerRequest = new FakeBackupPowerRequestFactory();
+        var command = CreateCommand(new FakeFileSystemScanner(), powerRequestFactory: powerRequest);
+
+        var exitCode = command.Parse(["test-profile", "--dry-run"]).Invoke();
+
+        Assert.Equal(ExitCodes.Success, exitCode);
+        Assert.Equal(0, powerRequest.AcquireCount);
+        Assert.Equal(0, powerRequest.DisposeCount);
+    }
+
+    [Fact]
+    public void Power_request_activation_failure_warns_and_continues_with_json_only_on_stdout()
+    {
+        var writer = new StringWriter();
+        var errorConsole = new TestConsole();
+        var powerRequest = new FakeBackupPowerRequestFactory
+        {
+            AcquireFailure = new PowerRequestException("request unavailable"),
+        };
+        var command = CreateCommand(
+            new FakeFileSystemScanner(),
+            jsonOutput: writer,
+            powerRequestFactory: powerRequest,
+            errorConsole: errorConsole);
+
+        var exitCode = command.Parse(["test-profile", "--json"]).Invoke();
+
+        Assert.Equal(ExitCodes.Success, exitCode);
+        var line = Assert.Single(writer.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries)).TrimEnd('\r');
+        using var parsed = JsonDocument.Parse(line);
+        Assert.Equal("executed", parsed.RootElement.GetProperty("mode").GetString());
+        Assert.Contains("Warning", errorConsole.Output);
+        Assert.Contains("request unavailable", errorConsole.Output);
+        Assert.Equal(1, powerRequest.AcquireCount);
+        Assert.Equal(0, powerRequest.DisposeCount);
+    }
+
+    [Fact]
+    public void Power_request_release_failure_warns_without_changing_backup_outcome()
+    {
+        var errorConsole = new TestConsole();
+        var powerRequest = new FakeBackupPowerRequestFactory
+        {
+            DisposeFailure = new PowerRequestException("clear request failed"),
+        };
+        var command = CreateCommand(
+            new FakeFileSystemScanner(),
+            powerRequestFactory: powerRequest,
+            errorConsole: errorConsole);
+
+        var exitCode = command.Parse(["test-profile"]).Invoke();
+
+        Assert.Equal(ExitCodes.Success, exitCode);
+        Assert.Contains("could not be released", errorConsole.Output);
+        Assert.Contains("clear request failed", errorConsole.Output);
+        Assert.Equal(1, powerRequest.DisposeCount);
+    }
+
+    [Fact]
+    public void Power_request_is_released_when_the_backup_pipeline_throws()
+    {
+        var powerRequest = new FakeBackupPowerRequestFactory();
+        var command = CreateCommand(new ThrowingFileSystemScanner(), powerRequestFactory: powerRequest);
+
+        var exitCode = command.Parse(["test-profile"]).Invoke();
+
+        Assert.Equal(ExitCodes.HardError, exitCode);
+        Assert.Equal(1, powerRequest.AcquireCount);
+        Assert.Equal(1, powerRequest.DisposeCount);
     }
 
     [Fact]
@@ -260,5 +366,53 @@ public class BackupCommandExitCodeTests : IDisposable
         Assert.NotEmpty(parseResult.Errors);
         var exitCode = parseResult.Invoke();
         Assert.NotEqual(ExitCodes.Success, exitCode);
+    }
+
+    private sealed class FakeBackupPowerRequestFactory : IBackupPowerRequestFactory
+    {
+        public int AcquireCount { get; private set; }
+        public int DisposeCount { get; private set; }
+        public PowerRequestException? AcquireFailure { get; init; }
+        public PowerRequestException? DisposeFailure { get; init; }
+
+        public IDisposable Acquire()
+        {
+            AcquireCount++;
+            if (AcquireFailure is not null)
+            {
+                throw AcquireFailure;
+            }
+
+            return new FakePowerRequest(() =>
+            {
+                DisposeCount++;
+                if (DisposeFailure is not null)
+                {
+                    throw DisposeFailure;
+                }
+            });
+        }
+
+        private sealed class FakePowerRequest(Action dispose) : IDisposable
+        {
+            public void Dispose() => dispose();
+        }
+    }
+
+    private sealed class ThrowingFileSystemScanner : IFileSystemScanner
+    {
+        public ScanResult Scan(IReadOnlyList<Source> sources) => throw new InvalidOperationException("scan failed");
+    }
+
+    private sealed class FakeTerminalOutput(TextWriter writer) : IAnsiConsoleOutput
+    {
+        public TextWriter Writer { get; } = writer;
+        public bool IsTerminal => true;
+        public int Width => 120;
+        public int Height => 30;
+
+        public void SetEncoding(System.Text.Encoding encoding)
+        {
+        }
     }
 }

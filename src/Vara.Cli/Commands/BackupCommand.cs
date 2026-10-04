@@ -19,7 +19,28 @@ public static class BackupCommand
         IHasher hasher,
         CancellationToken cancellationToken = default,
         TextWriter? jsonOutput = null,
-        IAnsiConsole? console = null)
+        IAnsiConsole? console = null) =>
+        Create(
+            profileResolver,
+            serviceFactory,
+            scanner,
+            hasher,
+            cancellationToken,
+            jsonOutput,
+            console,
+            powerRequestFactory: null,
+            errorConsole: null);
+
+    internal static Command Create(
+        ProfileResolver profileResolver,
+        ProfileServiceFactory serviceFactory,
+        IFileSystemScanner scanner,
+        IHasher hasher,
+        CancellationToken cancellationToken,
+        TextWriter? jsonOutput,
+        IAnsiConsole? console,
+        IBackupPowerRequestFactory? powerRequestFactory,
+        IAnsiConsole? errorConsole)
     {
         // Both default to the real ambient console/standard output - overridable so
         // tests can assert against in-memory equivalents instead of the process-wide
@@ -76,26 +97,32 @@ public static class BackupCommand
                     return;
                 }
 
-                if (json)
-                {
-                    // No IProgress<T> callback: --json suppresses progress display
-                    // entirely, per the cli-presentation delta's "Machine-readable JSON
-                    // output for the backup command" requirement.
-                    var jsonResult = pipeline.Run(profile, progress: null, cancellationToken);
-                    failedPaths = jsonResult.FailedPaths;
-                    cancelled = jsonResult.Cancelled;
-                    WriteJson(jsonWriter, jsonResult.ToJson(profile.Name));
-                    return;
-                }
+                RunWithPowerRequest(
+                    powerRequestFactory ?? WindowsBackupPowerRequestFactory.Instance,
+                    errorConsole ?? StandardError.Console,
+                    () =>
+                    {
+                        if (json)
+                        {
+                            // No IProgress<T> callback: --json suppresses progress display
+                            // entirely, per the cli-presentation delta's "Machine-readable JSON
+                            // output for the backup command" requirement.
+                            var jsonResult = pipeline.Run(profile, progress: null, cancellationToken);
+                            failedPaths = jsonResult.FailedPaths;
+                            cancelled = jsonResult.Cancelled;
+                            WriteJson(jsonWriter, jsonResult.ToJson(profile.Name));
+                            return;
+                        }
 
-                var result = OutputMode.IsLiveCapable(ansiConsole)
-                    ? RunWithLiveDisplay(pipeline, profile, ansiConsole, cancellationToken)
-                    : RunWithPlainOutput(pipeline, profile, ansiConsole, cancellationToken);
-                failedPaths = result.FailedPaths;
-                cancelled = result.Cancelled;
+                        var result = OutputMode.IsLiveCapable(ansiConsole)
+                            ? RunWithLiveDisplay(pipeline, profile, ansiConsole, cancellationToken)
+                            : RunWithPlainOutput(pipeline, profile, ansiConsole, cancellationToken);
+                        failedPaths = result.FailedPaths;
+                        cancelled = result.Cancelled;
 
-                ansiConsole.WriteLine();
-                BackupOutcomeReporter.Report(ansiConsole, result);
+                        ansiConsole.WriteLine();
+                        BackupOutcomeReporter.Report(ansiConsole, result);
+                    });
             });
 
             // A hard error (ExitCodes.HardError) always wins: it means the run never
@@ -114,6 +141,48 @@ public static class BackupCommand
 
         return command;
     }
+
+    private static void RunWithPowerRequest(
+        IBackupPowerRequestFactory powerRequestFactory,
+        IAnsiConsole errorConsole,
+        Action run)
+    {
+        IDisposable? request;
+        try
+        {
+            request = powerRequestFactory.Acquire();
+        }
+        catch (PowerRequestException exception)
+        {
+            ReportPowerRequestFailure(errorConsole, "could not be activated", exception);
+            run();
+            return;
+        }
+
+        try
+        {
+            run();
+        }
+        finally
+        {
+            if (request is not null)
+            {
+                try
+                {
+                    request.Dispose();
+                }
+                catch (PowerRequestException exception)
+                {
+                    ReportPowerRequestFailure(errorConsole, "could not be released", exception);
+                }
+            }
+        }
+    }
+
+    private static void ReportPowerRequestFailure(IAnsiConsole errorConsole, string operation, Exception exception) =>
+        OutcomeStyle.WriteLinePartialFailure(
+            errorConsole,
+            $"Warning: Windows sleep prevention {operation}: {exception.Message}");
 
     // Bypasses AnsiConsole entirely so --json's payload can never be word-wrapped to
     // the terminal width, styled, or otherwise altered by Spectre - stdout must carry
