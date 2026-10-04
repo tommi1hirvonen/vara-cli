@@ -322,6 +322,22 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
+    public void Active_path_refresh_requests_capture_the_current_set_when_serviced()
+    {
+        var path = Path.Combine(_root, "short.txt");
+        File.WriteAllText(path, "small");
+        var entry = new ScannedEntry("short.txt", path, new FileInfo(path).Length, File.GetLastWriteTimeUtc(path), false, null);
+        var captures = new List<Func<IReadOnlyList<string>>>();
+        var pipeline = new BackupPipeline(
+            new FakeFileSystemScanner([entry]), new FakeHasher(), new FakeContentStore(), new FakeSnapshotRepository(), new FakeRunLock());
+
+        pipeline.Run(SimpleProfile(_root), requestActivePathsRefresh: captures.Add);
+
+        Assert.Equal(2, captures.Count);
+        Assert.All(captures.AsEnumerable().Reverse(), capture => Assert.DoesNotContain(path, capture()));
+    }
+
+    [Fact]
     public void Failed_content_transfers_remain_in_the_total_but_not_the_completed_file_count()
     {
         var lockedPath = Path.Combine(_root, "locked.txt");
@@ -335,14 +351,16 @@ public class BackupPipelineTests : IDisposable
         };
         using var exclusiveHold = new FileStream(lockedPath, FileMode.Open, FileAccess.Read, FileShare.None);
         var progress = new SyncProgress<BackupProgress>();
+        var activePathCaptures = new List<Func<IReadOnlyList<string>>>();
         var pipeline = new BackupPipeline(
             new FakeFileSystemScanner(entries), new FakeHasher(), new FakeContentStore(), new FakeSnapshotRepository(), new FakeRunLock());
 
-        pipeline.Run(SimpleProfile(_root), progress);
+        pipeline.Run(SimpleProfile(_root), progress, requestActivePathsRefresh: activePathCaptures.Add);
 
         Assert.All(progress.Reports, report => Assert.Equal(2, report.TotalFiles));
         Assert.Equal(1, progress.Reports.Max(report => report.FilesTransferred));
         Assert.DoesNotContain(progress.Reports, report => report.ActivePaths?.Contains(lockedPath) == true);
+        Assert.All(activePathCaptures, capture => Assert.DoesNotContain(lockedPath, capture()));
     }
 
     [Fact]

@@ -1,6 +1,7 @@
 using Spectre.Console;
 using Spectre.Console.Rendering;
 using Spectre.Console.Testing;
+using Vara.Application.Backup;
 using Vara.Application.Reporting;
 using Vara.Cli.Presentation;
 using Xunit;
@@ -355,6 +356,33 @@ public class BackupProgressColumnTests
         Assert.Equal(6, lines.Length);
         Assert.Equal(paths.Take(3), lines.Skip(2).Take(3));
         Assert.Equal("+ 2 more", lines[^1]);
+    }
+
+    [Fact]
+    public void Active_path_refresh_preserves_the_admitted_numeric_snapshot()
+    {
+        var start = new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var calculator = new BackupProgressCalculator(() => start.AddSeconds(1));
+        var snapshot = calculator.Calculate(new BackupProgress(50, 100, 2, 3));
+        var numericState = new BackupProgressState(50, 100, 2, 3, Snapshot: snapshot);
+        var activeState = numericState with { ActivePaths = ["active.txt"] };
+
+        static string[] RenderStats(DateTimeOffset now, BackupProgressState state)
+        {
+            var console = new TestConsole();
+            console.Profile.Width = 100;
+            var column = new BackupProgressColumn(new BackupProgressCalculator(() => now));
+            var task = CreateTask(BackupProgressRole.Stats, state);
+            console.Write(column.Render(CreateOptions(console), task, TimeSpan.Zero));
+            return console.Lines.Select(line => line.Trim()).ToArray();
+        }
+
+        var withoutPaths = RenderStats(start.AddSeconds(2), numericState);
+        var withPaths = RenderStats(start.AddSeconds(2), activeState);
+
+        Assert.Equal(withoutPaths.Take(2), withPaths.Take(2));
+        Assert.DoesNotContain("active.txt", withoutPaths);
+        Assert.Contains("active.txt", withPaths);
     }
 
     [Fact]

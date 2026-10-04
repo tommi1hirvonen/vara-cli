@@ -139,7 +139,7 @@ public static class BackupCommand
         // that a stuck callback can never hang the CLI's exit.
         var drainTimeout = TimeSpan.FromSeconds(2);
         var calculator = new BackupProgressCalculator();
-        var displayGate = new ProgressDisplayGate();
+        var displayGate = new ProgressDisplayGate(renderFileCountAdvancesImmediately: false);
         var column = new BackupProgressColumn(calculator);
 
         BackupRunResult result = null!;
@@ -153,34 +153,71 @@ public static class BackupCommand
 
                 ProgressTask? barTask = null;
                 ProgressTask? statsTask = null;
+                var displaySync = new object();
+                var displayOpen = true;
+                IReadOnlyList<string> activePaths = Array.Empty<string>();
+                BackupProgressState? displayedState = null;
+
+                void SetDisplayedState(BackupProgressState state)
+                {
+                    displayedState = state;
+                    barTask!.State.Update(BackupProgressColumn.ProgressKey, (BackupProgressState _) => state);
+                    statsTask!.Value = state.BytesTransferred;
+                    statsTask.State.Update(BackupProgressColumn.ProgressKey, (BackupProgressState _) => state);
+                }
 
                 void Render(BackupProgress admitted)
                 {
-                    if (barTask is null)
+                    lock (displaySync)
                     {
-                        // First admitted progress event: the scan/plan phase has
-                        // finished and transfer is about to begin - replace the scan
-                        // spinner with the bar/stats rows, per the progress-reporting
-                        // delta's "Indicator replaced once transfer begins" scenario.
-                        ctx.RemoveTask(scanTask);
-                        barTask = ctx.AddTask("Transfer", autoStart: true, maxValue: 100);
-                        barTask.State.Update(BackupProgressColumn.RoleKey, (BackupProgressRole _) => BackupProgressRole.Bar);
-                        statsTask = ctx.AddTask("Stats", autoStart: true, maxValue: admitted.TotalBytes);
-                        statsTask.State.Update(BackupProgressColumn.RoleKey, (BackupProgressRole _) => BackupProgressRole.Stats);
+                        if (!displayOpen)
+                        {
+                            return;
+                        }
+
+                        if (barTask is null)
+                        {
+                            // First admitted progress event: the scan/plan phase has
+                            // finished and transfer is about to begin - replace the scan
+                            // spinner with the bar/stats rows, per the progress-reporting
+                            // delta's "Indicator replaced once transfer begins" scenario.
+                            ctx.RemoveTask(scanTask);
+                            barTask = ctx.AddTask("Transfer", autoStart: true, maxValue: 100);
+                            barTask.State.Update(BackupProgressColumn.RoleKey, (BackupProgressRole _) => BackupProgressRole.Bar);
+                            statsTask = ctx.AddTask("Stats", autoStart: true, maxValue: admitted.TotalBytes);
+                            statsTask.State.Update(BackupProgressColumn.RoleKey, (BackupProgressRole _) => BackupProgressRole.Stats);
+                        }
+
+                        var snapshot = calculator.Calculate(admitted);
+                        SetDisplayedState(new BackupProgressState(
+                            admitted.BytesTransferred,
+                            admitted.TotalBytes,
+                            admitted.FilesTransferred,
+                            admitted.TotalFiles,
+                            activePaths,
+                            snapshot));
+                        ctx.Refresh();
                     }
+                }
 
-                    // BackupProgressColumn.RenderBar drives the bar task's own
-                    // Value/MaxValue itself (from this same state, via
-                    // BackupProgressCalculator's percent) - it does not read raw
-                    // bytes/total directly, so both tasks just get the raw admitted
-                    // state stashed here.
-                    var state = new BackupProgressState(
-                        admitted.BytesTransferred, admitted.TotalBytes, admitted.FilesTransferred, admitted.TotalFiles, admitted.ActivePaths);
-                    barTask.State.Update(BackupProgressColumn.ProgressKey, (BackupProgressState _) => state);
-                    statsTask!.Value = admitted.BytesTransferred;
-                    statsTask.State.Update(BackupProgressColumn.ProgressKey, (BackupProgressState _) => state);
+                void RefreshActivePaths(IReadOnlyList<string> refreshedPaths)
+                {
+                    lock (displaySync)
+                    {
+                        if (!displayOpen)
+                        {
+                            return;
+                        }
 
-                    ctx.Refresh();
+                        activePaths = refreshedPaths.ToArray();
+                        if (displayedState is not { } currentState)
+                        {
+                            return;
+                        }
+
+                        SetDisplayedState(currentState with { ActivePaths = activePaths });
+                        ctx.Refresh();
+                    }
                 }
 
                 // Progress<T> has no SynchronizationContext to capture in a console app,
@@ -191,6 +228,30 @@ public static class BackupCommand
                 // so drainTimeout below can bound how long teardown waits for them,
                 // per design.md's "drain" decision.
                 var progress = new TrackedProgress<BackupProgress>(p => displayGate.Report(p, Render));
+                var activePathRefresh = new CoalescedActivePathRefreshDispatcher(RefreshActivePaths);
+
+                void DrainCallbacks()
+                {
+                    var deadline = DateTime.UtcNow + drainTimeout;
+                    progress.TryDrain(drainTimeout);
+                    var remaining = deadline - DateTime.UtcNow;
+                    activePathRefresh.TryDrain(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
+                }
+
+                void CloseDisplay(BackupProgressOutcome outcome)
+                {
+                    lock (displaySync)
+                    {
+                        if (!displayOpen)
+                        {
+                            return;
+                        }
+
+                        displayOpen = false;
+                        (barTask ?? scanTask).State.Update(BackupProgressColumn.OutcomeKey, (BackupProgressOutcome _) => outcome);
+                        ctx.Refresh();
+                    }
+                }
 
                 // The bar's final color reflects the run's actual outcome, not the
                 // byte-based percentage BackupProgressColumn happened to reach - stamped
@@ -202,18 +263,19 @@ public static class BackupCommand
                 // thrown before transfer begins (e.g. during scanning/diffing/planning).
                 try
                 {
-                    result = pipeline.Run(profile, progress, cancellationToken);
-                    progress.TryDrain(drainTimeout);
+                    result = pipeline.Run(profile, progress, cancellationToken, activePathRefresh.Request);
+                    DrainCallbacks();
+                    activePathRefresh.ThrowIfFaulted();
+                    activePathRefresh.Close();
 
                     var outcome = ResolveOutcome(result);
-                    (barTask ?? scanTask).State.Update(BackupProgressColumn.OutcomeKey, (BackupProgressOutcome _) => outcome);
-                    ctx.Refresh();
+                    CloseDisplay(outcome);
                 }
                 catch
                 {
-                    progress.TryDrain(drainTimeout);
-                    (barTask ?? scanTask).State.Update(BackupProgressColumn.OutcomeKey, (BackupProgressOutcome _) => BackupProgressOutcome.Error);
-                    ctx.Refresh();
+                    DrainCallbacks();
+                    activePathRefresh.Close();
+                    CloseDisplay(BackupProgressOutcome.Error);
                     throw;
                 }
             });
@@ -241,7 +303,7 @@ public static class BackupCommand
     private static BackupRunResult RunWithPlainOutput(BackupPipeline pipeline, Vara.Core.Configuration.Profile profile, IAnsiConsole console, CancellationToken cancellationToken)
     {
         var calculator = new BackupProgressCalculator();
-        var displayGate = new ProgressDisplayGate();
+        var displayGate = new ProgressDisplayGate(renderFileCountAdvancesImmediately: true);
 
         void Render(BackupProgress admitted)
         {

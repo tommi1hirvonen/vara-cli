@@ -94,10 +94,28 @@ public class ProgressDisplayGateTests
     }
 
     [Fact]
-    public void File_completion_renders_immediately_even_when_byte_progress_is_unchanged()
+    public void File_completion_does_not_bypass_the_throttle_when_byte_progress_is_unchanged()
     {
         var current = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
-        var gate = new ProgressDisplayGate(() => current);
+        var gate = new ProgressDisplayGate(() => current, renderFileCountAdvancesImmediately: false);
+        var rendered = new List<BackupProgress>();
+
+        gate.Report(new BackupProgress(500, 1000, 0, 2), rendered.Add);
+        gate.Report(new BackupProgress(500, 1000, 1, 2), rendered.Add);
+
+        Assert.Equal([0], rendered.Select(progress => progress.FilesTransferred));
+
+        current = current.AddMilliseconds(100);
+        gate.Report(new BackupProgress(500, 1000, 2, 2), rendered.Add);
+
+        Assert.Equal([0, 2], rendered.Select(progress => progress.FilesTransferred));
+    }
+
+    [Fact]
+    public void File_completion_can_bypass_the_throttle_for_append_only_output()
+    {
+        var current = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var gate = new ProgressDisplayGate(() => current, renderFileCountAdvancesImmediately: true);
         var rendered = new List<BackupProgress>();
 
         gate.Report(new BackupProgress(500, 1000, 0, 2), rendered.Add);

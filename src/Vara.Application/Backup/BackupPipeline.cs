@@ -36,7 +36,17 @@ public sealed class BackupPipeline(
     /// instead of <see cref="SnapshotStatus.Complete"/> - see backup-execution's
     /// "Graceful cancellation via Ctrl+C" requirement and design.md.
     /// </param>
-    public BackupRunResult Run(Profile profile, IProgress<BackupProgress>? progress = null, CancellationToken cancellationToken = default)
+    /// <param name="requestActivePathsRefresh">
+    /// Optional notification invoked on a transfer worker after a file enters or leaves
+    /// the in-flight set. The callback should return promptly; the supplied capture
+    /// function reads the current set when invoked rather than preserving the lifecycle
+    /// event's path snapshot.
+    /// </param>
+    public BackupRunResult Run(
+        Profile profile,
+        IProgress<BackupProgress>? progress = null,
+        CancellationToken cancellationToken = default,
+        Action<Func<IReadOnlyList<string>>>? requestActivePathsRefresh = null)
     {
         using (runLock)
         {
@@ -85,6 +95,7 @@ public sealed class BackupPipeline(
                 var bytesSoFar = 0L;
                 var filesSoFar = 0;
                 var inFlight = new ConcurrentDictionary<string, byte>();
+                Func<IReadOnlyList<string>> captureActivePaths = () => inFlight.Keys.ToArray();
 
                 // The first progress report - which seeds the live display's
                 // throughput/ETA clock (BackupProgressCalculator lazily starts its own
@@ -119,8 +130,16 @@ public sealed class BackupPipeline(
                             plan.TotalFilesToTransfer,
                             inFlight.Keys.ToArray()));
                     },
-                    onFileStarted: path => inFlight.TryAdd(path, 0),
-                    onFileFinished: path => inFlight.TryRemove(path, out _));
+                    onFileStarted: path =>
+                    {
+                        inFlight.TryAdd(path, 0);
+                        requestActivePathsRefresh?.Invoke(captureActivePaths);
+                    },
+                    onFileFinished: path =>
+                    {
+                        inFlight.TryRemove(path, out _);
+                        requestActivePathsRefresh?.Invoke(captureActivePaths);
+                    });
 
                 // BackupDiffer.Diff above fully enumerates scanResult.Entries, so
                 // scanResult.Failures is guaranteed complete by this point. Scan-time

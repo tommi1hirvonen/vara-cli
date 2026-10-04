@@ -39,18 +39,19 @@ public enum BackupProgressOutcome
 }
 
 /// <summary>
-/// A value-type snapshot of the raw byte counts a task's row should render, stashed in
-/// that task's <see cref="ProgressTask.State"/> under
-/// <see cref="BackupProgressColumn.ProgressKey"/>. <see cref="ProgressTaskState"/> only
-/// accepts <c>struct</c> values, so this wraps <see cref="BackupProgress"/> (a
-/// reference-type record) in a storable value type.
+/// A value-type display snapshot stashed in a task's <see cref="ProgressTask.State"/>
+/// under <see cref="BackupProgressColumn.ProgressKey"/>. The optional calculated
+/// snapshot keeps numeric display values stable during active-path-only refreshes.
+/// <see cref="ProgressTaskState"/> only accepts <c>struct</c> values, so this wraps
+/// <see cref="BackupProgress"/> (a reference-type record) in a storable value type.
 /// </summary>
 public readonly record struct BackupProgressState(
     long BytesTransferred,
     long TotalBytes,
     int FilesTransferred = 0,
     int TotalFiles = 0,
-    IReadOnlyList<string>? ActivePaths = null)
+    IReadOnlyList<string>? ActivePaths = null,
+    ProgressSnapshot? Snapshot = null)
 {
     public BackupProgress ToProgress() => new(BytesTransferred, TotalBytes, FilesTransferred, TotalFiles, ActivePaths);
 }
@@ -144,9 +145,10 @@ public sealed class BackupProgressColumn(BackupProgressCalculator calculator) : 
     private IRenderable RenderBar(RenderOptions options, ProgressTask task, TimeSpan deltaTime)
     {
         var outcome = ApplyOutcomeStyle(task);
+        var progress = task.State.Get<BackupProgressState>(ProgressKey);
 
         var percent = outcome == BackupProgressOutcome.Running
-            ? Math.Clamp(calculator.Calculate(task.State.Get<BackupProgressState>(ProgressKey).ToProgress()).PercentComplete, 0, 100)
+            ? Math.Clamp((progress.Snapshot ?? calculator.Calculate(progress.ToProgress())).PercentComplete, 0, 100)
             : 100;
 
         task.MaxValue = 100;
@@ -217,7 +219,7 @@ public sealed class BackupProgressColumn(BackupProgressCalculator calculator) : 
     private IRenderable RenderStats(ProgressTask task)
     {
         var progress = task.State.Get<BackupProgressState>(ProgressKey);
-        var snapshot = calculator.Calculate(progress.ToProgress());
+        var snapshot = progress.Snapshot ?? calculator.Calculate(progress.ToProgress());
         return BuildStatsRow(snapshot, progress);
     }
 
