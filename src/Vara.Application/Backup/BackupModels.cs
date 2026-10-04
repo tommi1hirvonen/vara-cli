@@ -86,7 +86,12 @@ public sealed record BackupPlan(IReadOnlyList<PlannedOperation> Operations, long
 }
 
 /// <summary>Live execute-stage progress: successfully transferred files and bytes vs. planned totals.</summary>
-public sealed record BackupProgress(long BytesTransferred, long TotalBytes, int FilesTransferred = 0, int TotalFiles = 0);
+public sealed record BackupProgress(
+    long BytesTransferred,
+    long TotalBytes,
+    int FilesTransferred = 0,
+    int TotalFiles = 0,
+    IReadOnlyList<string>? ActivePaths = null);
 
 /// <summary>The outcome of executing a plan: final counts, bytes moved, and any files that failed.</summary>
 public sealed record ExecutionOutcome(

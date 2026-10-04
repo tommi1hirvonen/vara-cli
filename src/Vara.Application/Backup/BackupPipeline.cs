@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Vara.Core.Abstractions;
 using Vara.Core.Backup;
 using Vara.Core.Configuration;
@@ -83,6 +84,7 @@ public sealed class BackupPipeline(
                 // summary counter, independent of this live-progress counter).
                 var bytesSoFar = 0L;
                 var filesSoFar = 0;
+                var inFlight = new ConcurrentDictionary<string, byte>();
 
                 // The first progress report - which seeds the live display's
                 // throughput/ETA clock (BackupProgressCalculator lazily starts its own
@@ -100,9 +102,11 @@ public sealed class BackupPipeline(
                     transferred =>
                     {
                         var total = Interlocked.Add(ref bytesSoFar, transferred);
-                        progress?.Report(new BackupProgress(total, progressTotalBytes, Volatile.Read(ref filesSoFar), plan.TotalFilesToTransfer));
+                        progress?.Report(new BackupProgress(
+                            total, progressTotalBytes, Volatile.Read(ref filesSoFar), plan.TotalFilesToTransfer, inFlight.Keys.ToArray()));
                     },
-                    onTransferPhaseStarting: () => progress?.Report(new BackupProgress(0, progressTotalBytes, 0, plan.TotalFilesToTransfer)),
+                    onTransferPhaseStarting: () => progress?.Report(new BackupProgress(
+                        0, progressTotalBytes, 0, plan.TotalFilesToTransfer, inFlight.Keys.ToArray())),
                     manifestBatch: manifestBatch,
                     cancellationToken: cancellationToken,
                     onFileTransferred: () =>
@@ -112,8 +116,11 @@ public sealed class BackupPipeline(
                             Interlocked.Read(ref bytesSoFar),
                             progressTotalBytes,
                             completedFiles,
-                            plan.TotalFilesToTransfer));
-                    });
+                            plan.TotalFilesToTransfer,
+                            inFlight.Keys.ToArray()));
+                    },
+                    onFileStarted: path => inFlight.TryAdd(path, 0),
+                    onFileFinished: path => inFlight.TryRemove(path, out _));
 
                 // BackupDiffer.Diff above fully enumerates scanResult.Entries, so
                 // scanResult.Failures is guaranteed complete by this point. Scan-time

@@ -175,7 +175,7 @@ public static class BackupCommand
                     // bytes/total directly, so both tasks just get the raw admitted
                     // state stashed here.
                     var state = new BackupProgressState(
-                        admitted.BytesTransferred, admitted.TotalBytes, admitted.FilesTransferred, admitted.TotalFiles);
+                        admitted.BytesTransferred, admitted.TotalBytes, admitted.FilesTransferred, admitted.TotalFiles, admitted.ActivePaths);
                     barTask.State.Update(BackupProgressColumn.ProgressKey, (BackupProgressState _) => state);
                     statsTask!.Value = admitted.BytesTransferred;
                     statsTask.State.Update(BackupProgressColumn.ProgressKey, (BackupProgressState _) => state);

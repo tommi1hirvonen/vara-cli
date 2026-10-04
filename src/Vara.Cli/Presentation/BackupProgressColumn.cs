@@ -45,9 +45,14 @@ public enum BackupProgressOutcome
 /// accepts <c>struct</c> values, so this wraps <see cref="BackupProgress"/> (a
 /// reference-type record) in a storable value type.
 /// </summary>
-public readonly record struct BackupProgressState(long BytesTransferred, long TotalBytes, int FilesTransferred = 0, int TotalFiles = 0)
+public readonly record struct BackupProgressState(
+    long BytesTransferred,
+    long TotalBytes,
+    int FilesTransferred = 0,
+    int TotalFiles = 0,
+    IReadOnlyList<string>? ActivePaths = null)
 {
-    public BackupProgress ToProgress() => new(BytesTransferred, TotalBytes, FilesTransferred, TotalFiles);
+    public BackupProgress ToProgress() => new(BytesTransferred, TotalBytes, FilesTransferred, TotalFiles, ActivePaths);
 }
 
 /// <summary>
@@ -209,14 +214,14 @@ public sealed class BackupProgressColumn(BackupProgressCalculator calculator) : 
         return outcome;
     }
 
-    private Grid RenderStats(ProgressTask task)
+    private IRenderable RenderStats(ProgressTask task)
     {
         var progress = task.State.Get<BackupProgressState>(ProgressKey);
         var snapshot = calculator.Calculate(progress.ToProgress());
         return BuildStatsRow(snapshot, progress);
     }
 
-    private static Grid BuildStatsRow(ProgressSnapshot snapshot, BackupProgressState progress)
+    private static IRenderable BuildStatsRow(ProgressSnapshot snapshot, BackupProgressState progress)
     {
         var transferred = $"{BackupRunSummaryFormatter.FormatBytes(snapshot.BytesTransferred)} / {BackupRunSummaryFormatter.FormatBytes(snapshot.TotalBytes)}";
         var files = $"Files {progress.FilesTransferred} / {progress.TotalFiles}";
@@ -230,6 +235,24 @@ public sealed class BackupProgressColumn(BackupProgressCalculator calculator) : 
             .AddColumn(new GridColumn { Width = 28, NoWrap = true, Padding = new Padding(0) });
         stats.AddRow(new Text(transferred), new Text(files));
         stats.AddRow(new Text(throughput), new Text(eta));
-        return stats;
+
+        if (progress.ActivePaths is not { Count: > 0 } activePaths)
+        {
+            return stats;
+        }
+
+        var activeRows = new Grid()
+            .AddColumn(new GridColumn { Width = 60, NoWrap = true, Padding = new Padding(0) });
+        foreach (var path in activePaths.Take(3))
+        {
+            activeRows.AddRow(new Text(PathLabelTruncator.Truncate(path, 48)));
+        }
+
+        if (activePaths.Count > 3)
+        {
+            activeRows.AddRow(new Text($"+ {activePaths.Count - 3} more"));
+        }
+
+        return new Rows(stats, activeRows);
     }
 }

@@ -24,9 +24,15 @@ The backup progress display runs as three Spectre `Progress()` synthetic tasks (
 
 **Alternative considered:** Fire after `File.OpenRead` succeeds. Marginally safer (only fires for files that opened), but adds an extra try/catch layer and the practical difference is invisible at normal display refresh rates.
 
+### `onFileFinished(string absolutePath)` callback on `BackupExecutor.Execute`
+
+**Decision:** Add an optional `Action<string>?` callback that fires from `ExecuteTransfer`'s `finally` block, whether the transfer succeeds, fails with a handled I/O error, or exits through another exception.
+
+**Rationale:** `onFileTransferred` is success-only and also drives the completed-file counter. It cannot be used to remove failed files from the in-flight set without incorrectly counting them as completed. A separate completion callback keeps those meanings distinct and ensures failed or aborted transfers do not remain displayed as active.
+
 ### Thread-safe in-flight set in `BackupPipeline`
 
-**Decision:** `BackupPipeline.Run` owns a `ConcurrentDictionary<string, byte>` (used as a set) of in-flight paths. It passes `onFileStarted: path => _inFlight.TryAdd(path, 0)` and a modified `onFileTransferred` that both decrements the file counter *and* removes the path from `_inFlight`.
+**Decision:** `BackupPipeline.Run` owns a `ConcurrentDictionary<string, byte>` (used as a set) of in-flight paths. It passes `onFileStarted: path => inFlight.TryAdd(path, 0)` and `onFileFinished: path => inFlight.TryRemove(path, out _)`; the existing `onFileTransferred` remains responsible only for incrementing the successful-file counter and reporting progress.
 
 **Rationale:** `ConcurrentDictionary` gives lock-free reads (needed for snapshotting into every `progress.Report` call) and atomic add/remove. The snapshot — `.Keys.ToArray()` — is taken synchronously inside each `progress.Report(...)` invocation; since `Report` is already called on the thread-pool under `TrackedProgress`, the snapshot cost (a single array allocation) is acceptable.
 

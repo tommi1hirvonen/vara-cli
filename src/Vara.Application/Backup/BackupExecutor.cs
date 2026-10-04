@@ -58,7 +58,9 @@ public sealed class BackupExecutor(
         Action? onTransferPhaseStarting = null,
         IManifestBatch? manifestBatch = null,
         CancellationToken cancellationToken = default,
-        Action? onFileTransferred = null)
+        Action? onFileTransferred = null,
+        Action<string>? onFileStarted = null,
+        Action<string>? onFileFinished = null)
     {
         var counts = new Counts { LastCheckpointUtc = DateTime.UtcNow };
         var failedPaths = new List<string>();
@@ -100,7 +102,9 @@ public sealed class BackupExecutor(
                     return;
                 }
 
-                ExecuteTransfer(operation, snapshotId, recordedAt, counts, failedPaths, reportLock, onBytesTransferred, manifestBatch, onFileTransferred);
+                ExecuteTransfer(
+                    operation, snapshotId, recordedAt, counts, failedPaths, reportLock,
+                    onBytesTransferred, manifestBatch, onFileTransferred, onFileStarted, onFileFinished);
             });
 
         return new ExecutionOutcome(counts.BytesTransferred, counts.Added, counts.Changed, counts.Moved, counts.Deleted, counts.Failed, failedPaths);
@@ -207,11 +211,15 @@ public sealed class BackupExecutor(
         object reportLock,
         Action<long>? onBytesTransferred,
         IManifestBatch? manifestBatch,
-        Action? onFileTransferred)
+        Action? onFileTransferred,
+        Action<string>? onFileStarted,
+        Action<string>? onFileFinished)
     {
         var transferredSuccessfully = false;
         try
         {
+            onFileStarted?.Invoke(operation.SourceAbsolutePath!);
+
             string hash;
             long size;
             string quickHash;
@@ -333,6 +341,10 @@ public sealed class BackupExecutor(
                 failedPaths.Add(operation.RelativePath);
                 CheckpointIfDue(counts, manifestBatch);
             }
+        }
+        finally
+        {
+            onFileFinished?.Invoke(operation.SourceAbsolutePath!);
         }
 
         if (transferredSuccessfully)

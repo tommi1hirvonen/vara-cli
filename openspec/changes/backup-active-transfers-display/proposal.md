@@ -4,7 +4,7 @@ During a backup run the live progress display shows throughput, ETA, and file co
 
 ## What Changes
 
-- `BackupExecutor` gains an `onFileStarted(string absolutePath)` callback, fired when a transfer operation begins.
+- `BackupExecutor` gains `onFileStarted(string absolutePath)` and `onFileFinished(string absolutePath)` callbacks, fired when a transfer operation begins and when it exits, including failure.
 - `BackupPipeline` maintains a thread-safe set of in-flight absolute paths and snapshots it into every `BackupProgress` report.
 - `BackupProgress` gains an `ActivePaths` field carrying the snapshot.
 - `BackupProgressState` (the Spectre task-state struct) is extended to carry `ActivePaths` through to the renderer.

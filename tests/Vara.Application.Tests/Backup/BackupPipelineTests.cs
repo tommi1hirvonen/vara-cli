@@ -306,6 +306,22 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
+    public void Progress_reports_include_paths_while_files_are_transferring_and_remove_them_on_completion()
+    {
+        var path = Path.Combine(_root, "large.txt");
+        File.WriteAllText(path, new string('a', 500_000));
+        var entry = new ScannedEntry("large.txt", path, new FileInfo(path).Length, File.GetLastWriteTimeUtc(path), false, null);
+        var progress = new SyncProgress<BackupProgress>();
+        var pipeline = new BackupPipeline(
+            new FakeFileSystemScanner([entry]), new FakeHasher(), new FakeContentStore(), new FakeSnapshotRepository(), new FakeRunLock());
+
+        pipeline.Run(SimpleProfile(_root), progress);
+
+        Assert.Contains(progress.Reports, report => report.ActivePaths?.Contains(path) == true);
+        Assert.Empty(progress.Reports[^1].ActivePaths!);
+    }
+
+    [Fact]
     public void Failed_content_transfers_remain_in_the_total_but_not_the_completed_file_count()
     {
         var lockedPath = Path.Combine(_root, "locked.txt");
@@ -326,6 +342,7 @@ public class BackupPipelineTests : IDisposable
 
         Assert.All(progress.Reports, report => Assert.Equal(2, report.TotalFiles));
         Assert.Equal(1, progress.Reports.Max(report => report.FilesTransferred));
+        Assert.DoesNotContain(progress.Reports, report => report.ActivePaths?.Contains(lockedPath) == true);
     }
 
     [Fact]

@@ -53,6 +53,54 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
+    public void Transfer_lifecycle_callbacks_receive_the_source_path_for_a_successful_file()
+    {
+        var path = WriteFile("new.txt", "hello");
+        var plan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Add, "new.txt", null, path, 5, ScanTimeModifiedAt(path), null)], 5);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+        var startedPaths = new List<string>();
+        var finishedPaths = new List<string>();
+
+        executor.Execute(
+            snapshotId,
+            DateTimeOffset.UtcNow,
+            plan,
+            onFileStarted: startedPaths.Add,
+            onFileFinished: finishedPaths.Add);
+
+        Assert.Equal([path], startedPaths);
+        Assert.Equal([path], finishedPaths);
+    }
+
+    [Fact]
+    public void File_finished_callback_runs_after_a_failed_transfer_without_counting_it_as_transferred()
+    {
+        var path = Path.Combine(_root, "missing.txt");
+        var plan = new BackupPlan(
+            [new PlannedOperation(PlannedOperationKind.Add, "missing.txt", null, path, 1, DateTimeOffset.UtcNow, null)], 1);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+        var startedPaths = new List<string>();
+        var finishedPaths = new List<string>();
+        var transferredFiles = 0;
+
+        var outcome = executor.Execute(
+            snapshotId,
+            DateTimeOffset.UtcNow,
+            plan,
+            onFileTransferred: () => transferredFiles++,
+            onFileStarted: startedPaths.Add,
+            onFileFinished: finishedPaths.Add);
+
+        Assert.Equal(1, outcome.FilesFailed);
+        Assert.Equal([path], startedPaths);
+        Assert.Equal([path], finishedPaths);
+        Assert.Equal(0, transferredFiles);
+    }
+
+    [Fact]
     public void A_single_large_file_transfer_reports_progress_incrementally_not_just_once_on_completion()
     {
         var content = new string('a', 500_000);

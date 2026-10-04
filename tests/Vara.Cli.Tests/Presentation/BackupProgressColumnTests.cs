@@ -293,6 +293,71 @@ public class BackupProgressColumnTests
     }
 
     [Fact]
+    public void Stats_role_does_not_add_active_path_rows_when_paths_are_null_or_empty()
+    {
+        var start = new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+        foreach (var activePaths in new IReadOnlyList<string>?[] { null, Array.Empty<string>() })
+        {
+            var console = new TestConsole();
+            console.Profile.Width = 100;
+            var column = new BackupProgressColumn(new BackupProgressCalculator(() => start.AddSeconds(1)));
+            var task = CreateTask(
+                BackupProgressRole.Stats,
+                new BackupProgressState(50, 100, ActivePaths: activePaths));
+
+            console.Write(column.Render(CreateOptions(console), task, TimeSpan.Zero));
+
+            Assert.Equal(2, console.Lines.Count);
+        }
+    }
+
+    [Fact]
+    public void Stats_role_renders_up_to_three_active_paths_truncated_to_the_path_budget()
+    {
+        var start = new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var longPath = Path.Combine(Path.GetTempPath(), new string('d', 60), "file.txt");
+        var candidatePaths = new[] { longPath, "short/path.txt", "third.txt" };
+
+        for (var pathCount = 1; pathCount <= 3; pathCount++)
+        {
+            var console = new TestConsole();
+            console.Profile.Width = 100;
+            var column = new BackupProgressColumn(new BackupProgressCalculator(() => start.AddSeconds(1)));
+            var paths = candidatePaths.Take(pathCount).ToArray();
+            var task = CreateTask(
+                BackupProgressRole.Stats,
+                new BackupProgressState(50, 100, ActivePaths: paths));
+
+            console.Write(column.Render(CreateOptions(console), task, TimeSpan.Zero));
+
+            var lines = console.Lines.Select(line => line.Trim()).ToArray();
+            Assert.Equal(2 + pathCount, lines.Length);
+            Assert.Equal(paths.Select(path => PathLabelTruncator.Truncate(path, 48)), lines.Skip(2));
+        }
+    }
+
+    [Fact]
+    public void Stats_role_renders_three_active_paths_and_a_count_for_additional_transfers()
+    {
+        var start = new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var paths = new[] { "first.txt", "second.txt", "third.txt", "fourth.txt", "fifth.txt" };
+        var console = new TestConsole();
+        console.Profile.Width = 100;
+        var column = new BackupProgressColumn(new BackupProgressCalculator(() => start.AddSeconds(1)));
+        var task = CreateTask(
+            BackupProgressRole.Stats,
+            new BackupProgressState(50, 100, ActivePaths: paths));
+
+        console.Write(column.Render(CreateOptions(console), task, TimeSpan.Zero));
+
+        var lines = console.Lines.Select(line => line.Trim()).ToArray();
+        Assert.Equal(6, lines.Length);
+        Assert.Equal(paths.Take(3), lines.Skip(2).Take(3));
+        Assert.Equal("+ 2 more", lines[^1]);
+    }
+
+    [Fact]
     public void Unrecognized_role_renders_nothing()
     {
         var console = new TestConsole();
