@@ -28,10 +28,30 @@ public static class SnapshotCommand
         var profileOption = new Option<string?>("--profile") { Description = "The profile to query. Optional when the current directory is inside a profile's target root." };
         var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
         var filesOption = new Option<bool>("--files") { Description = "Show changed file paths and change kinds in the directory tree." };
+        var depthOption = new Option<int?>("--depth")
+        {
+            Arity = ArgumentArity.ExactlyOne,
+            Description = "Limit displayed directory levels below the selected directory (0 shows only that directory; default: unlimited).",
+            CustomParser = result =>
+            {
+                if (!result.Tokens.Any())
+                {
+                    return null;
+                }
+
+                if (int.TryParse(result.Tokens.Single().Value, out var depth) && depth >= 0)
+                {
+                    return depth;
+                }
+
+                result.AddError("--depth must be a non-negative integer.");
+                return null;
+            },
+        };
 
         var command = new Command("snapshot", "Show the directory changes recorded by one snapshot.")
         {
-            snapshotArgument, directoryArgument, profileOption, configOption, filesOption,
+            snapshotArgument, directoryArgument, profileOption, configOption, filesOption, depthOption,
         };
 
         command.SetAction(parseResult =>
@@ -41,6 +61,7 @@ public static class SnapshotCommand
             var profileName = parseResult.GetValue(profileOption);
             var configPath = parseResult.GetValue(configOption);
             var includeFiles = parseResult.GetValue(filesOption);
+            var depth = parseResult.GetValue(depthOption);
 
             var unknownSnapshot = false;
             var exitCode = ErrorReporting.Run(() =>
@@ -72,7 +93,7 @@ public static class SnapshotCommand
                     .Where(source => !string.Equals(source.Path, profile.TargetRoot, StringComparison.OrdinalIgnoreCase))
                     .Select(source => AbsolutePathMirrorMapper.ToMirrorPath(source.Path))
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                SnapshotChangePresenter.Render(ansiConsole, report, sourceRoots);
+                SnapshotChangePresenter.Render(ansiConsole, report, sourceRoots, depth);
             }, errorAnsiConsole);
 
             return unknownSnapshot ? ExitCodes.HardError : exitCode;

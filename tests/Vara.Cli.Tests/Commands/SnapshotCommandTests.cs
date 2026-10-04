@@ -52,6 +52,8 @@ public class SnapshotCommandTests : IDisposable
         var sourcePath = AbsolutePathMirrorMapper.ToMirrorPath(_sourceRoot);
         repository.RecordFileVersion(snapshot, Path.Combine(sourcePath, "nested", "added.txt"), null, "hash-a", 10, now, FileChangeKind.Added, now);
         repository.RecordFileVersion(snapshot, Path.Combine(sourcePath, "nested", "moved.txt"), @"old\moved.txt", "hash-m", 20, now, FileChangeKind.Moved, now);
+        repository.RecordFileVersion(snapshot, Path.Combine(sourcePath, "nested", "deep", "depth-one.txt"), null, "hash-deep", 5, now, FileChangeKind.Added, now);
+        repository.RecordFileVersion(snapshot, Path.Combine(sourcePath, "nested", "deep", "deeper", "depth-two.txt"), null, "hash-deeper", 5, now, FileChangeKind.Added, now);
         repository.RecordFileVersion(snapshot, Path.Combine(sourcePath, "deleted.txt"), null, null, 0, now, FileChangeKind.Deleted, now);
         repository.CompleteSnapshot(snapshot, now, new SnapshotStats(30, 1, 0, 1, 1, 0));
         return snapshot;
@@ -87,7 +89,7 @@ public class SnapshotCommandTests : IDisposable
         Assert.Contains("added.txt", console.Output);
         Assert.Contains("moved.txt", console.Output);
         Assert.DoesNotContain("deleted.txt", console.Output);
-        Assert.Contains("+1 ~0 ->1 -0 link 0", console.Output);
+        Assert.Contains("+3 ~0 ->1 -0 link 0", console.Output);
     }
 
     [Fact]
@@ -113,5 +115,59 @@ public class SnapshotCommandTests : IDisposable
         Assert.Equal(0, exitCode);
         Assert.Contains("No changes recorded", console.Output);
         Assert.DoesNotContain("Snapshot #", console.Output);
+    }
+
+    [Fact]
+    public void Depth_option_limits_directories_and_file_details_without_changing_rollups()
+    {
+        var snapshot = SeedSnapshot();
+        var (command, console) = CreateCommand();
+        var sourcePath = AbsolutePathMirrorMapper.ToMirrorPath(_sourceRoot);
+        var directory = Path.Combine(sourcePath, "nested");
+
+        var exitCode = command.Parse([
+            snapshot.ToString(), directory, "--profile", "test-profile", "--depth", "1", "--files",
+        ]).Invoke();
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains("deep", console.Output);
+        Assert.DoesNotContain("deeper (+", console.Output);
+        Assert.Contains("... 1 deeper directory not shown", console.Output);
+        Assert.Contains("added.txt", console.Output);
+        Assert.Contains("depth-one.txt", console.Output);
+        Assert.DoesNotContain("depth-two.txt", console.Output);
+        Assert.Contains("+3", console.Output);
+    }
+
+    [Theory]
+    [InlineData("-1")]
+    [InlineData("invalid")]
+    public void Rejects_invalid_depth_values_before_running_the_command(string depth)
+    {
+        var (command, _) = CreateCommand();
+
+        var parseResult = command.Parse(["7", "--profile", "test-profile", "--depth", depth]);
+
+        Assert.NotEmpty(parseResult.Errors);
+        Assert.Contains("--depth must be a non-negative integer.", parseResult.Errors[0].Message);
+    }
+
+    [Fact]
+    public void Requires_a_value_for_depth()
+    {
+        var (command, _) = CreateCommand();
+
+        var parseResult = command.Parse(["7", "--depth"]);
+
+        Assert.NotEmpty(parseResult.Errors);
+    }
+
+    [Fact]
+    public void Help_documents_depth_as_optional_and_unlimited_by_default()
+    {
+        var (command, _) = CreateCommand();
+        var depthOption = command.Options.Single(option => option.Name == "--depth");
+
+        Assert.Contains("default: unlimited", depthOption.Description);
     }
 }

@@ -60,6 +60,7 @@ public class HistoryTablePresenterTests
     [InlineData(FileChangeKind.Changed, "\u001b[38;5;186m")] // LightGoldenrod2
     [InlineData(FileChangeKind.Moved, "\u001b[38;5;153m")] // LightSkyBlue1
     [InlineData(FileChangeKind.Deleted, "\u001b[38;5;131m")] // IndianRed
+    [InlineData(FileChangeKind.Linked, "\u001b[38;5;183m")] // Plum2
     public void Change_cell_is_colored_per_kind(FileChangeKind kind, string expectedEscapeCode)
     {
         var console = new TestConsole { EmitAnsiSequences = true };

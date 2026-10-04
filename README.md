@@ -181,6 +181,7 @@ creating, editing, and deleting profiles - see [`vara profiles`](#usage) below.
 |---|---|
 | `vara backup <profile> [--dry-run] [--json]` | Run an incremental backup for a profile; `--dry-run` previews planned changes without writing anything; `--json` prints a single machine-readable JSON summary instead of the human-oriented output. |
 | `vara snapshots [profile]` | List recorded snapshots (timestamp, stats, outcome). |
+| `vara snapshot <id> [directory] [--files] [--depth <n>] [--profile <name>] [--config <path>]` | Show a snapshot's directory change rollups; color distinguishes change kinds. `--files` includes changed paths. `--depth` limits displayed directory levels below the selected scope (`0` shows only that directory; omitted by default for an unlimited tree); hidden affected descendants are counted at the visible boundary. |
 | `vara history <path> [--profile <name>]` | List a file's recorded versions, most recent first. |
 | `vara browse [directory] [--profile <name>] [--at <date>] [--deleted]` | List a mirror directory's contents, optionally as of a past date, optionally including deleted entries. |
 | `vara deleted [directory] [--profile <name>] [--since <date>]` | Report deleted files, most recently deleted first. |

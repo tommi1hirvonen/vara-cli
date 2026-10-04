@@ -36,23 +36,10 @@ public static class HistoryTablePresenter
             table.AddRow(
                 new Text(version.Id.ToString()),
                 new Text(version.RecordedAt.ToString("yyyy-MM-dd HH:mm:ss zzz")),
-                new Text(change, ChangeKindStyle(version.ChangeKind)),
+                new Text(change, FileChangeKindStyle.For(version.ChangeKind).Style),
                 new Text(BackupRunSummaryFormatter.FormatBytes(version.Size)));
         }
 
         console.Write(table);
     }
-
-    // Distinct from the severity styles (OutcomeStyle) - "added/changed/moved/deleted"
-    // is a kind axis, not a severity axis, per design.md's "Status/change-kind
-    // coloring" decision, so these are plain (non-bold) pastel colors of their own.
-    private static Style ChangeKindStyle(FileChangeKind kind) => kind switch
-    {
-        FileChangeKind.Added => new Style(Color.PaleGreen1),
-        FileChangeKind.Changed => new Style(Color.LightGoldenrod2),
-        FileChangeKind.Moved => new Style(Color.LightSkyBlue1),
-        FileChangeKind.Deleted => new Style(Color.IndianRed),
-        FileChangeKind.Linked => new Style(Color.Plum2),
-        _ => Style.Plain,
-    };
 }
