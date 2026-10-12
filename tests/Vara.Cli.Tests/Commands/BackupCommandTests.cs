@@ -92,7 +92,7 @@ public class BackupCommandExitCodeTests : IDisposable
     /// equivalent fake in <c>Vara.Application.Tests</c>/<c>Vara.IntegrationTests</c> per this
     /// project's convention of duplicating small, drift-risk-free test fakes rather than
     /// referencing another test project.</summary>
-    private sealed class FakeFileSystemScanner(IReadOnlyList<ScanFailure>? failures = null, IReadOnlyList<ScannedEntry>? entries = null) : IFileSystemScanner
+    private sealed class FakeFileSystemScanner(IReadOnlyList<ScanFailure>? failures = null, IReadOnlyList<ScanItem>? entries = null) : IFileSystemScanner
     {
         public ScanResult Scan(IReadOnlyList<Source> sources) => new(entries ?? [], failures ?? []);
     }
@@ -193,7 +193,7 @@ public class BackupCommandExitCodeTests : IDisposable
         Directory.CreateDirectory(_sourceRoot);
         var sourceFile = Path.Combine(_sourceRoot, "a.txt");
         File.WriteAllText(sourceFile, "hello");
-        var entry = new ScannedEntry("a.txt", sourceFile, new FileInfo(sourceFile).Length, File.GetLastWriteTimeUtc(sourceFile), false, null);
+        var entry = ScanItem.File("a.txt", sourceFile, new FileInfo(sourceFile).Length, File.GetLastWriteTimeUtc(sourceFile));
 
         // Passed directly via BackupCommand.Create's optional console parameter,
         // rather than swapping the process-wide AnsiConsole.Console static - the
@@ -275,7 +275,7 @@ public class BackupCommandExitCodeTests : IDisposable
         Directory.CreateDirectory(_sourceRoot);
         var sourceFile = Path.Combine(_sourceRoot, "a.txt");
         File.WriteAllText(sourceFile, "hello");
-        var entry = new ScannedEntry("a.txt", sourceFile, new FileInfo(sourceFile).Length, File.GetLastWriteTimeUtc(sourceFile), false, null);
+        var entry = ScanItem.File("a.txt", sourceFile, new FileInfo(sourceFile).Length, File.GetLastWriteTimeUtc(sourceFile));
         var console = new TestConsole();
         var command = CreateCommand(new FakeFileSystemScanner(entries: [entry]), console: console);
 

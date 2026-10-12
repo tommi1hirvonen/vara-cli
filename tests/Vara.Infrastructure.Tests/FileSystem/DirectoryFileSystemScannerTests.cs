@@ -41,8 +41,23 @@ public class DirectoryFileSystemScannerTests : IDisposable
 
     private string Path_(params string[] segments) => Path.Combine([_root, .. segments]);
 
-    /// <summary>Expected <see cref="ScannedEntry.RelativePath"/> for an entry at <see cref="Path_"/>, per the mirror-absolute-source-paths change: derived from the entry's full absolute path with the drive letter's colon stripped.</summary>
+    /// <summary>Expected mirror-space path for an entry at <see cref="Path_"/>, derived from its full absolute path with the drive letter's colon stripped.</summary>
     private string MirrorPath_(params string[] segments) => AbsolutePathMirrorMapper.ToMirrorPath(Path_(segments));
+
+    private static string RelativePath(ScanItem item)
+    {
+        if (item.TryGetValue(out ScannedFile file))
+        {
+            return file.RelativePath;
+        }
+
+        if (item.TryGetValue(out ScannedLink link))
+        {
+            return link.RelativePath;
+        }
+
+        throw new InvalidOperationException("A scanned item must contain a file or link.");
+    }
 
     private static void WriteFile(string path, string content)
     {
@@ -59,8 +74,8 @@ public class DirectoryFileSystemScannerTests : IDisposable
         var entries = _scanner.Scan([new Source(_root)]).Entries.ToList();
 
         Assert.Equal(2, entries.Count);
-        Assert.Contains(entries, e => e.RelativePath == MirrorPath_("a.txt"));
-        Assert.Contains(entries, e => e.RelativePath == MirrorPath_("sub", "b.txt"));
+        Assert.Contains(entries, e => RelativePath(e) == MirrorPath_("a.txt"));
+        Assert.Contains(entries, e => RelativePath(e) == MirrorPath_("sub", "b.txt"));
     }
 
     [Fact]
@@ -72,7 +87,7 @@ public class DirectoryFileSystemScannerTests : IDisposable
         var entries = _scanner.Scan([new Source(_root, recursive: false)]).Entries.ToList();
 
         var entry = Assert.Single(entries);
-        Assert.Equal(MirrorPath_("a.txt"), entry.RelativePath);
+        Assert.Equal(MirrorPath_("a.txt"), RelativePath(entry));
     }
 
     [Fact]
@@ -84,7 +99,7 @@ public class DirectoryFileSystemScannerTests : IDisposable
         var entries = _scanner.Scan([new Source(_root, excludes: ["excluded"])]).Entries.ToList();
 
         var entry = Assert.Single(entries);
-        Assert.Equal(MirrorPath_("keep.txt"), entry.RelativePath);
+        Assert.Equal(MirrorPath_("keep.txt"), RelativePath(entry));
     }
 
     [Fact]
@@ -115,7 +130,7 @@ public class DirectoryFileSystemScannerTests : IDisposable
         var entries = _scanner.Scan([new Source(_root, excludes: ["sub/excluded"])]).Entries.ToList();
 
         var entry = Assert.Single(entries);
-        Assert.Equal(MirrorPath_("keep.txt"), entry.RelativePath);
+        Assert.Equal(MirrorPath_("keep.txt"), RelativePath(entry));
     }
 
     [Fact]
@@ -127,7 +142,7 @@ public class DirectoryFileSystemScannerTests : IDisposable
         var entries = _scanner.Scan([new Source(_root, excludes: ["sub\\excluded"])]).Entries.ToList();
 
         var entry = Assert.Single(entries);
-        Assert.Equal(MirrorPath_("keep.txt"), entry.RelativePath);
+        Assert.Equal(MirrorPath_("keep.txt"), RelativePath(entry));
     }
 
     [Fact]
@@ -139,8 +154,8 @@ public class DirectoryFileSystemScannerTests : IDisposable
         var entries = _scanner.Scan([new Source(filePath)]).Entries.ToList();
 
         var entry = Assert.Single(entries);
-        Assert.Equal(AbsolutePathMirrorMapper.ToMirrorPath(filePath), entry.RelativePath);
-        Assert.False(entry.IsLink);
+        Assert.Equal(AbsolutePathMirrorMapper.ToMirrorPath(filePath), RelativePath(entry));
+        Assert.True(entry.TryGetValue(out ScannedFile _));
     }
 
     [Fact]
@@ -166,8 +181,8 @@ public class DirectoryFileSystemScannerTests : IDisposable
             var entries = _scanner.Scan([new Source($"{driveLetter}:\\")]).Entries.ToList();
 
             Assert.Equal(2, entries.Count);
-            Assert.Contains(entries, e => e.RelativePath == AbsolutePathMirrorMapper.ToMirrorPath($"{driveLetter}:\\marker.txt"));
-            Assert.Contains(entries, e => e.RelativePath == AbsolutePathMirrorMapper.ToMirrorPath($"{driveLetter}:\\decoy\\decoyfile.txt"));
+            Assert.Contains(entries, e => RelativePath(e) == AbsolutePathMirrorMapper.ToMirrorPath($"{driveLetter}:\\marker.txt"));
+            Assert.Contains(entries, e => RelativePath(e) == AbsolutePathMirrorMapper.ToMirrorPath($"{driveLetter}:\\decoy\\decoyfile.txt"));
         }
         finally
         {
@@ -196,9 +211,9 @@ public class DirectoryFileSystemScannerTests : IDisposable
         var entries = _scanner.Scan([new Source(_root)]).Entries.ToList();
 
         // The junction itself is reported as a link entry ...
-        Assert.Contains(entries, e => e.RelativePath == MirrorPath_("linked-dir") && e.IsLink);
+        Assert.Contains(entries, e => RelativePath(e) == MirrorPath_("linked-dir") && e.TryGetValue(out ScannedLink _));
         // ... but nothing behind it is traversed or reported.
-        Assert.DoesNotContain(entries, e => e.RelativePath.Contains("hidden-behind-link.txt"));
+        Assert.DoesNotContain(entries, e => RelativePath(e).Contains("hidden-behind-link.txt"));
     }
 
     // NOTE: There is deliberately no ACL-based "permission-denied file" test here.
@@ -225,9 +240,9 @@ public class DirectoryFileSystemScannerTests : IDisposable
             var entries = result.Entries.ToList();
 
             // Nothing from inside the denied subtree is returned ...
-            Assert.DoesNotContain(entries, e => e.RelativePath.Contains("hidden.txt"));
+            Assert.DoesNotContain(entries, e => RelativePath(e).Contains("hidden.txt"));
             // ... but a sibling outside the subtree still scans normally.
-            Assert.Contains(entries, e => e.RelativePath == MirrorPath_("keep.txt"));
+            Assert.Contains(entries, e => RelativePath(e) == MirrorPath_("keep.txt"));
 
             // Exactly one failure for the subtree root, not one per file that would
             // have been inside it.
@@ -262,7 +277,7 @@ public class DirectoryFileSystemScannerTests : IDisposable
             // directory beneath it, and no ScanFailure is recorded for it.
             Assert.Empty(result.Failures);
             var entry = Assert.Single(entries);
-            Assert.Equal(MirrorPath_("keep.txt"), entry.RelativePath);
+            Assert.Equal(MirrorPath_("keep.txt"), RelativePath(entry));
         }
         finally
         {
@@ -291,7 +306,7 @@ public class DirectoryFileSystemScannerTests : IDisposable
 
             Assert.Empty(result.Failures);
             var entry = Assert.Single(entries);
-            Assert.Equal(MirrorPath_("keep.txt"), entry.RelativePath);
+            Assert.Equal(MirrorPath_("keep.txt"), RelativePath(entry));
         }
         finally
         {
@@ -313,11 +328,11 @@ public class DirectoryFileSystemScannerTests : IDisposable
             .Entries.ToList();
 
         Assert.Equal(2, entries.Count);
-        Assert.Contains(entries, e => e.RelativePath == MirrorPath_("a.txt"));
-        Assert.Contains(entries, e => e.RelativePath == MirrorPath_("sub", "b.txt"));
-        Assert.DoesNotContain(entries, e => e.RelativePath == MirrorPath_("a.log"));
-        Assert.DoesNotContain(entries, e => e.RelativePath == MirrorPath_("sub", "b.log"));
-        Assert.DoesNotContain(entries, e => e.RelativePath.Contains("skip.txt"));
+        Assert.Contains(entries, e => RelativePath(e) == MirrorPath_("a.txt"));
+        Assert.Contains(entries, e => RelativePath(e) == MirrorPath_("sub", "b.txt"));
+        Assert.DoesNotContain(entries, e => RelativePath(e) == MirrorPath_("a.log"));
+        Assert.DoesNotContain(entries, e => RelativePath(e) == MirrorPath_("sub", "b.log"));
+        Assert.DoesNotContain(entries, e => RelativePath(e).Contains("skip.txt"));
     }
 
     [Fact]

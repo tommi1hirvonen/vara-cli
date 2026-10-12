@@ -69,9 +69,14 @@ public class DirectoryListingPresenterTests
         Assert.Contains("archive\\a.txt", console.Output);
     }
 
+    public static TheoryData<DirectoryEntryStatus, string> NonLiveStatusColors => new()
+    {
+        { DirectoryEntryStatus.Deleted, "\u001b[38;5;131m" }, // IndianRed
+        { DirectoryEntryStatus.Moved, "\u001b[38;5;153m" }, // LightSkyBlue1
+    };
+
     [Theory]
-    [InlineData(DirectoryEntryStatus.Deleted, "\u001b[38;5;131m")] // IndianRed
-    [InlineData(DirectoryEntryStatus.Moved, "\u001b[38;5;153m")] // LightSkyBlue1
+    [MemberData(nameof(NonLiveStatusColors))]
     public void Deleted_and_moved_rows_are_colored_distinctly(DirectoryEntryStatus status, string expectedEscapeCode)
     {
         var console = new TestConsole { EmitAnsiSequences = true };

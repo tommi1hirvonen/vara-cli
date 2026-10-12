@@ -220,7 +220,7 @@ public static class BackupCommand
             {
                 var scanTask = ctx.AddTask("Scanning", autoStart: true);
                 scanTask.IsIndeterminate = true;
-                scanTask.State.Update(BackupProgressColumn.RoleKey, (BackupProgressRole _) => BackupProgressRole.Scan);
+                BackupProgressColumn.SetRole(scanTask, BackupProgressRole.Scan);
 
                 ProgressTask? barTask = null;
                 ProgressTask? statsTask = null;
@@ -254,9 +254,9 @@ public static class BackupCommand
                             // delta's "Indicator replaced once transfer begins" scenario.
                             ctx.RemoveTask(scanTask);
                             barTask = ctx.AddTask("Transfer", autoStart: true, maxValue: 100);
-                            barTask.State.Update(BackupProgressColumn.RoleKey, (BackupProgressRole _) => BackupProgressRole.Bar);
+                            BackupProgressColumn.SetRole(barTask, BackupProgressRole.Bar);
                             statsTask = ctx.AddTask("Stats", autoStart: true, maxValue: admitted.TotalBytes);
-                            statsTask.State.Update(BackupProgressColumn.RoleKey, (BackupProgressRole _) => BackupProgressRole.Stats);
+                            BackupProgressColumn.SetRole(statsTask, BackupProgressRole.Stats);
                         }
 
                         var snapshot = calculator.Calculate(admitted);
@@ -319,7 +319,7 @@ public static class BackupCommand
                         }
 
                         displayOpen = false;
-                        (barTask ?? scanTask).State.Update(BackupProgressColumn.OutcomeKey, (BackupProgressOutcome _) => outcome);
+                        BackupProgressColumn.SetOutcome(barTask ?? scanTask, outcome);
                         ctx.Refresh();
                     }
                 }
@@ -365,18 +365,18 @@ public static class BackupCommand
             {
                 var scanTask = ctx.AddTask("Scanning", autoStart: true);
                 scanTask.IsIndeterminate = true;
-                scanTask.State.Update(BackupProgressColumn.RoleKey, (BackupProgressRole _) => BackupProgressRole.Scan);
+                BackupProgressColumn.SetRole(scanTask, BackupProgressRole.Scan);
                 ctx.Refresh();
 
                 try
                 {
                     summary = plan();
-                    scanTask.State.Update(BackupProgressColumn.OutcomeKey, (BackupProgressOutcome _) => BackupProgressOutcome.Success);
+                    BackupProgressColumn.SetOutcome(scanTask, BackupProgressOutcome.Success);
                     ctx.Refresh();
                 }
                 catch
                 {
-                    scanTask.State.Update(BackupProgressColumn.OutcomeKey, (BackupProgressOutcome _) => BackupProgressOutcome.Error);
+                    BackupProgressColumn.SetOutcome(scanTask, BackupProgressOutcome.Error);
                     ctx.Refresh();
                     throw;
                 }

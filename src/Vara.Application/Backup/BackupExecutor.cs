@@ -66,7 +66,14 @@ public sealed class BackupExecutor(
         var failedPaths = new List<string>();
         var reportLock = new object();
 
-        foreach (var operation in plan.Operations.Where(o => o.Kind is PlannedOperationKind.Move or PlannedOperationKind.Delete or PlannedOperationKind.Link))
+        foreach (var operation in plan.Operations.Where(operation => operation switch
+                 {
+                     MoveOperation => true,
+                     DeleteOperation => true,
+                     LinkOperation => true,
+                     AddOperation => false,
+                     ChangeOperation => false,
+                 }))
         {
             // Cooperative cancellation: stop starting new metadata-only operations once a
             // graceful Ctrl+C stop has been requested. Whatever has already started is
@@ -87,7 +94,14 @@ public sealed class BackupExecutor(
         // time (fix-transfer-clock-start change's design.md).
         onTransferPhaseStarting?.Invoke();
 
-        var transferOperations = plan.Operations.Where(o => o.Kind is PlannedOperationKind.Add or PlannedOperationKind.Change).ToList();
+        var transferOperations = plan.Operations.Where(operation => operation switch
+        {
+            AddOperation => true,
+            ChangeOperation => true,
+            MoveOperation => false,
+            DeleteOperation => false,
+            LinkOperation => false,
+        }).ToList();
 
         Parallel.ForEach(
             transferOperations,
@@ -138,52 +152,51 @@ public sealed class BackupExecutor(
     {
         try
         {
-            if (operation.Kind == PlannedOperationKind.Move)
+            switch (operation)
             {
-                contentStore.MoveMirrorEntry(operation.PreviousRelativePath!, operation.RelativePath);
-                repository.RecordFileVersion(
-                    snapshotId, operation.PreviousRelativePath!, null, operation.KnownContentHash!,
-                    operation.Size, operation.SourceModifiedAt, FileChangeKind.Deleted, recordedAt,
-                    operation.QuickHash, operation.QuickHashScheme);
-                repository.RecordFileVersion(
-                    snapshotId, operation.RelativePath, operation.PreviousRelativePath, operation.KnownContentHash!,
-                    operation.Size, operation.SourceModifiedAt, FileChangeKind.Moved, recordedAt,
-                    operation.QuickHash, operation.QuickHashScheme);
-                counts.Moved++;
-            }
-            else if (operation.Kind == PlannedOperationKind.Delete)
-            {
-                // KnownContentHash is null when the path being deleted was itself most
-                // recently a Linked entry - there was never a content-store blob for it,
-                // so there is nothing to remove from the mirror (and no valid hash to
-                // pass into the content store's blob-path resolution).
-                if (!string.IsNullOrEmpty(operation.KnownContentHash))
-                {
-                    contentStore.RemoveFromMirror(operation.RelativePath, operation.KnownContentHash);
-                }
+                case MoveOperation move:
+                    contentStore.MoveMirrorEntry(move.PreviousRelativePath, move.RelativePath);
+                    repository.RecordFileVersion(
+                        snapshotId, move.PreviousRelativePath, null, move.KnownContentHash,
+                        move.Size, move.SourceModifiedAt, FileChangeKind.Deleted, recordedAt,
+                        move.QuickHash, move.QuickHashScheme);
+                    repository.RecordFileVersion(
+                        snapshotId, move.RelativePath, move.PreviousRelativePath, move.KnownContentHash,
+                        move.Size, move.SourceModifiedAt, FileChangeKind.Moved, recordedAt,
+                        move.QuickHash, move.QuickHashScheme);
+                    counts.Moved++;
+                    break;
 
-                repository.RecordFileVersion(
-                    snapshotId, operation.RelativePath, null, operation.KnownContentHash,
-                    operation.Size, operation.SourceModifiedAt, FileChangeKind.Deleted, recordedAt,
-                    operation.QuickHash, operation.QuickHashScheme);
-                counts.Deleted++;
-            }
-            else
-            {
-                // Link: no content store I/O for the link target itself - it is never
-                // followed or copied. PreviousContentHash, when set, means this is a
-                // file-to-link transition (BackupPlanner): the mirror still holds the
-                // path's previously tracked content, which is now superseded by the
-                // link and must be removed so the mirror doesn't retain it forever.
-                if (!string.IsNullOrEmpty(operation.PreviousContentHash))
-                {
-                    contentStore.RemoveFromMirror(operation.RelativePath, operation.PreviousContentHash);
-                }
+                case DeleteOperation delete:
+                    // Linked entries have no content-store blob to remove.
+                    if (!string.IsNullOrEmpty(delete.KnownContentHash))
+                    {
+                        contentStore.RemoveFromMirror(delete.RelativePath, delete.KnownContentHash);
+                    }
 
-                repository.RecordFileVersion(
-                    snapshotId, operation.RelativePath, null, null,
-                    operation.Size, operation.SourceModifiedAt, FileChangeKind.Linked, recordedAt,
-                    operation.QuickHash, operation.QuickHashScheme, linkTarget: operation.LinkTarget);
+                    repository.RecordFileVersion(
+                        snapshotId, delete.RelativePath, null, delete.KnownContentHash,
+                        delete.Size, delete.SourceModifiedAt, FileChangeKind.Deleted, recordedAt,
+                        delete.QuickHash, delete.QuickHashScheme);
+                    counts.Deleted++;
+                    break;
+
+                case LinkOperation link:
+                    // A file-to-link transition must remove the superseded mirror copy.
+                    if (!string.IsNullOrEmpty(link.PreviousContentHash))
+                    {
+                        contentStore.RemoveFromMirror(link.RelativePath, link.PreviousContentHash);
+                    }
+
+                    repository.RecordFileVersion(
+                        snapshotId, link.RelativePath, null, null,
+                        0, DateTimeOffset.MinValue, FileChangeKind.Linked, recordedAt,
+                        linkTarget: link.LinkTarget);
+                    break;
+
+                case AddOperation:
+                case ChangeOperation:
+                    throw new InvalidOperationException("A transfer operation cannot be executed as metadata-only.");
             }
 
             lock (reportLock)
@@ -215,10 +228,18 @@ public sealed class BackupExecutor(
         Action<string>? onFileStarted,
         Action<string>? onFileFinished)
     {
+        var (sourceAbsolutePath, scannedSize, sourceModifiedAt, previousContentHash, changeKind) = operation switch
+        {
+            AddOperation add => (add.SourceAbsolutePath, add.Size, add.SourceModifiedAt, null, FileChangeKind.Added),
+            ChangeOperation change => (change.SourceAbsolutePath, change.Size, change.SourceModifiedAt, change.PreviousContentHash, FileChangeKind.Changed),
+            MoveOperation => throw new InvalidOperationException("A move operation cannot be executed as a content transfer."),
+            DeleteOperation => throw new InvalidOperationException("A delete operation cannot be executed as a content transfer."),
+            LinkOperation => throw new InvalidOperationException("A link operation cannot be executed as a content transfer."),
+        };
         var transferredSuccessfully = false;
         try
         {
-            onFileStarted?.Invoke(operation.SourceAbsolutePath!);
+            onFileStarted?.Invoke(sourceAbsolutePath);
 
             string hash;
             long size;
@@ -268,7 +289,7 @@ public sealed class BackupExecutor(
                     mirrorCallback = chunk =>
                     {
                         mirrorSoFar += chunk;
-                        var target = (operation.Size / 2) + (mirrorSoFar / 2);
+                        var target = (scannedSize / 2) + (mirrorSoFar / 2);
                         var delta = target - reportedSoFar;
                         if (delta > 0)
                         {
@@ -279,7 +300,7 @@ public sealed class BackupExecutor(
                 }
             }
 
-            using (var sourceStream = File.OpenRead(operation.SourceAbsolutePath!))
+            using (var sourceStream = File.OpenRead(sourceAbsolutePath))
             {
                 var signature = new StreamingContentSignature(sourceStream, hasher);
                 quickHash = signature.ComputeQuickHash();
@@ -296,8 +317,8 @@ public sealed class BackupExecutor(
             // manifest entry under stale metadata (detect-torn-reads-after-transfer
             // change's design.md). Uses a plain FileInfo stat, the same mechanism the
             // scanner itself uses (DirectoryFileSystemScanner.ToEntry).
-            var postTransferInfo = new FileInfo(operation.SourceAbsolutePath!);
-            if (postTransferInfo.Length != operation.Size || postTransferInfo.LastWriteTimeUtc != operation.SourceModifiedAt)
+            var postTransferInfo = new FileInfo(sourceAbsolutePath);
+            if (postTransferInfo.Length != scannedSize || postTransferInfo.LastWriteTimeUtc != sourceModifiedAt)
             {
                 lock (reportLock)
                 {
@@ -309,7 +330,7 @@ public sealed class BackupExecutor(
                 return;
             }
 
-            contentStore.PlaceAtMirrorPath(hash, operation.RelativePath, mirrorCallback, operation.PreviousContentHash);
+            contentStore.PlaceAtMirrorPath(hash, operation.RelativePath, mirrorCallback, previousContentHash);
 
             if (!contentStore.SupportsHardlinks && onBytesTransferred is not null)
             {
@@ -322,9 +343,8 @@ public sealed class BackupExecutor(
 
             lock (reportLock)
             {
-                var changeKind = operation.Kind == PlannedOperationKind.Add ? FileChangeKind.Added : FileChangeKind.Changed;
                 repository.RecordFileVersion(
-                    snapshotId, operation.RelativePath, null, hash, size, operation.SourceModifiedAt, changeKind, recordedAt,
+                    snapshotId, operation.RelativePath, null, hash, size, sourceModifiedAt, changeKind, recordedAt,
                     quickHash, QuickHashPolicy.CurrentScheme);
 
                 counts.BytesTransferred += size;
@@ -344,7 +364,7 @@ public sealed class BackupExecutor(
         }
         finally
         {
-            onFileFinished?.Invoke(operation.SourceAbsolutePath!);
+            onFileFinished?.Invoke(sourceAbsolutePath);
         }
 
         if (transferredSuccessfully)

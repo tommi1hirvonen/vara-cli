@@ -1,11 +1,13 @@
+using Vara.Core.Exceptions;
+
 namespace Vara.Core.Configuration;
 
 /// <summary>
 /// Base type for all profile-configuration-related errors that should be surfaced
 /// to the user as clear, actionable messages rather than raw exceptions.
 /// </summary>
-public abstract class ProfileConfigException(string message, Exception? innerException = null)
-    : Exception(message, innerException);
+public closed class ProfileConfigException(string message, Exception? innerException = null)
+    : VaraDomainException(message, innerException);
 
 /// <summary>
 /// The profile configuration file could not be found at its expected location.
@@ -88,4 +90,3 @@ public sealed class ProfileConfigWriteFailedException(string configPath, string 
 {
     public string ConfigPath { get; } = configPath;
 }
-

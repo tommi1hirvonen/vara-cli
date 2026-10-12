@@ -1,4 +1,5 @@
 using Vara.Cli.Composition;
+using Vara.Core.Exceptions;
 using Xunit;
 
 namespace Vara.Cli.Tests.Composition;

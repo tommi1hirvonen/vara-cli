@@ -1,60 +1,8 @@
 using Spectre.Console;
 using Spectre.Console.Rendering;
-using Vara.Application.Backup;
 using Vara.Application.Reporting;
 
 namespace Vara.Cli.Presentation;
-
-/// <summary>
-/// Which of the backup progress display's three synthetic <see cref="ProgressTask"/>s
-/// a given task represents, stashed in that task's <see cref="ProgressTask.State"/>
-/// under <see cref="BackupProgressColumn.RoleKey"/> so <see cref="BackupProgressColumn"/>
-/// knows which content to render for it.
-/// </summary>
-public enum BackupProgressRole
-{
-    Scan,
-    Bar,
-    Stats,
-}
-
-/// <summary>
-/// A bar-role or scan-role task's outcome, for coloring purposes only - stashed in that
-/// task's <see cref="ProgressTask.State"/> under <see cref="BackupProgressColumn.OutcomeKey"/>.
-/// <see cref="Running"/> is deliberately the enum's default (0) value, since a task's
-/// <see cref="ProgressTaskState"/> returns a key's default when it was never stamped - a
-/// task that hasn't had its outcome explicitly set is still running. Per design.md's
-/// "one outcome enum ... read by both scan and bar rendering" decision: the byte-based
-/// percentage no longer determines the bar's final color (a failure doesn't always move
-/// the percentage to 100, and a Move/Delete-only failure never touches it at all), so the
-/// caller (<see cref="Commands.BackupCommand"/>) stamps the actual run outcome once it is
-/// known, instead.
-/// </summary>
-public enum BackupProgressOutcome
-{
-    Running,
-    Success,
-    PartialFailure,
-    Error,
-}
-
-/// <summary>
-/// A value-type display snapshot stashed in a task's <see cref="ProgressTask.State"/>
-/// under <see cref="BackupProgressColumn.ProgressKey"/>. The optional calculated
-/// snapshot keeps numeric display values stable during active-path-only refreshes.
-/// <see cref="ProgressTaskState"/> only accepts <c>struct</c> values, so this wraps
-/// <see cref="BackupProgress"/> (a reference-type record) in a storable value type.
-/// </summary>
-public readonly record struct BackupProgressState(
-    long BytesTransferred,
-    long TotalBytes,
-    int FilesTransferred = 0,
-    int TotalFiles = 0,
-    IReadOnlyList<string>? ActivePaths = null,
-    ProgressSnapshot? Snapshot = null)
-{
-    public BackupProgress ToProgress() => new(BytesTransferred, TotalBytes, FilesTransferred, TotalFiles, ActivePaths);
-}
 
 /// <summary>
 /// The single column driving every row of the backup progress display's three
@@ -73,9 +21,18 @@ public readonly record struct BackupProgressState(
 /// </summary>
 public sealed class BackupProgressColumn(BackupProgressCalculator calculator) : ProgressColumn
 {
+    private readonly record struct RoleState(BackupProgressRole? Value);
+    private readonly record struct OutcomeState(BackupProgressOutcome? Value);
+
     public const string RoleKey = "BackupProgressRole";
     public const string ProgressKey = "BackupProgressState";
     public const string OutcomeKey = "BackupProgressOutcome";
+
+    internal static void SetRole(ProgressTask task, BackupProgressRole role) =>
+        task.State.Update(RoleKey, (RoleState _) => new RoleState(role));
+
+    internal static void SetOutcome(ProgressTask task, BackupProgressOutcome outcome) =>
+        task.State.Update(OutcomeKey, (OutcomeState _) => new OutcomeState(outcome));
 
     private const string ScanLabel = " Scanning files...";
     private const string TransferLabel = " Backing up...";
@@ -109,12 +66,11 @@ public sealed class BackupProgressColumn(BackupProgressCalculator calculator) : 
     };
 
     public override IRenderable Render(RenderOptions options, ProgressTask task, TimeSpan deltaTime) =>
-        task.State.Get<BackupProgressRole>(RoleKey) switch
+        (task.State.Get<RoleState>(RoleKey).Value ?? BackupProgressRole.Scan) switch
         {
-            BackupProgressRole.Scan => RenderScan(options, task, deltaTime),
-            BackupProgressRole.Bar => RenderBar(options, task, deltaTime),
-            BackupProgressRole.Stats => RenderStats(task),
-            _ => new Text(string.Empty),
+            BackupProgressRole.ScanRole => RenderScan(options, task, deltaTime),
+            BackupProgressRole.BarRole => RenderBar(options, task, deltaTime),
+            BackupProgressRole.StatsRole => RenderStats(task),
         };
 
     // Renders the scan phase's indeterminate indicator using the same shared _bar as
@@ -197,13 +153,13 @@ public sealed class BackupProgressColumn(BackupProgressCalculator calculator) : 
     // to read task.State a second time.
     private BackupProgressOutcome ApplyOutcomeStyle(ProgressTask task)
     {
-        var outcome = task.State.Get<BackupProgressOutcome>(OutcomeKey);
+        var outcome = task.State.Get<OutcomeState>(OutcomeKey).Value ?? BackupProgressOutcome.Running;
         var color = outcome switch
         {
-            BackupProgressOutcome.Success => OutcomeStyle.Success.Foreground,
-            BackupProgressOutcome.PartialFailure => OutcomeStyle.PartialFailure.Foreground,
-            BackupProgressOutcome.Error => OutcomeStyle.Error.Foreground,
-            _ => OutcomeStyle.PartialFailure.Foreground, // Running: amber, distinct from every final outcome color.
+            BackupProgressOutcome.RunningOutcome => OutcomeStyle.PartialFailure.Foreground,
+            BackupProgressOutcome.SuccessOutcome => OutcomeStyle.Success.Foreground,
+            BackupProgressOutcome.PartialFailureOutcome => OutcomeStyle.PartialFailure.Foreground,
+            BackupProgressOutcome.ErrorOutcome => OutcomeStyle.Error.Foreground,
         };
 
         var style = new Style(color);

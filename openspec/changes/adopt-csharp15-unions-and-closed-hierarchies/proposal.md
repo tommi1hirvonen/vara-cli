@@ -15,7 +15,7 @@ The project repository already targets `net11.0` with `<LangVersion>preview</Lan
 1. **Closed Record Hierarchy for Backup Operations (`PlannedOperation`)**:
    - Replace the flat `PlannedOperation` record (which had 11 fields, 7 of which were conditionally nullable depending on `PlannedOperationKind`) with a `closed record PlannedOperation(string RelativePath)`.
    - Introduce dedicated sealed variants: `AddOperation`, `ChangeOperation`, `MoveOperation`, `DeleteOperation`, and `LinkOperation`.
-   - Update `BackupPlanner` to produce typed operation variants and `BackupExecutor` / reporters to switch exhaustively over the closed hierarchy.
+   - Update `BackupPlanner` to produce typed operation variants, and `BackupExecutor` plus dry-run plan counting to handle the closed hierarchy exhaustively while preserving the existing aggregate report output.
 
 2. **Presentation & Lifecycle Enums to Closed Singleton Hierarchies**:
    - Replace open enums (`BackupProgressRole`, `BackupProgressOutcome`, `FileChangeKind`, `DirectoryEntryStatus`) with closed record hierarchies using cached static singletons.
@@ -34,7 +34,7 @@ The project repository already targets `net11.0` with `<LangVersion>preview</Lan
 
 5. **Closed Hierarchy for Domain Exceptions with Root `VaraDomainException`**:
    - Introduce a root `public closed class VaraDomainException : Exception`.
-   - Subclass domain exception families under `VaraDomainException` (`ProfileConfigException`, `SnapshotException`, `ConcurrencyException`, `BackupRunException`, `InvalidDateTimeOptionException`).
+   - Subclass domain exception families under `VaraDomainException` (`ProfileConfigException`, `SnapshotException`, `ConcurrencyException`, `BackupRunException`, `InvalidDateTimeOptionException`). Define `InvalidDateTimeOptionException` in `Vara.Core.Exceptions` because closed classes cannot be subclassed from the separate CLI assembly; the CLI parser consumes the Core type.
    - Refactor `ErrorReporting.Run` to catch `VaraDomainException` directly, enabling 100% exhaustive pattern matching with no `default` case and eliminating filter methods.
 
 6. **Result-or-Refusal Union Types for Diff and Show Operations**:

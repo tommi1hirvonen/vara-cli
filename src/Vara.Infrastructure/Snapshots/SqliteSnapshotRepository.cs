@@ -580,7 +580,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
             // recorded under this path. If that earliest row is itself a move, the
             // path's history continues under whatever path it was moved from.
             var earliest = rowsForPath.Count > 0 ? rowsForPath[^1] : null;
-            currentPath = earliest is { ChangeKind: FileChangeKind.Moved } ? earliest.PreviousRelativePath : null;
+            currentPath = earliest is { ChangeKind: FileChangeKind.MovedChange } ? earliest.PreviousRelativePath : null;
         }
 
         return all.OrderByDescending(r => r.Id).ToList();
@@ -590,7 +590,7 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
     {
         var history = GetFileHistory(relativePath);
         var match = history.FirstOrDefault(r => r.RecordedAt <= asOf);
-        return match is { ChangeKind: FileChangeKind.Deleted } ? null : match;
+        return match is { ChangeKind: FileChangeKind.DeletedChange } ? null : match;
     }
 
     public IReadOnlyList<FileVersionRecord> GetFileHistoryUnderPrefix(string prefix)
@@ -846,11 +846,21 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
         ContentHash: reader.IsDBNull(4) ? null : reader.GetString(4),
         Size: reader.GetInt64(5),
         SourceModifiedAt: ParseIso(reader.GetString(6)),
-        ChangeKind: Enum.Parse<FileChangeKind>(reader.GetString(7)),
+        ChangeKind: ParseFileChangeKind(reader.GetString(7)),
         RecordedAt: ParseIso(reader.GetString(8)),
         QuickHash: reader.IsDBNull(9) ? null : reader.GetString(9),
         QuickHashScheme: reader.IsDBNull(10) ? null : reader.GetInt32(10),
         LinkTarget: reader.IsDBNull(11) ? null : reader.GetString(11));
+
+    private static FileChangeKind ParseFileChangeKind(string value) => value switch
+    {
+        nameof(FileChangeKind.Added) => FileChangeKind.Added,
+        nameof(FileChangeKind.Changed) => FileChangeKind.Changed,
+        nameof(FileChangeKind.Moved) => FileChangeKind.Moved,
+        nameof(FileChangeKind.Deleted) => FileChangeKind.Deleted,
+        nameof(FileChangeKind.Linked) => FileChangeKind.Linked,
+        _ => throw new ArgumentException($"Requested value '{value}' was not found.", nameof(value)),
+    };
 
     private static string ToIso(DateTimeOffset value) => value.ToString("o", CultureInfo.InvariantCulture);
 

@@ -221,10 +221,30 @@ public sealed class BackupPipeline(
 
             var (scanResult, plan) = ScanDiffAndPlan(profile);
 
-            var added = plan.Operations.Count(o => o.Kind == PlannedOperationKind.Add);
-            var changed = plan.Operations.Count(o => o.Kind == PlannedOperationKind.Change);
-            var moved = plan.Operations.Count(o => o.Kind == PlannedOperationKind.Move);
-            var deleted = plan.Operations.Count(o => o.Kind == PlannedOperationKind.Delete);
+            var added = 0;
+            var changed = 0;
+            var moved = 0;
+            var deleted = 0;
+            foreach (var operation in plan.Operations)
+            {
+                switch (operation)
+                {
+                    case AddOperation:
+                        added++;
+                        break;
+                    case ChangeOperation:
+                        changed++;
+                        break;
+                    case MoveOperation:
+                        moved++;
+                        break;
+                    case DeleteOperation:
+                        deleted++;
+                        break;
+                    case LinkOperation:
+                        break;
+                }
+            }
             var failedPaths = scanResult.Failures.Select(f => f.RelativePath).ToList();
 
             return new BackupPlanSummary(added, changed, moved, deleted, plan.TotalBytesToTransfer, failedPaths);

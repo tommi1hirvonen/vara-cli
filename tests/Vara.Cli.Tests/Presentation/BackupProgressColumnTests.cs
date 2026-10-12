@@ -16,7 +16,7 @@ public class BackupProgressColumnTests
     private static ProgressTask CreateTask(BackupProgressRole role, BackupProgressState? state = null, BackupProgressOutcome? outcome = null)
     {
         var task = new ProgressTask(1, "task", 100);
-        task.State.Update(BackupProgressColumn.RoleKey, (BackupProgressRole _) => role);
+        BackupProgressColumn.SetRole(task, role);
         if (state is { } value)
         {
             task.State.Update(BackupProgressColumn.ProgressKey, (BackupProgressState _) => value);
@@ -24,7 +24,7 @@ public class BackupProgressColumnTests
 
         if (outcome is { } resolvedOutcome)
         {
-            task.State.Update(BackupProgressColumn.OutcomeKey, (BackupProgressOutcome _) => resolvedOutcome);
+            BackupProgressColumn.SetOutcome(task, resolvedOutcome);
         }
 
         return task;
@@ -50,7 +50,7 @@ public class BackupProgressColumnTests
     [Fact]
     public void Bar_role_fills_with_the_pastel_amber_color_while_running()
     {
-        // No outcome stamped - defaults to BackupProgressOutcome.Running (enum value 0),
+        // No outcome stamped - defaults to the Running singleton,
         // per design.md's "Running: ... pastel amber (transfer)" decision: an in-progress
         // bar is amber, distinct from any of the three final-outcome colors.
         var console = new TestConsole { EmitAnsiSequences = true };
@@ -386,20 +386,18 @@ public class BackupProgressColumnTests
     }
 
     [Fact]
-    public void Unrecognized_role_renders_nothing()
+    public void Unset_role_defaults_to_the_scan_row()
     {
         var console = new TestConsole();
         console.Profile.Width = 60;
 
         var column = new BackupProgressColumn(new BackupProgressCalculator());
-        var task = new ProgressTask(1, "task", 100); // no role set - defaults to BackupProgressRole.Scan (0)
+        var task = new ProgressTask(1, "task", 100);
+        task.IsIndeterminate = true;
 
-        // A task with the default (unset) role state resolves to BackupProgressRole.Scan
-        // (enum default value 0), so this exercises the fallback branch via a role that
-        // was never explicitly stamped - matches how a stray/unexpected task would
-        // render blank rather than throwing.
-        var renderable = column.Render(CreateOptions(console), task, TimeSpan.Zero);
-        Assert.NotNull(renderable);
+        console.Write(column.Render(CreateOptions(console), task, TimeSpan.Zero));
+
+        Assert.Contains("Scanning files...", console.Output);
     }
 
     [Fact]
@@ -419,17 +417,17 @@ public class BackupProgressColumnTests
         {
             var scanTask = ctx.AddTask("scan");
             scanTask.IsIndeterminate = true;
-            scanTask.State.Update(BackupProgressColumn.RoleKey, (BackupProgressRole _) => BackupProgressRole.Scan);
+            BackupProgressColumn.SetRole(scanTask, BackupProgressRole.Scan);
             ctx.Refresh();
 
             ctx.RemoveTask(scanTask);
 
             var barTask = ctx.AddTask("bar", autoStart: true, maxValue: 100);
-            barTask.State.Update(BackupProgressColumn.RoleKey, (BackupProgressRole _) => BackupProgressRole.Bar);
+            BackupProgressColumn.SetRole(barTask, BackupProgressRole.Bar);
             barTask.State.Update(BackupProgressColumn.ProgressKey, (BackupProgressState _) => new BackupProgressState(50, 100));
 
             var statsTask = ctx.AddTask("stats", autoStart: true, maxValue: 100);
-            statsTask.State.Update(BackupProgressColumn.RoleKey, (BackupProgressRole _) => BackupProgressRole.Stats);
+            BackupProgressColumn.SetRole(statsTask, BackupProgressRole.Stats);
             statsTask.State.Update(BackupProgressColumn.ProgressKey, (BackupProgressState _) => new BackupProgressState(50, 100));
             ctx.Refresh();
         });

@@ -1,3 +1,5 @@
+using Vara.Core.Exceptions;
+
 namespace Vara.Core.Backup;
 
 /// <summary>
@@ -10,7 +12,7 @@ namespace Vara.Core.Backup;
 /// running.
 /// </summary>
 public sealed class PruneAlreadyRunningException(string profileName, string targetRoot)
-    : Exception(
+    : ConcurrencyException(
         $"Another operation is already using target '{targetRoot}'; " +
         $"a prune run for profile '{profileName}' cannot start until it finishes.")
 {
@@ -26,7 +28,7 @@ public sealed class PruneAlreadyRunningException(string profileName, string targ
 /// "Prune command" requirement.
 /// </summary>
 public sealed class PruneConfirmationRequiredException(string profileName, int eligibleCount)
-    : Exception(
+    : BackupRunException(
         $"Profile '{profileName}' has {eligibleCount} snapshot(s) eligible for removal. " +
         "Pass --yes (or -y) to confirm, or re-run interactively to be prompted.")
 {

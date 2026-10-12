@@ -43,7 +43,8 @@ public static class ShowCommand
                 return 1;
             }
 
-            return ErrorReporting.Run(() =>
+            var resultExitCode = ExitCodes.Success;
+            var errorExitCode = ErrorReporting.Run(() =>
             {
                 var profile = profileResolver.ResolveForBrowsing(profileName, configPath);
                 using var services = serviceFactory.CreateFor(profile, createIfMissing: false);
@@ -61,10 +62,33 @@ public static class ShowCommand
                 var asOf = at is null ? (DateTimeOffset?)null : DateTimeOptionParser.Parse("--at", at);
 
                 using var stdout = Console.OpenStandardOutput();
-                history.ShowVersion(resolvedPath, version, asOf, stdout, forceBinary: Console.IsOutputRedirected || forceBinary);
+                var result = history.ShowVersion(resolvedPath, version, asOf, forceBinary: Console.IsOutputRedirected || forceBinary);
+                resultExitCode = result switch
+                {
+                    Stream stream => WriteVersion(stream, stdout),
+                    ShowRefusal refusal => ReportRefusal(refusal),
+                };
             });
+
+            return errorExitCode == ExitCodes.Success ? resultExitCode : errorExitCode;
         });
 
         return command;
+    }
+
+    private static int WriteVersion(Stream stream, Stream destination)
+    {
+        using (stream)
+        {
+            stream.CopyTo(destination);
+        }
+
+        return ExitCodes.Success;
+    }
+
+    private static int ReportRefusal(ShowRefusal refusal)
+    {
+        OutcomeStyle.WriteLineError(StandardError.Console, $"Error: {refusal.Message}");
+        return ExitCodes.HardError;
     }
 }

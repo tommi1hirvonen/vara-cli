@@ -24,6 +24,11 @@ public class BackupPipelineTests : IDisposable
     private static Profile SimpleProfile(string targetRoot, ConcurrencySettings? concurrency = null) =>
         new("files", targetRoot, [new Source(@"C:\irrelevant-for-fake-scanner")], null, concurrency);
 
+    private static long FileSize(ScanItem item) =>
+        item.TryGetValue(out ScannedFile file)
+            ? file.Size
+            : throw new InvalidOperationException("Expected a scanned file.");
+
     [Fact]
     public void Run_throws_when_the_lock_cannot_be_acquired()
     {
@@ -45,7 +50,7 @@ public class BackupPipelineTests : IDisposable
     {
         var path = Path.Combine(_root, "a.txt");
         File.WriteAllText(path, "hello");
-        var entry = new ScannedEntry("a.txt", path, 5, File.GetLastWriteTimeUtc(path), false, null);
+        var entry = ScanItem.File("a.txt", path, 5, File.GetLastWriteTimeUtc(path));
         var repository = new FakeSnapshotRepository();
 
         var pipeline = new BackupPipeline(
@@ -78,19 +83,19 @@ public class BackupPipelineTests : IDisposable
     {
         var unchangedPath = Path.Combine(_root, "unchanged.txt");
         File.WriteAllText(unchangedPath, "same");
-        var unchangedEntry = new ScannedEntry("unchanged.txt", unchangedPath, new FileInfo(unchangedPath).Length, File.GetLastWriteTimeUtc(unchangedPath), false, null);
+        var unchangedEntry = ScanItem.File("unchanged.txt", unchangedPath, new FileInfo(unchangedPath).Length, File.GetLastWriteTimeUtc(unchangedPath));
 
         var oldNamePath = Path.Combine(_root, "old-name.txt");
         File.WriteAllText(oldNamePath, "move-me");
-        var oldNameEntry = new ScannedEntry("old-name.txt", oldNamePath, new FileInfo(oldNamePath).Length, File.GetLastWriteTimeUtc(oldNamePath), false, null);
+        var oldNameEntry = ScanItem.File("old-name.txt", oldNamePath, new FileInfo(oldNamePath).Length, File.GetLastWriteTimeUtc(oldNamePath));
 
         var changedPath = Path.Combine(_root, "changed.txt");
         File.WriteAllText(changedPath, "v1");
-        var changedEntryV1 = new ScannedEntry("changed.txt", changedPath, new FileInfo(changedPath).Length, File.GetLastWriteTimeUtc(changedPath), false, null);
+        var changedEntryV1 = ScanItem.File("changed.txt", changedPath, new FileInfo(changedPath).Length, File.GetLastWriteTimeUtc(changedPath));
 
         var deletedPath = Path.Combine(_root, "deleted.txt");
         File.WriteAllText(deletedPath, "gone");
-        var deletedEntry = new ScannedEntry("deleted.txt", deletedPath, new FileInfo(deletedPath).Length, File.GetLastWriteTimeUtc(deletedPath), false, null);
+        var deletedEntry = ScanItem.File("deleted.txt", deletedPath, new FileInfo(deletedPath).Length, File.GetLastWriteTimeUtc(deletedPath));
 
         var repository = new FakeSnapshotRepository();
         var contentStore = new FakeContentStore();
@@ -107,15 +112,15 @@ public class BackupPipelineTests : IDisposable
         // content -> Move), changed.txt's content updated (Change), deleted.txt no longer
         // scanned (Delete), and a brand-new added.txt (Add). unchanged.txt stays as-is.
         File.WriteAllText(changedPath, "v2-longer-content");
-        var changedEntryV2 = new ScannedEntry("changed.txt", changedPath, new FileInfo(changedPath).Length, File.GetLastWriteTimeUtc(changedPath), false, null);
+        var changedEntryV2 = ScanItem.File("changed.txt", changedPath, new FileInfo(changedPath).Length, File.GetLastWriteTimeUtc(changedPath));
 
         var newNamePath = Path.Combine(_root, "new-name.txt");
         File.WriteAllText(newNamePath, "move-me");
-        var newNameEntry = new ScannedEntry("new-name.txt", newNamePath, new FileInfo(newNamePath).Length, File.GetLastWriteTimeUtc(newNamePath), false, null);
+        var newNameEntry = ScanItem.File("new-name.txt", newNamePath, new FileInfo(newNamePath).Length, File.GetLastWriteTimeUtc(newNamePath));
 
         var addedPath = Path.Combine(_root, "added.txt");
         File.WriteAllText(addedPath, "brand-new");
-        var addedEntry = new ScannedEntry("added.txt", addedPath, new FileInfo(addedPath).Length, File.GetLastWriteTimeUtc(addedPath), false, null);
+        var addedEntry = ScanItem.File("added.txt", addedPath, new FileInfo(addedPath).Length, File.GetLastWriteTimeUtc(addedPath));
 
         var dryRunScanner = new FakeFileSystemScanner([unchangedEntry, newNameEntry, changedEntryV2, addedEntry]);
         var summary = new BackupPipeline(dryRunScanner, new FakeHasher(), contentStore, repository, new FakeRunLock())
@@ -125,7 +130,7 @@ public class BackupPipelineTests : IDisposable
         Assert.Equal(1, summary.FilesChanged);
         Assert.Equal(1, summary.FilesMoved);
         Assert.Equal(1, summary.FilesDeleted);
-        Assert.Equal(addedEntry.Size + changedEntryV2.Size, summary.TotalBytesToTransfer);
+        Assert.Equal(new FileInfo(addedPath).Length + new FileInfo(changedPath).Length, summary.TotalBytesToTransfer);
         Assert.Empty(summary.FailedPaths);
 
         // Zero writes: the mirror, content store, and manifest (snapshot list) are
@@ -144,7 +149,7 @@ public class BackupPipelineTests : IDisposable
     {
         var basePath = Path.Combine(_root, "base.txt");
         File.WriteAllText(basePath, "hello");
-        var baseEntry = new ScannedEntry("base.txt", basePath, new FileInfo(basePath).Length, File.GetLastWriteTimeUtc(basePath), false, null);
+        var baseEntry = ScanItem.File("base.txt", basePath, new FileInfo(basePath).Length, File.GetLastWriteTimeUtc(basePath));
 
         var repository = new FakeSnapshotRepository();
         var contentStore = new FakeContentStore();
@@ -152,10 +157,10 @@ public class BackupPipelineTests : IDisposable
             .Run(SimpleProfile(_root));
 
         File.WriteAllText(basePath, "hello, changed");
-        var changedBaseEntry = new ScannedEntry("base.txt", basePath, new FileInfo(basePath).Length, File.GetLastWriteTimeUtc(basePath), false, null);
+        var changedBaseEntry = ScanItem.File("base.txt", basePath, new FileInfo(basePath).Length, File.GetLastWriteTimeUtc(basePath));
         var newPath = Path.Combine(_root, "new.txt");
         File.WriteAllText(newPath, "new content");
-        var newEntry = new ScannedEntry("new.txt", newPath, new FileInfo(newPath).Length, File.GetLastWriteTimeUtc(newPath), false, null);
+        var newEntry = ScanItem.File("new.txt", newPath, new FileInfo(newPath).Length, File.GetLastWriteTimeUtc(newPath));
         var scanner = new FakeFileSystemScanner([changedBaseEntry, newEntry]);
 
         // PlanOnly performs zero writes (proven separately above), so calling it before
@@ -178,7 +183,7 @@ public class BackupPipelineTests : IDisposable
     public void Dry_run_live_progress_and_run_summary_all_agree_on_total_bytes_when_target_has_no_hardlink_support()
     {
         var entries = WriteFiles(_root, count: 5);
-        var expectedTotal = entries.Sum(e => e.Size);
+        var expectedTotal = entries.Sum(FileSize);
 
         var repository = new FakeSnapshotRepository();
         var contentStore = new FakeContentStore();
@@ -222,7 +227,7 @@ public class BackupPipelineTests : IDisposable
     {
         var path = Path.Combine(_root, "a.txt");
         File.WriteAllText(path, "hello");
-        var entry = new ScannedEntry("a.txt", path, 5, File.GetLastWriteTimeUtc(path), false, null);
+        var entry = ScanItem.File("a.txt", path, 5, File.GetLastWriteTimeUtc(path));
 
         var repository = new FakeSnapshotRepository();
         var contentStore = new FakeContentStore();
@@ -242,14 +247,14 @@ public class BackupPipelineTests : IDisposable
         Assert.Empty(summary.FailedPaths);
     }
 
-    private static List<ScannedEntry> WriteFiles(string root, int count)
+    private static List<ScanItem> WriteFiles(string root, int count)
     {
-        var entries = new List<ScannedEntry>();
+        var entries = new List<ScanItem>();
         for (var i = 0; i < count; i++)
         {
             var path = Path.Combine(root, $"file-{i}.txt");
             File.WriteAllText(path, $"content {i}");
-            entries.Add(new ScannedEntry($"file-{i}.txt", path, new FileInfo(path).Length, File.GetLastWriteTimeUtc(path), false, null));
+            entries.Add(ScanItem.File($"file-{i}.txt", path, new FileInfo(path).Length, File.GetLastWriteTimeUtc(path)));
         }
 
         return entries;
@@ -286,7 +291,7 @@ public class BackupPipelineTests : IDisposable
     public void Concurrent_chunk_level_progress_reports_never_lose_an_update_under_configured_concurrency()
     {
         var entries = WriteFiles(_root, count: 40);
-        var expectedTotal = entries.Sum(e => e.Size);
+        var expectedTotal = entries.Sum(FileSize);
         var hasher = new ConcurrencyObservingHasher();
         var pipeline = new BackupPipeline(
             new FakeFileSystemScanner(entries), hasher, new FakeContentStore(), new FakeSnapshotRepository(), new FakeRunLock());
@@ -310,7 +315,7 @@ public class BackupPipelineTests : IDisposable
     {
         var path = Path.Combine(_root, "large.txt");
         File.WriteAllText(path, new string('a', 500_000));
-        var entry = new ScannedEntry("large.txt", path, new FileInfo(path).Length, File.GetLastWriteTimeUtc(path), false, null);
+        var entry = ScanItem.File("large.txt", path, new FileInfo(path).Length, File.GetLastWriteTimeUtc(path));
         var progress = new SyncProgress<BackupProgress>();
         var pipeline = new BackupPipeline(
             new FakeFileSystemScanner([entry]), new FakeHasher(), new FakeContentStore(), new FakeSnapshotRepository(), new FakeRunLock());
@@ -326,7 +331,7 @@ public class BackupPipelineTests : IDisposable
     {
         var path = Path.Combine(_root, "short.txt");
         File.WriteAllText(path, "small");
-        var entry = new ScannedEntry("short.txt", path, new FileInfo(path).Length, File.GetLastWriteTimeUtc(path), false, null);
+        var entry = ScanItem.File("short.txt", path, new FileInfo(path).Length, File.GetLastWriteTimeUtc(path));
         var captures = new List<Func<IReadOnlyList<string>>>();
         var pipeline = new BackupPipeline(
             new FakeFileSystemScanner([entry]), new FakeHasher(), new FakeContentStore(), new FakeSnapshotRepository(), new FakeRunLock());
@@ -346,8 +351,8 @@ public class BackupPipelineTests : IDisposable
         File.WriteAllText(okPath, "this one is fine");
         var entries = new[]
         {
-            new ScannedEntry("locked.txt", lockedPath, new FileInfo(lockedPath).Length, File.GetLastWriteTimeUtc(lockedPath), false, null),
-            new ScannedEntry("ok.txt", okPath, new FileInfo(okPath).Length, File.GetLastWriteTimeUtc(okPath), false, null),
+            ScanItem.File("locked.txt", lockedPath, new FileInfo(lockedPath).Length, File.GetLastWriteTimeUtc(lockedPath)),
+            ScanItem.File("ok.txt", okPath, new FileInfo(okPath).Length, File.GetLastWriteTimeUtc(okPath)),
         };
         using var exclusiveHold = new FileStream(lockedPath, FileMode.Open, FileAccess.Read, FileShare.None);
         var progress = new SyncProgress<BackupProgress>();
@@ -390,7 +395,7 @@ public class BackupPipelineTests : IDisposable
     public void Progress_never_exceeds_100_percent_when_the_target_has_no_hardlink_support()
     {
         var entries = WriteFiles(_root, count: 10);
-        var expectedTotal = entries.Sum(e => e.Size);
+        var expectedTotal = entries.Sum(FileSize);
         var contentStore = new FakeContentStore();
         contentStore.ForceHardlinkSupportForTesting(false);
         var pipeline = new BackupPipeline(
@@ -419,7 +424,7 @@ public class BackupPipelineTests : IDisposable
         var content = "identical content, relocated";
         var oldPath = Path.Combine(_root, "old-location.txt");
         File.WriteAllText(oldPath, content);
-        var oldEntry = new ScannedEntry("old.txt", oldPath, new FileInfo(oldPath).Length, File.GetLastWriteTimeUtc(oldPath), false, null);
+        var oldEntry = ScanItem.File("old.txt", oldPath, new FileInfo(oldPath).Length, File.GetLastWriteTimeUtc(oldPath));
 
         var repository = new FakeSnapshotRepository();
         var contentStore = new FakeContentStore();
@@ -432,7 +437,7 @@ public class BackupPipelineTests : IDisposable
         // a Move operation and zero byte-transferring operations.
         var newPath = Path.Combine(_root, "new-location.txt");
         File.WriteAllText(newPath, content);
-        var newEntry = new ScannedEntry("new.txt", newPath, new FileInfo(newPath).Length, File.GetLastWriteTimeUtc(newPath), false, null);
+        var newEntry = ScanItem.File("new.txt", newPath, new FileInfo(newPath).Length, File.GetLastWriteTimeUtc(newPath));
 
         var reportObserved = false;
         var moveAlreadyAppliedWhenReportArrived = false;
@@ -458,7 +463,7 @@ public class BackupPipelineTests : IDisposable
     {
         var path = Path.Combine(_root, "a.txt");
         File.WriteAllText(path, "hello");
-        var entry = new ScannedEntry("a.txt", path, 5, File.GetLastWriteTimeUtc(path), false, null);
+        var entry = ScanItem.File("a.txt", path, 5, File.GetLastWriteTimeUtc(path));
 
         var repository = new FakeSnapshotRepository();
         var contentStore = new FakeContentStore();
@@ -508,7 +513,7 @@ public class BackupPipelineTests : IDisposable
     {
         var path = Path.Combine(_root, "a.txt");
         File.WriteAllText(path, "hello");
-        var entry = new ScannedEntry("a.txt", path, 5, File.GetLastWriteTimeUtc(path), false, null);
+        var entry = ScanItem.File("a.txt", path, 5, File.GetLastWriteTimeUtc(path));
         var scanFailure = new ScanFailure("denied-dir", ScanFailureReason.UnreadableDirectory, "denied-dir");
         var repository = new FakeSnapshotRepository();
 
@@ -547,8 +552,8 @@ public class BackupPipelineTests : IDisposable
     {
         var filePath = Path.Combine(_root, "regular.txt");
         File.WriteAllText(filePath, "hello");
-        var fileEntry = new ScannedEntry("regular.txt", filePath, 5, File.GetLastWriteTimeUtc(filePath), false, null);
-        var linkEntry = new ScannedEntry("link", Path.Combine(_root, "link"), 0, DateTimeOffset.MinValue, true, @"C:\target");
+        var fileEntry = ScanItem.File("regular.txt", filePath, 5, File.GetLastWriteTimeUtc(filePath));
+        var linkEntry = ScanItem.Link("link", Path.Combine(_root, "link"), @"C:\target");
 
         var repository = new FakeSnapshotRepository();
         var contentStore = new FakeContentStore();
@@ -588,7 +593,7 @@ public class BackupPipelineTests : IDisposable
     {
         var path = Path.Combine(_root, "a.txt");
         File.WriteAllText(path, "hello");
-        var entry = new ScannedEntry("a.txt", path, 5, File.GetLastWriteTimeUtc(path), false, null);
+        var entry = ScanItem.File("a.txt", path, 5, File.GetLastWriteTimeUtc(path));
 
         var repository = new FakeSnapshotRepository();
         var contentStore = new FakeContentStore();
@@ -619,7 +624,7 @@ public class BackupPipelineTests : IDisposable
         var repository = new FakeSnapshotRepository();
         var contentStore = new FakeContentStore();
 
-        var firstEntry = new ScannedEntry("Photo.JPG", path, 5, modifiedAt, false, null);
+        var firstEntry = ScanItem.File("Photo.JPG", path, 5, modifiedAt);
         var firstRun = new BackupPipeline(
             new FakeFileSystemScanner([firstEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock()).Run(SimpleProfile(_root));
         Assert.Equal(1, firstRun.Stats.FilesAdded);
@@ -628,7 +633,7 @@ public class BackupPipelineTests : IDisposable
         // modified time are unaffected, so the scanner reports the same file under a
         // different-cased path. A fresh scanner/lock models the second run's process
         // lifetime, but the same repository/content store carries persisted state forward.
-        var secondEntry = new ScannedEntry("photo.jpg", path, 5, modifiedAt, false, null);
+        var secondEntry = ScanItem.File("photo.jpg", path, 5, modifiedAt);
         var secondRun = new BackupPipeline(
             new FakeFileSystemScanner([secondEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock()).Run(SimpleProfile(_root));
 
@@ -703,8 +708,8 @@ public class BackupPipelineTests : IDisposable
         var pathB = Path.Combine(_root, "b.txt");
         File.WriteAllText(pathA, "hello");
         File.WriteAllText(pathB, "world");
-        var entryA = new ScannedEntry("a.txt", pathA, 5, File.GetLastWriteTimeUtc(pathA), false, null);
-        var entryB = new ScannedEntry("b.txt", pathB, 5, File.GetLastWriteTimeUtc(pathB), false, null);
+        var entryA = ScanItem.File("a.txt", pathA, 5, File.GetLastWriteTimeUtc(pathA));
+        var entryB = ScanItem.File("b.txt", pathB, 5, File.GetLastWriteTimeUtc(pathB));
 
         var repository = new FakeSnapshotRepository();
         var contentStore = new FakeContentStore();

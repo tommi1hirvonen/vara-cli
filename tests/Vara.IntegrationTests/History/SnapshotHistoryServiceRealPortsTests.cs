@@ -18,6 +18,24 @@ namespace Vara.IntegrationTests.History;
 /// </summary>
 public class SnapshotHistoryServiceRealPortsTests : IDisposable
 {
+    private static Stream GetShowStream(ShowResult result) => result switch
+    {
+        Stream stream => stream,
+        ShowRefusal refusal => throw new Xunit.Sdk.XunitException($"Expected shown content but received refusal: {refusal.Message}"),
+    };
+
+    private static DiffStreams GetDiffStreams(DiffResult result) => result switch
+    {
+        DiffStreams streams => streams,
+        DiffRefusal refusal => throw new Xunit.Sdk.XunitException($"Expected diff streams but received refusal: {refusal.Message}"),
+    };
+
+    private static DiffRefusal GetDiffRefusal(DiffResult result) => result switch
+    {
+        DiffStreams => throw new Xunit.Sdk.XunitException("Expected a diff refusal but received streams."),
+        DiffRefusal refusal => refusal,
+    };
+
     private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"vara-inttest-{Guid.NewGuid():N}.db");
     private readonly string _targetRoot = Path.Combine(Path.GetTempPath(), $"vara-inttest-{Guid.NewGuid():N}");
     private SqliteSnapshotRepository? _repository;
@@ -177,8 +195,8 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
         var versionId = Repository.GetFileHistory("a.txt").Single().Id;
         var service = new SnapshotHistoryService(Repository, ContentStore);
         using var destination = new MemoryStream();
-
-        service.ShowVersion("a.txt", versionId, asOf: null, destination);
+        using var shown = GetShowStream(service.ShowVersion("a.txt", versionId, asOf: null));
+        shown.CopyTo(destination);
 
         Assert.Equal("shown", System.Text.Encoding.UTF8.GetString(destination.ToArray()));
     }
@@ -197,7 +215,8 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
         var versionIds = Repository.GetFileHistory("a.txt").OrderBy(r => r.Id).Select(r => r.Id).ToList();
         var service = new SnapshotHistoryService(Repository, ContentStore);
 
-        var (left, right) = service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null);
+        using var streams = GetDiffStreams(service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null));
+        var (left, right) = (streams.Left, streams.Right);
         using var leftReader = new StreamReader(left);
         using var rightReader = new StreamReader(right);
 
@@ -221,7 +240,7 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
         var versionIds = Repository.GetFileHistory("big.log").OrderBy(r => r.Id).Select(r => r.Id).ToList();
         var service = new SnapshotHistoryService(Repository, ContentStore);
 
-        var ex = Assert.Throws<DiffContentTooLargeException>(() => service.OpenVersionsForDiff("big.log", versionIds[0], null, versionIds[1], null));
+        var ex = Assert.IsType<OversizedDiffRefusal>(GetDiffRefusal(service.OpenVersionsForDiff("big.log", versionIds[0], null, versionIds[1], null)));
 
         Assert.Equal(sizeV1, ex.LeftSize);
         Assert.Null(ex.RightSize);
@@ -244,7 +263,7 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
         var versionIds = Repository.GetFileHistory("image.png").OrderBy(r => r.Id).Select(r => r.Id).ToList();
         var service = new SnapshotHistoryService(Repository, ContentStore);
 
-        var ex = Assert.Throws<DiffBinaryContentException>(() => service.OpenVersionsForDiff("image.png", versionIds[0], null, versionIds[1], null));
+        var ex = Assert.IsType<BinaryDiffRefusal>(GetDiffRefusal(service.OpenVersionsForDiff("image.png", versionIds[0], null, versionIds[1], null)));
 
         Assert.True(ex.LeftIsBinary);
         Assert.False(ex.RightIsBinary);

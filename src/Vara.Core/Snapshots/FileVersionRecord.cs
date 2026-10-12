@@ -5,12 +5,33 @@ namespace Vara.Core.Snapshots;
 /// never get a new record - the most recent record for a path is simply carried
 /// forward across snapshots that didn't touch it.
 /// </summary>
-public enum FileChangeKind
+public closed record FileChangeKind
 {
-    Added,
-    Changed,
-    Moved,
-    Deleted,
+    public static readonly FileChangeKind Added = new AddedChange();
+    public static readonly FileChangeKind Changed = new ChangedChange();
+    public static readonly FileChangeKind Moved = new MovedChange();
+    public static readonly FileChangeKind Deleted = new DeletedChange();
+    public static readonly FileChangeKind Linked = new LinkedChange();
+
+    public sealed record AddedChange : FileChangeKind
+    {
+        public override string ToString() => nameof(Added);
+    }
+
+    public sealed record ChangedChange : FileChangeKind
+    {
+        public override string ToString() => nameof(Changed);
+    }
+
+    public sealed record MovedChange : FileChangeKind
+    {
+        public override string ToString() => nameof(Moved);
+    }
+
+    public sealed record DeletedChange : FileChangeKind
+    {
+        public override string ToString() => nameof(Deleted);
+    }
 
     /// <summary>
     /// A symbolic link or junction was observed at this path - either for the first
@@ -22,7 +43,10 @@ public enum FileChangeKind
     /// content store (backup-execution spec's "Symlinks and junctions are not followed"
     /// requirement).
     /// </summary>
-    Linked,
+    public sealed record LinkedChange : FileChangeKind
+    {
+        public override string ToString() => nameof(Linked);
+    }
 }
 
 /// <summary>

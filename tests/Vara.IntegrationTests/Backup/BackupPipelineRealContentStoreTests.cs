@@ -59,7 +59,7 @@ public class BackupPipelineRealContentStoreTests : IDisposable
         Random.Shared.NextBytes(bytes);
         var path = Path.Combine(_sourceRoot, "large.bin");
         File.WriteAllBytes(path, bytes);
-        var entry = new ScannedEntry("large.bin", path, contentLength, File.GetLastWriteTimeUtc(path), false, null);
+        var entry = ScanItem.File("large.bin", path, contentLength, File.GetLastWriteTimeUtc(path));
 
         var pipeline = new BackupPipeline(
             new FakeFileSystemScanner([entry]), new XxHash128Hasher(), ContentStore, Repository, new FakeRunLock());

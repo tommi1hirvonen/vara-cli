@@ -127,7 +127,7 @@ internal sealed class FakeContentStore : IContentStore
 }
 
 /// <summary>Fake scanner returning a pre-set, test-controlled list of entries (and, optionally, scan failures) regardless of the sources argument.</summary>
-internal sealed class FakeFileSystemScanner(IReadOnlyList<ScannedEntry> entries, IReadOnlyList<ScanFailure>? failures = null) : IFileSystemScanner
+internal sealed class FakeFileSystemScanner(IReadOnlyList<ScanItem> entries, IReadOnlyList<ScanFailure>? failures = null) : IFileSystemScanner
 {
     public ScanResult Scan(IReadOnlyList<Source> sources) => new(entries, failures ?? []);
 }

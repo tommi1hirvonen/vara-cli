@@ -1,6 +1,7 @@
 using Spectre.Console.Testing;
 using Vara.Cli.Composition;
 using Vara.Core.Configuration;
+using Vara.Core.Exceptions;
 using Xunit;
 
 namespace Vara.Cli.Tests.Composition;
@@ -50,7 +51,7 @@ public class ErrorReportingTests
     }
 
     [Fact]
-    public void Unrecognized_exception_is_rendered_via_WriteException_with_exit_code_1()
+    public void Unhandled_CLR_exception_falls_through_to_the_unhandled_error_path()
     {
         var console = new TestConsole { EmitAnsiSequences = true };
         console.Profile.Capabilities.Ansi = true;

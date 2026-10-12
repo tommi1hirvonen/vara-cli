@@ -503,7 +503,7 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
         foreach (var group in _fileVersions.GroupBy(r => r.RelativePath))
         {
             var latest = group.OrderByDescending(r => r.Id).First();
-            if (latest is { ChangeKind: FileChangeKind.Moved, PreviousRelativePath: { } previousPath })
+            if (latest is { ChangeKind: FileChangeKind.MovedChange, PreviousRelativePath: { } previousPath })
             {
                 result[previousPath] = latest.RelativePath;
             }
@@ -520,7 +520,7 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
     public IReadOnlyList<FileVersionRecord> GetSnapshotFileChanges(long snapshotId, string prefix) =>
         _fileVersions.Where(r => r.SnapshotId == snapshotId && (prefix.Length == 0 || r.RelativePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))).OrderByDescending(r => r.Id).ToList();
     public FileVersionRecord? FindVersionAsOf(string relativePath, DateTimeOffset asOf) =>
-        GetFileHistory(relativePath).FirstOrDefault(r => r.RecordedAt <= asOf) is { ChangeKind: not FileChangeKind.Deleted } match ? match : null;
+        GetFileHistory(relativePath).FirstOrDefault(r => r.RecordedAt <= asOf) is { ChangeKind: not FileChangeKind.DeletedChange } match ? match : null;
 
     public void DeleteSnapshot(long snapshotId)
     {
@@ -567,7 +567,7 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
 }
 
 /// <summary>Fake scanner returning a pre-set, test-controlled list of entries (and, optionally, scan failures) regardless of the sources argument.</summary>
-internal sealed class FakeFileSystemScanner(IReadOnlyList<ScannedEntry> entries, IReadOnlyList<ScanFailure>? failures = null) : IFileSystemScanner
+internal sealed class FakeFileSystemScanner(IReadOnlyList<ScanItem> entries, IReadOnlyList<ScanFailure>? failures = null) : IFileSystemScanner
 {
     public ScanResult Scan(IReadOnlyList<Source> sources) => new(entries, failures ?? []);
 }

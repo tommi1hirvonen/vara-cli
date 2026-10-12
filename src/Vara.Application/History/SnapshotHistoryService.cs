@@ -128,19 +128,19 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
                 var rollup = GetOrAddDirectory(directory);
                 switch (row.ChangeKind)
                 {
-                    case FileChangeKind.Added:
+                    case FileChangeKind.AddedChange:
                         rollup.FilesAdded++;
                         break;
-                    case FileChangeKind.Changed:
+                    case FileChangeKind.ChangedChange:
                         rollup.FilesChanged++;
                         break;
-                    case FileChangeKind.Moved:
+                    case FileChangeKind.MovedChange:
                         rollup.FilesMoved++;
                         break;
-                    case FileChangeKind.Deleted:
+                    case FileChangeKind.DeletedChange:
                         rollup.FilesDeleted++;
                         break;
-                    case FileChangeKind.Linked:
+                    case FileChangeKind.LinkedChange:
                         rollup.FilesLinked++;
                         break;
                 }
@@ -292,20 +292,30 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
     /// </param>
     /// <exception cref="NoHistoryForPathException">The path was never part of any recorded snapshot.</exception>
     /// <exception cref="NoMatchingVersionException">No such version id/date exists for the path.</exception>
-    /// <exception cref="ShowOrDiffLinkedEntryException">The resolved version is a symlink/junction entry with no stored content.</exception>
-    /// <exception cref="ShowBinaryContentException">The resolved content is detected as binary and <paramref name="forceBinary"/> is <see langword="false"/>.</exception>
-    public void ShowVersion(string relativePath, long? versionId, DateTimeOffset? asOf, Stream destination, bool forceBinary = false)
+    public ShowResult ShowVersion(string relativePath, long? versionId, DateTimeOffset? asOf, bool forceBinary = false)
     {
         var match = ResolveVersion(relativePath, versionId, asOf);
-        GuardNotLinkedForShowOrDiff(relativePath, match);
-
-        using var source = contentStore.OpenRead(match.ContentHash!);
-        if (!forceBinary && LooksBinary(source))
+        if (match.ChangeKind == FileChangeKind.Linked)
         {
-            throw new ShowBinaryContentException(relativePath);
+            return new ShowResult(new LinkedEntryShowRefusal(relativePath));
         }
 
-        source.CopyTo(destination);
+        var source = contentStore.OpenRead(match.ContentHash!);
+        try
+        {
+            if (!forceBinary && LooksBinary(source))
+            {
+                source.Dispose();
+                return new ShowResult(new BinaryShowRefusal(relativePath));
+            }
+
+            return new ShowResult(source);
+        }
+        catch
+        {
+            source.Dispose();
+            throw;
+        }
     }
 
     /// <summary>
@@ -328,14 +338,12 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
     /// resolve theirs - for a caller to diff. The caller owns and disposes both streams. Refuses
     /// the comparison, before either side's full content is read, when either side's recorded
     /// size exceeds <see cref="MaxDiffContentSize"/> or either side's content is detected as
-    /// binary from its leading <see cref="BinarySampleSize"/> bytes.
+    /// binary from its leading <see cref="BinarySampleSize"/> bytes. Returns an explicit
+    /// refusal result for those expected conditions rather than throwing.
     /// </summary>
     /// <exception cref="NoHistoryForPathException">The path was never part of any recorded snapshot.</exception>
     /// <exception cref="NoMatchingVersionException">No such version id/date exists for either side.</exception>
-    /// <exception cref="DiffContentTooLargeException">Either resolved version's recorded size exceeds the diff size limit.</exception>
-    /// <exception cref="DiffBinaryContentException">Either resolved version's content is detected as binary.</exception>
-    /// <exception cref="ShowOrDiffLinkedEntryException">Either resolved version is a symlink/junction entry with no stored content.</exception>
-    public (Stream Left, Stream Right) OpenVersionsForDiff(
+    public DiffResult OpenVersionsForDiff(
         string relativePath,
         long? leftVersionId,
         DateTimeOffset? leftAsOf,
@@ -349,18 +357,18 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
         var rightTooLarge = right.Size > MaxDiffContentSize;
         if (leftTooLarge || rightTooLarge)
         {
-            throw new DiffContentTooLargeException(
+            return new DiffResult(new OversizedDiffRefusal(
                 relativePath,
                 MaxDiffContentSize,
                 leftTooLarge ? left.Size : null,
-                rightTooLarge ? right.Size : null);
+                rightTooLarge ? right.Size : null));
         }
 
         var leftLinked = left.ChangeKind == FileChangeKind.Linked;
         var rightLinked = right.ChangeKind == FileChangeKind.Linked;
         if (leftLinked || rightLinked)
         {
-            throw new ShowOrDiffLinkedEntryException(relativePath, leftLinked, rightLinked);
+            return new DiffResult(new LinkedEntryDiffRefusal(relativePath, leftLinked, rightLinked));
         }
 
         Stream? leftStream = null;
@@ -373,10 +381,17 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
             var rightIsBinary = LooksBinary(rightStream);
             if (leftIsBinary || rightIsBinary)
             {
-                throw new DiffBinaryContentException(relativePath, leftIsBinary, rightIsBinary);
+                leftStream.Dispose();
+                rightStream.Dispose();
+                leftStream = null;
+                rightStream = null;
+                return new DiffResult(new BinaryDiffRefusal(relativePath, leftIsBinary, rightIsBinary));
             }
 
-            return (leftStream, rightStream);
+            var streams = new DiffStreams(leftStream, rightStream);
+            leftStream = null;
+            rightStream = null;
+            return new DiffResult(streams);
         }
         catch
         {
@@ -701,15 +716,15 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
             {
                 switch (row.ChangeKind)
                 {
-                    case FileChangeKind.Added:
+                    case FileChangeKind.AddedChange:
                         added++;
                         netBytesDelta += row.Size;
                         break;
-                    case FileChangeKind.Changed:
+                    case FileChangeKind.ChangedChange:
                         changed++;
                         netBytesDelta += row.Size;
                         break;
-                    case FileChangeKind.Moved:
+                    case FileChangeKind.MovedChange:
                         // A row of a move that lands inside the directory (whether the move
                         // stayed entirely within it or brought a path in from outside) adds
                         // that path's bytes to the directory; see GetFileHistoryUnderPrefix's
@@ -718,9 +733,11 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
                         moved++;
                         netBytesDelta += row.Size;
                         break;
-                    case FileChangeKind.Deleted:
+                    case FileChangeKind.DeletedChange:
                         deleted++;
                         netBytesDelta -= row.Size;
+                        break;
+                    case FileChangeKind.LinkedChange:
                         break;
                 }
             }
@@ -826,7 +843,7 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
                 ?? throw new NoMatchingVersionException(relativePath, versionId.Value);
         }
 
-        return history.FirstOrDefault(r => r.RecordedAt <= asOf!.Value) is { ChangeKind: not FileChangeKind.Deleted } match
+        return history.FirstOrDefault(r => r.RecordedAt <= asOf!.Value) is { ChangeKind: not FileChangeKind.DeletedChange } match
             ? match
             : throw new NoMatchingVersionException(relativePath, asOf!.Value);
     }
@@ -844,23 +861,6 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
         if (match.ChangeKind == FileChangeKind.Linked)
         {
             throw new RestoreLinkedEntryException(relativePath);
-        }
-    }
-
-    /// <summary>
-    /// Single-sided sibling of <see cref="GuardNotLinked"/> for <see cref="ShowVersion"/>: same
-    /// <see cref="FileChangeKind.Linked"/> check, but throws <see cref="ShowOrDiffLinkedEntryException"/>
-    /// instead of <see cref="RestoreLinkedEntryException"/>, since <c>show</c> is not a restore.
-    /// <see cref="OpenVersionsForDiff"/> has its own two-sided check instead of calling this, since
-    /// it needs to name which of its two independently-resolved sides is linked in one error,
-    /// mirroring how it already reports oversized/binary content on either side.
-    /// </summary>
-    /// <exception cref="ShowOrDiffLinkedEntryException">The resolved version is a symlink/junction entry.</exception>
-    private static void GuardNotLinkedForShowOrDiff(string relativePath, FileVersionRecord match)
-    {
-        if (match.ChangeKind == FileChangeKind.Linked)
-        {
-            throw new ShowOrDiffLinkedEntryException(relativePath);
         }
     }
 

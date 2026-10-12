@@ -1,9 +1,6 @@
 using Spectre.Console;
 using Vara.Cli.Presentation;
-using Vara.Core.Backup;
-using Vara.Core.Concurrency;
-using Vara.Core.Configuration;
-using Vara.Core.Snapshots;
+using Vara.Core.Exceptions;
 
 namespace Vara.Cli.Composition;
 
@@ -26,13 +23,13 @@ public static class ErrorReporting
             action();
             return ExitCodes.Success;
         }
-        catch (Exception ex) when (TryGetFriendlyMessage(ex, out var message))
+        catch (VaraDomainException ex)
         {
             // Styled per the cli-presentation delta's "Outcome severity is visually
             // distinct" requirement, applying uniformly regardless of which command
             // raised the error. Written to standard error by default, so it stays
             // visible even when standard output is redirected.
-            OutcomeStyle.WriteLineError(errorConsole ?? StandardError.Console, $"Error: {message}");
+            OutcomeStyle.WriteLineError(errorConsole ?? StandardError.Console, $"Error: {ex.Message}");
             return ExitCodes.HardError;
         }
         catch (Exception ex)
@@ -55,37 +52,6 @@ public static class ErrorReporting
             }
 
             return ExitCodes.HardError;
-        }
-    }
-
-    private static bool TryGetFriendlyMessage(Exception ex, out string message)
-    {
-        switch (ex)
-        {
-            case ProfileConfigException
-                or BackupAlreadyRunningException
-                or PruneAlreadyRunningException
-                or RunLockAccessDeniedException
-                or PruneConfirmationRequiredException
-                or NoHistoryForPathException
-                or RestoreTargetIsDirectoryException
-                or NoMatchingVersionException
-                or RestoreLinkedEntryException
-                or RestoreDestinationInMirrorException
-                or DestinationExistsException
-                or RestoreDirectoryConfirmationRequiredException
-                or NoSuchDirectoryException
-                or NoMatchingDirectorySnapshotException
-                or InvalidDateTimeOptionException
-                or DiffContentTooLargeException
-                or DiffBinaryContentException
-                or ShowBinaryContentException
-                or ShowOrDiffLinkedEntryException:
-                message = ex.Message;
-                return true;
-            default:
-                message = string.Empty;
-                return false;
         }
     }
 }

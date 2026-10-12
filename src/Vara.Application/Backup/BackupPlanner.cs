@@ -47,6 +47,11 @@ public sealed class BackupPlanner(IHasher hasher, int maxDegreeOfParallelism = 0
         {
             if (change.Kind == PendingChangeKind.Linked)
             {
+                if (!change.Entry.TryGetValue(out ScannedLink link))
+                {
+                    throw new InvalidOperationException("A linked change must contain a scanned link.");
+                }
+
                 // Metadata-only, like Move/Delete below - never a move candidate (its
                 // size is always 0 and it has no real content to hash), and no bytes to
                 // transfer. LinkTarget carries the link's target path; KnownContentHash
@@ -55,21 +60,18 @@ public sealed class BackupPlanner(IHasher hasher, int maxDegreeOfParallelism = 0
                 // path was not already tracked as a link), carrying the superseded
                 // content's hash so the executor can remove it from the mirror - a Link
                 // op otherwise performs no mirror I/O.
-                var previousLinkContentHash = currentState.TryGetValue(change.Entry.RelativePath, out var previousLinkState) && !previousLinkState.IsLinked
+                var previousLinkContentHash = currentState.TryGetValue(link.RelativePath, out var previousLinkState) && !previousLinkState.IsLinked
                     ? previousLinkState.ContentHash
                     : null;
-                operations.Add(new PlannedOperation(
-                    PlannedOperationKind.Link, change.Entry.RelativePath, null, null,
-                    change.Entry.Size, change.Entry.ModifiedAt, null,
-                    PreviousContentHash: previousLinkContentHash,
-                    LinkTarget: change.Entry.LinkTarget));
+                operations.Add(new LinkOperation(link.RelativePath, previousLinkContentHash, link.LinkTarget));
                 continue;
             }
 
+            var file = GetScannedFile(change.Entry);
             CurrentFileState? moveMatch = null;
             if (change.Kind == PendingChangeKind.Added &&
-                deletedCandidatesBySize.TryGetValue(change.Entry.Size, out var candidates) &&
-                fullHashes.TryGetValue(change.Entry.RelativePath, out var entryHash) &&
+                deletedCandidatesBySize.TryGetValue(file.Size, out var candidates) &&
+                fullHashes.TryGetValue(file.RelativePath, out var entryHash) &&
                 entryHash is not null)
             {
                 moveMatch = FindMatch(entryHash, candidates, consumedAsMoveSource);
@@ -78,33 +80,34 @@ public sealed class BackupPlanner(IHasher hasher, int maxDegreeOfParallelism = 0
             if (moveMatch is not null)
             {
                 consumedAsMoveSource.Add(moveMatch.RelativePath);
-                operations.Add(new PlannedOperation(
-                    PlannedOperationKind.Move,
-                    change.Entry.RelativePath,
+                operations.Add(new MoveOperation(
+                    file.RelativePath,
                     moveMatch.RelativePath,
-                    change.Entry.AbsolutePath,
-                    change.Entry.Size,
-                    change.Entry.ModifiedAt,
-                    moveMatch.ContentHash,
+                    moveMatch.ContentHash ?? throw new InvalidOperationException("A move match must have a content hash."),
+                    file.Size,
+                    file.ModifiedAt,
                     moveMatch.QuickHash,
                     moveMatch.QuickHashScheme));
                 continue;
             }
 
-            var kind = change.Kind == PendingChangeKind.Added ? PlannedOperationKind.Add : PlannedOperationKind.Change;
             // For a Changed entry, the manifest's current-state view already holds the
             // previous content's hash (it's exactly how BackupDiffer classified this entry
             // as Changed rather than Added) - carried forward so PlaceAtMirrorPath can
             // restore read-only protection on that superseded blob after the overwrite
             // (protect-hardlinked-mirror-files change's design.md). Add has no previous
             // content at all, so this stays null for it.
-            var previousContentHash = kind == PlannedOperationKind.Change && currentState.TryGetValue(change.Entry.RelativePath, out var previousState)
+            var previousContentHash = change.Kind == PendingChangeKind.Changed && currentState.TryGetValue(file.RelativePath, out var previousState)
                 ? previousState.ContentHash
                 : null;
-            operations.Add(new PlannedOperation(
-                kind, change.Entry.RelativePath, null, change.Entry.AbsolutePath, change.Entry.Size, change.Entry.ModifiedAt, null,
-                PreviousContentHash: previousContentHash));
-            totalBytes += change.Entry.Size;
+            operations.Add(change.Kind switch
+            {
+                PendingChangeKind.Added => new AddOperation(file.RelativePath, file.AbsolutePath, file.Size, file.ModifiedAt),
+                PendingChangeKind.Changed => new ChangeOperation(file.RelativePath, file.AbsolutePath, file.Size, file.ModifiedAt, previousContentHash),
+                PendingChangeKind.Linked => throw new InvalidOperationException("A linked change must contain a scanned link."),
+                _ => throw new ArgumentOutOfRangeException(nameof(change.Kind), change.Kind, "Unsupported pending change kind."),
+            });
+            totalBytes += file.Size;
         }
 
         foreach (var path in diff.DeletedPaths)
@@ -114,9 +117,8 @@ public sealed class BackupPlanner(IHasher hasher, int maxDegreeOfParallelism = 0
                 continue;
             }
 
-            operations.Add(new PlannedOperation(
-                PlannedOperationKind.Delete, path, null, null, state.Size, state.SourceModifiedAt, state.ContentHash,
-                state.QuickHash, state.QuickHashScheme));
+            operations.Add(new DeleteOperation(
+                path, state.Size, state.SourceModifiedAt, state.ContentHash, state.QuickHash, state.QuickHashScheme));
         }
 
         return new BackupPlan(operations, totalBytes);
@@ -136,7 +138,7 @@ public sealed class BackupPlanner(IHasher hasher, int maxDegreeOfParallelism = 0
     {
         var results = new ConcurrentDictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         var sizeMatchedAdds = pending
-            .Where(change => change.Kind == PendingChangeKind.Added && deletedCandidatesBySize.ContainsKey(change.Entry.Size))
+            .Where(change => change.Kind == PendingChangeKind.Added && deletedCandidatesBySize.ContainsKey(GetScannedFile(change.Entry).Size))
             .ToList();
 
         Parallel.ForEach(
@@ -144,8 +146,9 @@ public sealed class BackupPlanner(IHasher hasher, int maxDegreeOfParallelism = 0
             new ParallelOptions { MaxDegreeOfParallelism = _maxDegreeOfParallelism },
             change =>
             {
-                var candidates = deletedCandidatesBySize[change.Entry.Size];
-                results[change.Entry.RelativePath] = ComputeFullHashIfCandidateMatchPossible(change.Entry, candidates);
+                var file = GetScannedFile(change.Entry);
+                var candidates = deletedCandidatesBySize[file.Size];
+                results[file.RelativePath] = ComputeFullHashIfCandidateMatchPossible(file, candidates);
             });
 
         return results;
@@ -160,7 +163,7 @@ public sealed class BackupPlanner(IHasher hasher, int maxDegreeOfParallelism = 0
     /// reading to compute and return the exact full hash, to be compared against
     /// candidates' full content hashes exactly as before.
     /// </summary>
-    private string? ComputeFullHashIfCandidateMatchPossible(ScannedEntry entry, List<CurrentFileState> candidates)
+    private string? ComputeFullHashIfCandidateMatchPossible(ScannedFile entry, List<CurrentFileState> candidates)
     {
         try
         {
@@ -203,6 +206,16 @@ public sealed class BackupPlanner(IHasher hasher, int maxDegreeOfParallelism = 0
             // surface and record the real failure.
             return null;
         }
+    }
+
+    private static ScannedFile GetScannedFile(ScanItem item)
+    {
+        if (!item.TryGetValue(out ScannedFile file))
+        {
+            throw new InvalidOperationException("A file change must contain a scanned file.");
+        }
+
+        return file;
     }
 
     private static CurrentFileState? FindMatch(string entryHash, List<CurrentFileState> candidates, HashSet<string> consumed)

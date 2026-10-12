@@ -1,3 +1,5 @@
+using Vara.Core.Exceptions;
+
 namespace Vara.Core.Concurrency;
 
 /// <summary>
@@ -9,7 +11,7 @@ namespace Vara.Core.Concurrency;
 /// and requires a different remedy.
 /// </summary>
 public sealed class RunLockAccessDeniedException(string targetRoot)
-    : Exception($"The run lock for target '{targetRoot}' could not be acquired due to a permission problem.")
+    : ConcurrencyException($"The run lock for target '{targetRoot}' could not be acquired due to a permission problem.")
 {
     public string TargetRoot { get; } = targetRoot;
 }

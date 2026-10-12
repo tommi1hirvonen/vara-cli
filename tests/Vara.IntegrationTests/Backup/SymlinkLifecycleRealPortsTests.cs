@@ -59,14 +59,14 @@ public class SymlinkLifecycleRealPortsTests : IDisposable
     {
         var regularPath = Path.Combine(_sourceRoot, "regular.txt");
         File.WriteAllText(regularPath, "hello");
-        var regularEntry = new ScannedEntry("regular.txt", regularPath, 5, File.GetLastWriteTimeUtc(regularPath), false, null);
+        var regularEntry = ScanItem.File("regular.txt", regularPath, 5, File.GetLastWriteTimeUtc(regularPath));
 
         var staleFilePath = Path.Combine(_sourceRoot, "stale.txt");
         File.WriteAllText(staleFilePath, "will become a link");
-        var staleFileEntry = new ScannedEntry("stale.txt", staleFilePath, new FileInfo(staleFilePath).Length, File.GetLastWriteTimeUtc(staleFilePath), false, null);
+        var staleFileEntry = ScanItem.File("stale.txt", staleFilePath, new FileInfo(staleFilePath).Length, File.GetLastWriteTimeUtc(staleFilePath));
 
         var linkPath = Path.Combine(_sourceRoot, "link");
-        var linkEntry = new ScannedEntry("link", linkPath, 0, DateTimeOffset.MinValue, true, @"C:\somewhere\else.txt");
+        var linkEntry = ScanItem.Link("link", linkPath, @"C:\somewhere\else.txt");
 
         var hasher = new XxHash128Hasher();
 
@@ -87,7 +87,7 @@ public class SymlinkLifecycleRealPortsTests : IDisposable
 
         // Second run: "stale.txt" is now replaced by a symlink at the same path - a
         // file-to-link transition. The regular file and the pre-existing link are unchanged.
-        var staleBecomesLinkEntry = new ScannedEntry("stale.txt", staleFilePath, 0, DateTimeOffset.MinValue, true, @"C:\somewhere\else.txt");
+        var staleBecomesLinkEntry = ScanItem.Link("stale.txt", staleFilePath, @"C:\somewhere\else.txt");
         var secondRun = new BackupPipeline(
                 new FakeFileSystemScanner([regularEntry, staleBecomesLinkEntry, linkEntry]), hasher, ContentStore, Repository, new FakeRunLock())
             .Run(SimpleProfile(_sourceRoot, _targetRoot));

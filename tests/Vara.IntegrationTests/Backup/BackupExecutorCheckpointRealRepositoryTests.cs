@@ -53,7 +53,7 @@ public class BackupExecutorCheckpointRealRepositoryTests : IDisposable
         {
             var path = WriteFile($"file-{i}.txt", $"content of file {i}");
             var size = new FileInfo(path).Length;
-            allOperations.Add(new PlannedOperation(PlannedOperationKind.Add, $"file-{i}.txt", null, path, size, new FileInfo(path).LastWriteTimeUtc, null));
+            allOperations.Add(new AddOperation($"file-{i}.txt", path, size, new FileInfo(path).LastWriteTimeUtc));
         }
 
         var contentStore = new FakeContentStore();

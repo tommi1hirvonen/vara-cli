@@ -55,18 +55,23 @@ public sealed record MoveOperation(
     string RelativePath,
     string PreviousRelativePath,
     string KnownContentHash,
+    long Size,
+    DateTimeOffset SourceModifiedAt,
     string? QuickHash = null,
     int? QuickHashScheme = null) : PlannedOperation(RelativePath);
 
 public sealed record DeleteOperation(
     string RelativePath,
-    string? KnownContentHash = null) : PlannedOperation(RelativePath);
+    long Size,
+    DateTimeOffset SourceModifiedAt,
+    string? KnownContentHash,
+    string? QuickHash = null,
+    int? QuickHashScheme = null) : PlannedOperation(RelativePath);
 
 public sealed record LinkOperation(
     string RelativePath,
-    string SourceAbsolutePath,
-    string LinkTarget,
-    string? PreviousContentHash = null) : PlannedOperation(RelativePath);
+    string? PreviousContentHash,
+    string? LinkTarget) : PlannedOperation(RelativePath);
 ```
 **Rationale**:
 - Eliminates 7 nullable fields and the associated documentation specifying which fields apply to which operations.
@@ -176,6 +181,11 @@ Subclass all domain exception families under `VaraDomainException`:
 - `public closed class ConcurrencyException(...) : VaraDomainException(...)`
 - `public closed class BackupRunException(...) : VaraDomainException(...)`
 - `public sealed class InvalidDateTimeOptionException(...) : VaraDomainException(...)`
+
+Because C# closed classes can only be subclassed in their defining assembly, define
+`InvalidDateTimeOptionException` in `Vara.Core.Exceptions` and have the CLI parser
+reference that Core type. Keeping its declaration in the CLI assembly would make it
+impossible to derive from the closed Core root.
 
 Refactor `ErrorReporting.Run` in `Vara.Cli/Composition/ErrorReporting.cs`:
 ```csharp

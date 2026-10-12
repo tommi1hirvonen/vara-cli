@@ -535,7 +535,7 @@ public static class RestoreCommand
     /// session.
     /// </summary>
     internal static IReadOnlyList<FileVersionRecord> SelectableVersionsForInteractivePicker(IReadOnlyList<FileVersionRecord> history) =>
-        history.Where(v => v.ChangeKind is not (FileChangeKind.Deleted or FileChangeKind.Linked)).ToList();
+        history.Where(v => v.ChangeKind is not (FileChangeKind.DeletedChange or FileChangeKind.LinkedChange)).ToList();
 
     /// <summary>
     /// Whether any tracked path, at any point in history, falls under <paramref name="candidate"/> -
@@ -654,5 +654,4 @@ internal sealed class RestoreProgressReporter(ProgressDisplayGate gate, Action<B
         gate.Report(new BackupProgress(_bytesCopiedSoFar, _totalBytes), render);
     }
 }
-
 

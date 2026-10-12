@@ -16,11 +16,26 @@ public enum DirectoryEntryKind
 /// A synthesized directory is <see cref="Live"/> if any of its tracked descendants are still
 /// live, or <see cref="Deleted"/> if every one of them has been deleted.
 /// </summary>
-public enum DirectoryEntryStatus
+public closed record DirectoryEntryStatus
 {
-    Live,
-    Deleted,
-    Moved,
+    public static readonly DirectoryEntryStatus Live = new LiveStatus();
+    public static readonly DirectoryEntryStatus Deleted = new DeletedStatus();
+    public static readonly DirectoryEntryStatus Moved = new MovedStatus();
+
+    public sealed record LiveStatus : DirectoryEntryStatus
+    {
+        public override string ToString() => nameof(Live);
+    }
+
+    public sealed record DeletedStatus : DirectoryEntryStatus
+    {
+        public override string ToString() => nameof(Deleted);
+    }
+
+    public sealed record MovedStatus : DirectoryEntryStatus
+    {
+        public override string ToString() => nameof(Moved);
+    }
 }
 
 /// <summary>

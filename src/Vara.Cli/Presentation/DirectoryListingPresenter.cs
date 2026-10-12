@@ -32,9 +32,9 @@ public static class DirectoryListingPresenter
             var style = EntryStatusStyle.For(entry.Status);
             var statusText = entry.Status switch
             {
-                DirectoryEntryStatus.Deleted => "Deleted",
-                DirectoryEntryStatus.Moved => $"Moved -> {entry.MovedTo}",
-                _ => "Live",
+                DirectoryEntryStatus.LiveStatus => "Live",
+                DirectoryEntryStatus.DeletedStatus => "Deleted",
+                DirectoryEntryStatus.MovedStatus => $"Moved -> {entry.MovedTo}",
             };
 
             table.AddRow(

@@ -17,61 +17,10 @@ public enum PendingChangeKind
 }
 
 /// <summary>A scanned entry whose content differs from (or is absent from) the current manifest state.</summary>
-public sealed record PendingChange(ScannedEntry Entry, PendingChangeKind Kind);
+public sealed record PendingChange(ScanItem Entry, PendingChangeKind Kind);
 
 /// <summary>The result of the diff stage: candidate changes needing content resolution, and paths no longer present in any source.</summary>
 public sealed record DiffResult(IReadOnlyList<PendingChange> Pending, IReadOnlyList<string> DeletedPaths);
-
-/// <summary>A fully resolved operation kind, after move detection.</summary>
-public enum PlannedOperationKind
-{
-    Add,
-    Change,
-    Move,
-    Delete,
-
-    /// <summary>
-    /// Records a symlink/junction's presence (and target path) as a manifest row -
-    /// metadata-only, like <see cref="Move"/>/<see cref="Delete"/>, since the target is
-    /// never followed or copied.
-    /// </summary>
-    Link,
-}
-
-/// <summary>
-/// A single resolved operation the execute stage will carry out. For <see cref="PlannedOperationKind.Move"/>
-/// and <see cref="PlannedOperationKind.Delete"/>, <see cref="KnownContentHash"/> (and, when known,
-/// <see cref="QuickHash"/>/<see cref="QuickHashScheme"/>) is already known (no content read is
-/// needed); for <see cref="PlannedOperationKind.Add"/>/<see cref="PlannedOperationKind.Change"/> these
-/// are resolved during execution as content is streamed into the content store.
-/// <see cref="PlannedOperationKind.Delete"/>'s <see cref="KnownContentHash"/> is <c>null</c> when
-/// the path being deleted was itself most recently a <see cref="Vara.Core.Snapshots.FileChangeKind.Linked"/>
-/// entry - there was never a content-store blob for it to remove. For
-/// <see cref="PlannedOperationKind.Link"/>, <see cref="KnownContentHash"/> is always <c>null</c>
-/// (a link never has content-store content) and <see cref="LinkTarget"/> instead carries the
-/// link's target path - known upfront, so no execution-time resolution is needed.
-/// <see cref="PreviousContentHash"/> is distinct: for <see cref="PlannedOperationKind.Change"/> it is
-/// the *previous* content's hash (already known from the current manifest state at plan time, unlike
-/// <see cref="KnownContentHash"/>'s *new*-content meaning above) - used to restore the content
-/// store's read-only protection on the superseded blob after the mirror entry is overwritten
-/// (protect-hardlinked-mirror-files change's design.md). For <see cref="PlannedOperationKind.Link"/>,
-/// it instead carries the path's previous content hash only when this operation represents a
-/// file-to-link transition (the path was not already tracked as a link) - used to remove that
-/// now-superseded content from the mirror, since a <see cref="PlannedOperationKind.Link"/> op
-/// otherwise performs no mirror I/O. <c>null</c> for every other operation kind.
-/// </summary>
-public sealed record PlannedOperation(
-    PlannedOperationKind Kind,
-    string RelativePath,
-    string? PreviousRelativePath,
-    string? SourceAbsolutePath,
-    long Size,
-    DateTimeOffset SourceModifiedAt,
-    string? KnownContentHash,
-    string? QuickHash = null,
-    int? QuickHashScheme = null,
-    string? PreviousContentHash = null,
-    string? LinkTarget = null);
 
 /// <summary>
 /// The full backup plan: every operation to carry out, and the total bytes and
@@ -82,7 +31,7 @@ public sealed record PlannedOperation(
 public sealed record BackupPlan(IReadOnlyList<PlannedOperation> Operations, long TotalBytesToTransfer)
 {
     /// <summary>The planned Add/Change operations that will transfer file content.</summary>
-    public int TotalFilesToTransfer => Operations.Count(o => o.Kind is PlannedOperationKind.Add or PlannedOperationKind.Change);
+    public int TotalFilesToTransfer => Operations.Count(o => o is AddOperation or ChangeOperation);
 }
 
 /// <summary>Live execute-stage progress: successfully transferred files and bytes vs. planned totals.</summary>

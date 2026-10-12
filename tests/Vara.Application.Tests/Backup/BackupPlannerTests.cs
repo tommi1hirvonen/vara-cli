@@ -55,29 +55,28 @@ public class BackupPlannerTests : IDisposable
     public void A_genuinely_new_file_is_planned_as_an_add_and_counted_in_the_byte_total()
     {
         var path = WriteFile("new.txt", "hello world");
-        var entry = new ScannedEntry("new.txt", path, 11, DateTimeOffset.UtcNow, false, null);
+        var entry = ScanItem.File("new.txt", path, 11, DateTimeOffset.UtcNow);
         var diff = new DiffResult([new PendingChange(entry, PendingChangeKind.Added)], []);
 
         var plan = _planner.Plan(diff, new Dictionary<string, CurrentFileState>());
 
         var operation = Assert.Single(plan.Operations);
-        Assert.Equal(PlannedOperationKind.Add, operation.Kind);
+        Assert.IsType<AddOperation>(operation);
         Assert.Equal(11, plan.TotalBytesToTransfer);
     }
 
     [Fact]
     public void A_linked_entry_produces_a_metadata_only_link_operation_carrying_the_target_path()
     {
-        var entry = new ScannedEntry("link", @"C:\src\link", 0, DateTimeOffset.MinValue, true, @"C:\target");
+        var entry = ScanItem.Link("link", @"C:\src\link", @"C:\target");
         var diff = new DiffResult([new PendingChange(entry, PendingChangeKind.Linked)], []);
 
         var plan = _planner.Plan(diff, new Dictionary<string, CurrentFileState>());
 
         var operation = Assert.Single(plan.Operations);
-        Assert.Equal(PlannedOperationKind.Link, operation.Kind);
+        var linkOperation = Assert.IsType<LinkOperation>(operation);
         Assert.Equal("link", operation.RelativePath);
-        Assert.Null(operation.KnownContentHash);
-        Assert.Equal(@"C:\target", operation.LinkTarget);
+        Assert.Equal(@"C:\target", linkOperation.LinkTarget);
         Assert.Equal(0, plan.TotalBytesToTransfer);
     }
 
@@ -88,7 +87,7 @@ public class BackupPlannerTests : IDisposable
         var newPath = WriteFile("Documents/report.pdf".Replace('/', Path.DirectorySeparatorChar), content);
         var size = new FileInfo(newPath).Length;
 
-        var scannedEntry = new ScannedEntry(@"Documents\report.pdf", newPath, size, DateTimeOffset.UtcNow, false, null);
+        var scannedEntry = ScanItem.File(@"Documents\report.pdf", newPath, size, DateTimeOffset.UtcNow);
         var diff = new DiffResult([new PendingChange(scannedEntry, PendingChangeKind.Added)], [@"Downloads\report.pdf"]);
         var currentState = new Dictionary<string, CurrentFileState>
         {
@@ -98,8 +97,8 @@ public class BackupPlannerTests : IDisposable
         var plan = _planner.Plan(diff, currentState);
 
         var operation = Assert.Single(plan.Operations);
-        Assert.Equal(PlannedOperationKind.Move, operation.Kind);
-        Assert.Equal(@"Downloads\report.pdf", operation.PreviousRelativePath);
+        var moveOperation = Assert.IsType<MoveOperation>(operation);
+        Assert.Equal(@"Downloads\report.pdf", moveOperation.PreviousRelativePath);
         Assert.Equal(0, plan.TotalBytesToTransfer);
     }
 
@@ -109,7 +108,7 @@ public class BackupPlannerTests : IDisposable
         var newPath = WriteFile("new.txt", "AAAAAAAAAA");
         var size = new FileInfo(newPath).Length;
 
-        var scannedEntry = new ScannedEntry("new.txt", newPath, size, DateTimeOffset.UtcNow, false, null);
+        var scannedEntry = ScanItem.File("new.txt", newPath, size, DateTimeOffset.UtcNow);
         var diff = new DiffResult([new PendingChange(scannedEntry, PendingChangeKind.Added)], ["old.txt"]);
         var currentState = new Dictionary<string, CurrentFileState>
         {
@@ -119,8 +118,8 @@ public class BackupPlannerTests : IDisposable
         var plan = _planner.Plan(diff, currentState);
 
         Assert.Equal(2, plan.Operations.Count); // an Add and a Delete, not a Move
-        Assert.Contains(plan.Operations, o => o.Kind == PlannedOperationKind.Add);
-        Assert.Contains(plan.Operations, o => o.Kind == PlannedOperationKind.Delete);
+        Assert.Contains(plan.Operations, o => o is AddOperation);
+        Assert.Contains(plan.Operations, o => o is DeleteOperation);
         Assert.Equal(size, plan.TotalBytesToTransfer);
     }
 
@@ -130,7 +129,7 @@ public class BackupPlannerTests : IDisposable
         var path = WriteFile("existing.txt", "new content, same size as deleted file");
         var size = new FileInfo(path).Length;
 
-        var scannedEntry = new ScannedEntry("existing.txt", path, size, DateTimeOffset.UtcNow, false, null);
+        var scannedEntry = ScanItem.File("existing.txt", path, size, DateTimeOffset.UtcNow);
         var diff = new DiffResult([new PendingChange(scannedEntry, PendingChangeKind.Changed)], ["deleted.txt"]);
         var currentState = new Dictionary<string, CurrentFileState>
         {
@@ -140,8 +139,8 @@ public class BackupPlannerTests : IDisposable
 
         var plan = _planner.Plan(diff, currentState);
 
-        Assert.Contains(plan.Operations, o => o.Kind == PlannedOperationKind.Change && o.RelativePath == "existing.txt");
-        Assert.Contains(plan.Operations, o => o.Kind == PlannedOperationKind.Delete && o.RelativePath == "deleted.txt");
+        Assert.Contains(plan.Operations, o => o is ChangeOperation && o.RelativePath == "existing.txt");
+        Assert.Contains(plan.Operations, o => o is DeleteOperation && o.RelativePath == "deleted.txt");
     }
 
     [Fact]
@@ -154,7 +153,7 @@ public class BackupPlannerTests : IDisposable
         var plan = _planner.Plan(diff, currentState);
 
         var operation = Assert.Single(plan.Operations);
-        Assert.Equal(PlannedOperationKind.Delete, operation.Kind);
+        Assert.IsType<DeleteOperation>(operation);
         Assert.Equal(0, plan.TotalBytesToTransfer);
     }
 
@@ -169,7 +168,7 @@ public class BackupPlannerTests : IDisposable
         var hasher = new CountingHasher();
         var planner = new BackupPlanner(hasher);
 
-        var scannedEntry = new ScannedEntry("new.bin", path, addedContent.Length, DateTimeOffset.UtcNow, false, null);
+        var scannedEntry = ScanItem.File("new.bin", path, addedContent.Length, DateTimeOffset.UtcNow);
         var diff = new DiffResult([new PendingChange(scannedEntry, PendingChangeKind.Added)], ["old.bin"]);
         var currentState = new Dictionary<string, CurrentFileState>
         {
@@ -180,7 +179,7 @@ public class BackupPlannerTests : IDisposable
 
         var plan = planner.Plan(diff, currentState);
 
-        Assert.Contains(plan.Operations, o => o.Kind == PlannedOperationKind.Add);
+        Assert.Contains(plan.Operations, o => o is AddOperation);
         var bytesHashed = Assert.Single(hasher.CallLengths);
         Assert.Equal(QuickHashPolicy.WindowSizeBytes, bytesHashed); // only the bounded prefix was ever hashed/read
     }
@@ -193,7 +192,7 @@ public class BackupPlannerTests : IDisposable
         var hasher = new CountingHasher();
         var planner = new BackupPlanner(hasher);
 
-        var scannedEntry = new ScannedEntry(@"Documents\report.bin", path, content.Length, DateTimeOffset.UtcNow, false, null);
+        var scannedEntry = ScanItem.File(@"Documents\report.bin", path, content.Length, DateTimeOffset.UtcNow);
         var diff = new DiffResult([new PendingChange(scannedEntry, PendingChangeKind.Added)], [@"Downloads\report.bin"]);
         var currentState = new Dictionary<string, CurrentFileState>
         {
@@ -205,7 +204,7 @@ public class BackupPlannerTests : IDisposable
         var plan = planner.Plan(diff, currentState);
 
         var operation = Assert.Single(plan.Operations);
-        Assert.Equal(PlannedOperationKind.Move, operation.Kind);
+        Assert.IsType<MoveOperation>(operation);
         Assert.Equal(2, hasher.CallLengths.Count); // the quick hash, then a full-content confirmation
         Assert.Contains(content.Length, hasher.CallLengths);
     }
@@ -221,7 +220,7 @@ public class BackupPlannerTests : IDisposable
         var differentSameSizeContent = RepeatingBytes(50, fill: 0x22);
         var path = WriteFile("new.bin", content);
 
-        var scannedEntry = new ScannedEntry("new.bin", path, content.Length, DateTimeOffset.UtcNow, false, null);
+        var scannedEntry = ScanItem.File("new.bin", path, content.Length, DateTimeOffset.UtcNow);
         var diff = new DiffResult([new PendingChange(scannedEntry, PendingChangeKind.Added)], ["unmatched.bin", "no-signature.bin"]);
         var currentState = new Dictionary<string, CurrentFileState>
         {
@@ -233,8 +232,8 @@ public class BackupPlannerTests : IDisposable
 
         var plan = _planner.Plan(diff, currentState);
 
-        Assert.Contains(plan.Operations, o => o.Kind == PlannedOperationKind.Move && o.PreviousRelativePath == "no-signature.bin");
-        Assert.Contains(plan.Operations, o => o.Kind == PlannedOperationKind.Delete && o.RelativePath == "unmatched.bin");
+        Assert.Contains(plan.Operations, o => o is MoveOperation move && move.PreviousRelativePath == "no-signature.bin");
+        Assert.Contains(plan.Operations, o => o is DeleteOperation && o.RelativePath == "unmatched.bin");
     }
 
     [Fact]
@@ -248,10 +247,10 @@ public class BackupPlannerTests : IDisposable
         // actually run across multiple candidates concurrently, not just a single one.
         var otherEntries = Enumerable.Range(0, 20)
             .Select(i => new PendingChange(
-                new ScannedEntry($"other-{i}.txt", WriteFile($"other-{i}.txt", $"unrelated content {i}"), size, DateTimeOffset.UtcNow, false, null),
+                ScanItem.File($"other-{i}.txt", WriteFile($"other-{i}.txt", $"unrelated content {i}"), size, DateTimeOffset.UtcNow),
                 PendingChangeKind.Added))
             .ToList();
-        var scannedEntry = new ScannedEntry("new.txt", path, size, DateTimeOffset.UtcNow, false, null);
+        var scannedEntry = ScanItem.File("new.txt", path, size, DateTimeOffset.UtcNow);
         var pending = new List<PendingChange> { new(scannedEntry, PendingChangeKind.Added) };
         pending.AddRange(otherEntries);
 
@@ -264,9 +263,9 @@ public class BackupPlannerTests : IDisposable
 
         var plan = _planner.Plan(diff, currentState);
 
-        var move = Assert.Single(plan.Operations, o => o.Kind == PlannedOperationKind.Move);
+        var move = Assert.IsType<MoveOperation>(Assert.Single(plan.Operations, operation => operation is MoveOperation));
         Assert.Equal("first-candidate.txt", move.PreviousRelativePath); // first in DeletedPaths order wins the tie
-        Assert.Contains(plan.Operations, o => o.Kind == PlannedOperationKind.Delete && o.RelativePath == "second-candidate.txt");
+        Assert.Contains(plan.Operations, o => o is DeleteOperation && o.RelativePath == "second-candidate.txt");
     }
 
     [Fact]
@@ -292,7 +291,7 @@ public class BackupPlannerTests : IDisposable
                 var content = RepeatingBytes(64, fill: (byte)i);
                 var path = WriteFile($"added-{i}.bin", content);
                 return new PendingChange(
-                    new ScannedEntry($"added-{i}.bin", path, content.Length, DateTimeOffset.UtcNow, false, null), PendingChangeKind.Added);
+                    ScanItem.File($"added-{i}.bin", path, content.Length, DateTimeOffset.UtcNow), PendingChangeKind.Added);
             })
             .ToList();
 
@@ -317,7 +316,7 @@ public class BackupPlannerTests : IDisposable
         var size = new FileInfo(path).Length;
         var previousHash = HashOf("old content");
 
-        var scannedEntry = new ScannedEntry("existing.txt", path, size, DateTimeOffset.UtcNow, false, null);
+        var scannedEntry = ScanItem.File("existing.txt", path, size, DateTimeOffset.UtcNow);
         var diff = new DiffResult([new PendingChange(scannedEntry, PendingChangeKind.Changed)], []);
         var currentState = new Dictionary<string, CurrentFileState>
         {
@@ -326,22 +325,20 @@ public class BackupPlannerTests : IDisposable
 
         var plan = _planner.Plan(diff, currentState);
 
-        var operation = Assert.Single(plan.Operations);
-        Assert.Equal(PlannedOperationKind.Change, operation.Kind);
+        var operation = Assert.IsType<ChangeOperation>(Assert.Single(plan.Operations));
         Assert.Equal(previousHash, operation.PreviousContentHash);
     }
 
     [Fact]
-    public void An_added_entry_has_no_previous_content_hash()
+    public void An_added_entry_produces_an_add_operation()
     {
         var path = WriteFile("new.txt", "hello world");
-        var entry = new ScannedEntry("new.txt", path, 11, DateTimeOffset.UtcNow, false, null);
+        var entry = ScanItem.File("new.txt", path, 11, DateTimeOffset.UtcNow);
         var diff = new DiffResult([new PendingChange(entry, PendingChangeKind.Added)], []);
 
         var plan = _planner.Plan(diff, new Dictionary<string, CurrentFileState>());
 
-        var operation = Assert.Single(plan.Operations);
-        Assert.Null(operation.PreviousContentHash);
+        Assert.IsType<AddOperation>(Assert.Single(plan.Operations));
     }
 
     /// <summary>Wraps <see cref="FakeHasher"/>, recording the byte-length hashed on every call - used to prove exactly how much of a stream was actually read.</summary>

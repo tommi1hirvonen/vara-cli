@@ -47,7 +47,7 @@ public class BackupPipelineRealRepositoryTests : IDisposable
     {
         var path = Path.Combine(_root, "a.txt");
         File.WriteAllText(path, "hello");
-        var entry = new ScannedEntry("a.txt", path, 5, File.GetLastWriteTimeUtc(path), false, null);
+        var entry = ScanItem.File("a.txt", path, 5, File.GetLastWriteTimeUtc(path));
 
         var pipeline = new BackupPipeline(
             new FakeFileSystemScanner([entry]), new FakeHasher(), new FakeContentStore(), Repository, new FakeRunLock());
@@ -62,7 +62,7 @@ public class BackupPipelineRealRepositoryTests : IDisposable
     {
         var path = Path.Combine(_root, "a.txt");
         File.WriteAllText(path, "hello");
-        var entry = new ScannedEntry("a.txt", path, 5, File.GetLastWriteTimeUtc(path), false, null);
+        var entry = ScanItem.File("a.txt", path, 5, File.GetLastWriteTimeUtc(path));
         var contentStore = new FakeContentStore();
         var scanner = new FakeFileSystemScanner([entry]);
 
@@ -88,7 +88,7 @@ public class BackupPipelineRealRepositoryTests : IDisposable
         var modifiedAt = File.GetLastWriteTimeUtc(path);
         var contentStore = new FakeContentStore();
 
-        var firstEntry = new ScannedEntry("Photo.JPG", path, 5, modifiedAt, false, null);
+        var firstEntry = ScanItem.File("Photo.JPG", path, 5, modifiedAt);
         var firstRun = new BackupPipeline(
             new FakeFileSystemScanner([firstEntry]), new FakeHasher(), contentStore, Repository, new FakeRunLock()).Run(SimpleProfile(_root));
         Assert.Equal(1, firstRun.Stats.FilesAdded);
@@ -97,7 +97,7 @@ public class BackupPipelineRealRepositoryTests : IDisposable
         // modified time are unaffected. This is the real-repository counterpart to the
         // regression added in the fix-current-state-case-sensitivity change (which only
         // exercised FakeSnapshotRepository).
-        var secondEntry = new ScannedEntry("photo.jpg", path, 5, modifiedAt, false, null);
+        var secondEntry = ScanItem.File("photo.jpg", path, 5, modifiedAt);
         var secondRun = new BackupPipeline(
             new FakeFileSystemScanner([secondEntry]), new FakeHasher(), contentStore, Repository, new FakeRunLock()).Run(SimpleProfile(_root));
 
@@ -116,13 +116,13 @@ public class BackupPipelineRealRepositoryTests : IDisposable
     public void A_run_with_a_configured_transfer_concurrency_above_one_still_produces_a_correct_one_to_one_mirror()
     {
         const int fileCount = 30;
-        var entries = new List<ScannedEntry>();
+        var entries = new List<ScanItem>();
         for (var i = 0; i < fileCount; i++)
         {
             var path = Path.Combine(_root, $"file-{i}.txt");
             var content = $"content of file {i}";
             File.WriteAllText(path, content);
-            entries.Add(new ScannedEntry($"file-{i}.txt", path, new FileInfo(path).Length, File.GetLastWriteTimeUtc(path), false, null));
+            entries.Add(ScanItem.File($"file-{i}.txt", path, new FileInfo(path).Length, File.GetLastWriteTimeUtc(path)));
         }
 
         var contentStore = new FakeContentStore();
@@ -153,8 +153,8 @@ public class BackupPipelineRealRepositoryTests : IDisposable
         var otherPath = Path.Combine(_root, "other.txt");
         WriteFile(appDataPath, "app data");
         WriteFile(otherPath, "other");
-        var appDataEntry = new ScannedEntry(@"app-data\a.txt", appDataPath, 8, File.GetLastWriteTimeUtc(appDataPath), false, null);
-        var otherEntry = new ScannedEntry("other.txt", otherPath, 5, File.GetLastWriteTimeUtc(otherPath), false, null);
+        var appDataEntry = ScanItem.File(@"app-data\a.txt", appDataPath, 8, File.GetLastWriteTimeUtc(appDataPath));
+        var otherEntry = ScanItem.File("other.txt", otherPath, 5, File.GetLastWriteTimeUtc(otherPath));
         var contentStore = new FakeContentStore();
 
         // First run: both sources scan successfully.
@@ -190,8 +190,8 @@ public class BackupPipelineRealRepositoryTests : IDisposable
         var otherPath = Path.Combine(_root, "other.txt");
         WriteFile(deniedPath, "hidden");
         WriteFile(otherPath, "other");
-        var deniedEntry = new ScannedEntry(@"denied-dir\hidden.txt", deniedPath, 6, File.GetLastWriteTimeUtc(deniedPath), false, null);
-        var otherEntry = new ScannedEntry("other.txt", otherPath, 5, File.GetLastWriteTimeUtc(otherPath), false, null);
+        var deniedEntry = ScanItem.File(@"denied-dir\hidden.txt", deniedPath, 6, File.GetLastWriteTimeUtc(deniedPath));
+        var otherEntry = ScanItem.File("other.txt", otherPath, 5, File.GetLastWriteTimeUtc(otherPath));
         var contentStore = new FakeContentStore();
 
         // First run: both files scan successfully.

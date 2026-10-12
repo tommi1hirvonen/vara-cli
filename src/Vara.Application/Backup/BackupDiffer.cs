@@ -15,19 +15,23 @@ namespace Vara.Application.Backup;
 public sealed class BackupDiffer
 {
     public DiffResult Diff(
-        IEnumerable<ScannedEntry> scanned,
+        IEnumerable<ScanItem> scanned,
         IReadOnlyDictionary<string, CurrentFileState> currentState,
         IReadOnlyList<ScanFailure> failures)
     {
         var pending = new List<PendingChange>();
         var scannedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var entry in scanned)
+        foreach (var item in scanned)
         {
-            scannedPaths.Add(entry.RelativePath);
-
-            if (entry.IsLink)
+            if (!item.HasValue)
             {
+                throw new InvalidOperationException("A scanned item must contain a file or link.");
+            }
+
+            if (item.TryGetValue(out ScannedLink link))
+            {
+                scannedPaths.Add(link.RelativePath);
                 // Symlinks/junctions are never diffed as content - the backup-execution
                 // spec requires their target is never followed. A link already tracked
                 // as linked needs no new pending change; it's simply "seen" this run
@@ -37,27 +41,33 @@ public sealed class BackupDiffer
                 // file, still needs a pending change so its existence (and target path)
                 // is actually recorded (spec: "Previously tracked file replaced by a
                 // symlink").
-                var alreadyLinked = currentState.TryGetValue(entry.RelativePath, out var linkState) && linkState.IsLinked;
+                var alreadyLinked = currentState.TryGetValue(link.RelativePath, out var linkState) && linkState.IsLinked;
                 if (!alreadyLinked)
                 {
-                    pending.Add(new PendingChange(entry, PendingChangeKind.Linked));
+                    pending.Add(new PendingChange(item, PendingChangeKind.Linked));
                 }
 
                 continue;
             }
 
-            if (currentState.TryGetValue(entry.RelativePath, out var current))
+            if (!item.TryGetValue(out ScannedFile file))
             {
-                if (current.Size == entry.Size && current.SourceModifiedAt == entry.ModifiedAt)
+                throw new InvalidOperationException("A scanned item contained no recognized variant.");
+            }
+
+            scannedPaths.Add(file.RelativePath);
+            if (currentState.TryGetValue(file.RelativePath, out var current))
+            {
+                if (current.Size == file.Size && current.SourceModifiedAt == file.ModifiedAt)
                 {
                     continue; // unchanged - no manifest row needed
                 }
 
-                pending.Add(new PendingChange(entry, PendingChangeKind.Changed));
+                pending.Add(new PendingChange(item, PendingChangeKind.Changed));
             }
             else
             {
-                pending.Add(new PendingChange(entry, PendingChangeKind.Added));
+                pending.Add(new PendingChange(item, PendingChangeKind.Added));
             }
         }
 

@@ -77,9 +77,13 @@ public static class SnapshotChangePresenter
                 var name = GetName(file.RelativePath);
                 var change = file.ChangeKind switch
                 {
-                    FileChangeKind.Moved when file.PreviousRelativePath is not null =>
+                    FileChangeKind.MovedChange when file.PreviousRelativePath is not null =>
                         $"Moved from {file.PreviousRelativePath}",
-                    _ => file.ChangeKind.ToString(),
+                    FileChangeKind.AddedChange => file.ChangeKind.ToString(),
+                    FileChangeKind.ChangedChange => file.ChangeKind.ToString(),
+                    FileChangeKind.MovedChange => file.ChangeKind.ToString(),
+                    FileChangeKind.DeletedChange => file.ChangeKind.ToString(),
+                    FileChangeKind.LinkedChange => file.ChangeKind.ToString(),
                 };
                 parent.AddNode(new Text($"{name} - {change}"));
             }

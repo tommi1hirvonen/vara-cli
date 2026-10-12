@@ -7,6 +7,30 @@ namespace Vara.Application.Tests.History;
 
 public class SnapshotHistoryServiceTests
 {
+    private static Stream GetShowStream(ShowResult result) => result switch
+    {
+        Stream stream => stream,
+        ShowRefusal refusal => throw new Xunit.Sdk.XunitException($"Expected shown content but received refusal: {refusal.Message}"),
+    };
+
+    private static ShowRefusal GetShowRefusal(ShowResult result) => result switch
+    {
+        Stream => throw new Xunit.Sdk.XunitException("Expected a show refusal but received content."),
+        ShowRefusal refusal => refusal,
+    };
+
+    private static DiffStreams GetDiffStreams(DiffResult result) => result switch
+    {
+        DiffStreams streams => streams,
+        DiffRefusal refusal => throw new Xunit.Sdk.XunitException($"Expected diff streams but received refusal: {refusal.Message}"),
+    };
+
+    private static DiffRefusal GetDiffRefusal(DiffResult result) => result switch
+    {
+        DiffStreams => throw new Xunit.Sdk.XunitException("Expected a diff refusal but received streams."),
+        DiffRefusal refusal => refusal,
+    };
+
     [Fact]
     public void ListSnapshots_returns_recorded_snapshots_most_recent_first()
     {
@@ -422,7 +446,8 @@ public class SnapshotHistoryServiceTests
         var service = new SnapshotHistoryService(repository, contentStore);
         using var destination = new MemoryStream();
 
-        service.ShowVersion("a.txt", versionId, asOf: null, destination);
+        using var shown = GetShowStream(service.ShowVersion("a.txt", versionId, asOf: null));
+        shown.CopyTo(destination);
 
         Assert.Equal("shown content", System.Text.Encoding.UTF8.GetString(destination.ToArray()));
     }
@@ -432,7 +457,7 @@ public class SnapshotHistoryServiceTests
     {
         var service = new SnapshotHistoryService(new FakeSnapshotRepository(), new FakeContentStore());
 
-        Assert.Throws<NoHistoryForPathException>(() => service.ShowVersion("never.txt", 1, null, new MemoryStream()));
+        Assert.Throws<NoHistoryForPathException>(() => service.ShowVersion("never.txt", 1, null));
     }
 
     [Fact]
@@ -443,7 +468,7 @@ public class SnapshotHistoryServiceTests
         repository.RecordFileVersion(s1, "a.txt", null, "hash", 10, DateTimeOffset.UtcNow, FileChangeKind.Added, DateTimeOffset.UtcNow);
         var service = new SnapshotHistoryService(repository, new FakeContentStore());
 
-        Assert.Throws<NoMatchingVersionException>(() => service.ShowVersion("a.txt", 9999, null, new MemoryStream()));
+        Assert.Throws<NoMatchingVersionException>(() => service.ShowVersion("a.txt", 9999, null));
     }
 
     [Fact]
@@ -459,7 +484,7 @@ public class SnapshotHistoryServiceTests
         var service = new SnapshotHistoryService(repository, contentStore);
         using var destination = new MemoryStream();
 
-        Assert.Throws<ShowBinaryContentException>(() => service.ShowVersion("a.bin", versionId, asOf: null, destination, forceBinary: false));
+        Assert.IsType<BinaryShowRefusal>(GetShowRefusal(service.ShowVersion("a.bin", versionId, asOf: null, forceBinary: false)));
 
         Assert.Empty(destination.ToArray());
     }
@@ -478,7 +503,8 @@ public class SnapshotHistoryServiceTests
         var service = new SnapshotHistoryService(repository, contentStore);
         using var destination = new MemoryStream();
 
-        service.ShowVersion("a.bin", versionId, asOf: null, destination, forceBinary: true);
+        using var shown = GetShowStream(service.ShowVersion("a.bin", versionId, asOf: null, forceBinary: true));
+        shown.CopyTo(destination);
 
         Assert.Equal(content, destination.ToArray());
     }
@@ -499,7 +525,8 @@ public class SnapshotHistoryServiceTests
         var versionIds = repository.GetFileHistory("a.txt").OrderBy(r => r.Id).Select(r => r.Id).ToList();
         var service = new SnapshotHistoryService(repository, contentStore);
 
-        var (left, right) = service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null);
+        using var streams = GetDiffStreams(service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null));
+        var (left, right) = (streams.Left, streams.Right);
         using var leftReader = new StreamReader(left);
         using var rightReader = new StreamReader(right);
 
@@ -537,7 +564,7 @@ public class SnapshotHistoryServiceTests
         var versionIds = repository.GetFileHistory("a.txt").OrderBy(r => r.Id).Select(r => r.Id).ToList();
         var service = new SnapshotHistoryService(repository, contentStore);
 
-        var ex = Assert.Throws<DiffContentTooLargeException>(() => service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null));
+        var ex = Assert.IsType<OversizedDiffRefusal>(GetDiffRefusal(service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null)));
 
         Assert.Equal(OversizedForDiff, ex.LeftSize);
         Assert.Null(ex.RightSize);
@@ -559,7 +586,7 @@ public class SnapshotHistoryServiceTests
         var versionIds = repository.GetFileHistory("a.txt").OrderBy(r => r.Id).Select(r => r.Id).ToList();
         var service = new SnapshotHistoryService(repository, contentStore);
 
-        var ex = Assert.Throws<DiffContentTooLargeException>(() => service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null));
+        var ex = Assert.IsType<OversizedDiffRefusal>(GetDiffRefusal(service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null)));
 
         Assert.Null(ex.LeftSize);
         Assert.Equal(OversizedForDiff, ex.RightSize);
@@ -581,7 +608,7 @@ public class SnapshotHistoryServiceTests
         var versionIds = repository.GetFileHistory("a.txt").OrderBy(r => r.Id).Select(r => r.Id).ToList();
         var service = new SnapshotHistoryService(repository, contentStore);
 
-        var ex = Assert.Throws<DiffContentTooLargeException>(() => service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null));
+        var ex = Assert.IsType<OversizedDiffRefusal>(GetDiffRefusal(service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null)));
 
         Assert.Equal(OversizedForDiff, ex.LeftSize);
         Assert.Equal(OversizedForDiff + 1, ex.RightSize);
@@ -611,7 +638,7 @@ public class SnapshotHistoryServiceTests
         var versionIds = repository.GetFileHistory("a.txt").OrderBy(r => r.Id).Select(r => r.Id).ToList();
         var service = new SnapshotHistoryService(repository, contentStore);
 
-        var ex = Assert.Throws<DiffBinaryContentException>(() => service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null));
+        var ex = Assert.IsType<BinaryDiffRefusal>(GetDiffRefusal(service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null)));
 
         Assert.True(ex.LeftIsBinary);
         Assert.False(ex.RightIsBinary);
@@ -633,7 +660,7 @@ public class SnapshotHistoryServiceTests
         var versionIds = repository.GetFileHistory("a.txt").OrderBy(r => r.Id).Select(r => r.Id).ToList();
         var service = new SnapshotHistoryService(repository, contentStore);
 
-        var ex = Assert.Throws<DiffBinaryContentException>(() => service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null));
+        var ex = Assert.IsType<BinaryDiffRefusal>(GetDiffRefusal(service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null)));
 
         Assert.False(ex.LeftIsBinary);
         Assert.True(ex.RightIsBinary);
@@ -655,7 +682,7 @@ public class SnapshotHistoryServiceTests
         var versionIds = repository.GetFileHistory("a.txt").OrderBy(r => r.Id).Select(r => r.Id).ToList();
         var service = new SnapshotHistoryService(repository, contentStore);
 
-        var ex = Assert.Throws<DiffBinaryContentException>(() => service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null));
+        var ex = Assert.IsType<BinaryDiffRefusal>(GetDiffRefusal(service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null)));
 
         Assert.True(ex.LeftIsBinary);
         Assert.True(ex.RightIsBinary);
@@ -682,7 +709,8 @@ public class SnapshotHistoryServiceTests
         var versionIds = repository.GetFileHistory("a.txt").OrderBy(r => r.Id).Select(r => r.Id).ToList();
         var service = new SnapshotHistoryService(repository, contentStore);
 
-        var (left, right) = service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null);
+        using var streams = GetDiffStreams(service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null));
+        var (left, right) = (streams.Left, streams.Right);
         using var leftStream = left;
         using var rightStream = right;
         using var leftBuffer = new MemoryStream();
@@ -709,7 +737,7 @@ public class SnapshotHistoryServiceTests
         var versionIds = repository.GetFileHistory("a.txt").OrderBy(r => r.Id).Select(r => r.Id).ToList();
         var service = new SnapshotHistoryService(repository, contentStore);
 
-        var ex = Assert.Throws<DiffContentTooLargeException>(() => service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null));
+        var ex = Assert.IsType<OversizedDiffRefusal>(GetDiffRefusal(service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null)));
 
         Assert.Equal(OversizedForDiff, ex.LeftSize);
         Assert.Null(ex.RightSize);
@@ -725,11 +753,9 @@ public class SnapshotHistoryServiceTests
         var versionId = repository.GetFileHistory("link").Single().Id;
         var service = new SnapshotHistoryService(repository, new FakeContentStore());
 
-        var ex = Assert.Throws<ShowOrDiffLinkedEntryException>(() => service.ShowVersion("link", versionId, asOf: null, new MemoryStream()));
+        var ex = Assert.IsType<LinkedEntryShowRefusal>(GetShowRefusal(service.ShowVersion("link", versionId, asOf: null)));
 
         Assert.Equal("link", ex.RelativePath);
-        Assert.Null(ex.LeftIsLinked);
-        Assert.Null(ex.RightIsLinked);
     }
 
     [Fact]
@@ -747,7 +773,7 @@ public class SnapshotHistoryServiceTests
         var versionIds = repository.GetFileHistory("link").OrderBy(r => r.Id).Select(r => r.Id).ToList();
         var service = new SnapshotHistoryService(repository, contentStore);
 
-        var ex = Assert.Throws<ShowOrDiffLinkedEntryException>(() => service.OpenVersionsForDiff("link", versionIds[0], null, versionIds[1], null));
+        var ex = Assert.IsType<LinkedEntryDiffRefusal>(GetDiffRefusal(service.OpenVersionsForDiff("link", versionIds[0], null, versionIds[1], null)));
 
         Assert.True(ex.LeftIsLinked);
         Assert.False(ex.RightIsLinked);
@@ -768,7 +794,7 @@ public class SnapshotHistoryServiceTests
         var versionIds = repository.GetFileHistory("link").OrderBy(r => r.Id).Select(r => r.Id).ToList();
         var service = new SnapshotHistoryService(repository, contentStore);
 
-        var ex = Assert.Throws<ShowOrDiffLinkedEntryException>(() => service.OpenVersionsForDiff("link", versionIds[0], null, versionIds[1], null));
+        var ex = Assert.IsType<LinkedEntryDiffRefusal>(GetDiffRefusal(service.OpenVersionsForDiff("link", versionIds[0], null, versionIds[1], null)));
 
         Assert.False(ex.LeftIsLinked);
         Assert.True(ex.RightIsLinked);

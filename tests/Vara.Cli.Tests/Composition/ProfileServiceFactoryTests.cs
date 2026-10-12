@@ -115,9 +115,7 @@ public class ProfileServiceFactoryTests : IDisposable
 
         using var services = _factory.CreateFor(profile, createIfMissing: false);
         var history = new SnapshotHistoryService(services.Repository, services.ContentStore);
-        using var destination = new MemoryStream();
-
-        Assert.Throws<NoHistoryForPathException>(() => history.ShowVersion("a.txt", versionId: 1, asOf: null, destination));
+        Assert.Throws<NoHistoryForPathException>(() => history.ShowVersion("a.txt", versionId: 1, asOf: null));
         Assert.False(Directory.Exists(Path.Combine(_targetRoot, ".vara")));
     }
 

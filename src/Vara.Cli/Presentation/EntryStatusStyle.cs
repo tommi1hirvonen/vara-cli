@@ -18,8 +18,8 @@ public static class EntryStatusStyle
 
     public static Style For(DirectoryEntryStatus status) => status switch
     {
-        DirectoryEntryStatus.Deleted => Deleted,
-        DirectoryEntryStatus.Moved => Moved,
-        _ => Live,
+        DirectoryEntryStatus.LiveStatus => Live,
+        DirectoryEntryStatus.DeletedStatus => Deleted,
+        DirectoryEntryStatus.MovedStatus => Moved,
     };
 }

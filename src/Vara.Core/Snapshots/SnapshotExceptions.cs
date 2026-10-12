@@ -1,11 +1,14 @@
 namespace Vara.Core.Snapshots;
 
+public closed class SnapshotException(string message, Exception? innerException = null)
+    : Vara.Core.Exceptions.VaraDomainException(message, innerException);
+
 /// <summary>
 /// A history/restore command was invoked for a path never present in any recorded
 /// snapshot (snapshot-history spec: "Unknown path or version reported clearly").
 /// </summary>
 public sealed class NoHistoryForPathException(string relativePath)
-    : Exception($"No history exists for path '{relativePath}'.")
+    : SnapshotException($"No history exists for path '{relativePath}'.")
 {
     public string RelativePath { get; } = relativePath;
 }
@@ -18,7 +21,7 @@ public sealed class NoHistoryForPathException(string relativePath)
 /// tracked at all," it just needs <c>--recursive</c> to restore it as a directory.
 /// </summary>
 public sealed class RestoreTargetIsDirectoryException(string relativePath)
-    : Exception($"'{relativePath}' is a directory. Pass --recursive to restore it as a directory.")
+    : SnapshotException($"'{relativePath}' is a directory. Pass --recursive to restore it as a directory.")
 {
     public string RelativePath { get; } = relativePath;
 }
@@ -30,7 +33,7 @@ public sealed class RestoreTargetIsDirectoryException(string relativePath)
 /// still a directory that was tracked.
 /// </summary>
 public sealed class NoSuchDirectoryException(string directoryPath)
-    : Exception($"No such directory is recorded in the backup: '{directoryPath}'.")
+    : SnapshotException($"No such directory is recorded in the backup: '{directoryPath}'.")
 {
     public string DirectoryPath { get; } = directoryPath;
 }
@@ -39,7 +42,7 @@ public sealed class NoSuchDirectoryException(string directoryPath)
 /// A restore was requested for a date or version that does not correspond to any
 /// recorded content for the given path.
 /// </summary>
-public sealed class NoMatchingVersionException : Exception
+public sealed class NoMatchingVersionException : SnapshotException
 {
     public string RelativePath { get; }
     public DateTimeOffset? AsOf { get; }
@@ -69,7 +72,7 @@ public sealed class NoMatchingVersionException : Exception
 /// directory").
 /// </summary>
 public sealed class NoMatchingDirectorySnapshotException(string directoryPath, long snapshotId)
-    : Exception($"Snapshot {snapshotId} is not a valid candidate for directory '{directoryPath}': it does not exist, never touched that directory, or is not Complete/Cancelled.")
+    : SnapshotException($"Snapshot {snapshotId} is not a valid candidate for directory '{directoryPath}': it does not exist, never touched that directory, or is not Complete/Cancelled.")
 {
     public string DirectoryPath { get; } = directoryPath;
     public long SnapshotId { get; } = snapshotId;
@@ -81,7 +84,7 @@ public sealed class NoMatchingDirectorySnapshotException(string directoryPath, l
 /// version's full content is read into memory. Only the side(s) that actually exceed the limit
 /// are included in <see cref="LeftSize"/>/<see cref="RightSize"/> and named in the message.
 /// </summary>
-public sealed class DiffContentTooLargeException : Exception
+public sealed class DiffContentTooLargeException : SnapshotException
 {
     public string RelativePath { get; }
     public long Limit { get; }
@@ -121,7 +124,7 @@ public sealed class DiffContentTooLargeException : Exception
 /// actually detected as binary are reflected in <see cref="LeftIsBinary"/>/<see cref="RightIsBinary"/>
 /// and named in the message.
 /// </summary>
-public sealed class DiffBinaryContentException : Exception
+public sealed class DiffBinaryContentException : SnapshotException
 {
     public string RelativePath { get; }
     public bool LeftIsBinary { get; }
@@ -161,7 +164,7 @@ public sealed class DiffBinaryContentException : Exception
 /// resolves exactly one stream, unlike <c>diff</c>'s two named sides.
 /// </summary>
 public sealed class ShowBinaryContentException(string relativePath)
-    : Exception($"Cannot show '{relativePath}': content appears to be binary. Pass --force-binary to show it anyway, or redirect output to a file.")
+    : SnapshotException($"Cannot show '{relativePath}': content appears to be binary. Pass --force-binary to show it anyway, or redirect output to a file.")
 {
     public string RelativePath { get; } = relativePath;
 }
@@ -176,7 +179,7 @@ public sealed class ShowBinaryContentException(string relativePath)
 /// named sides, mirroring <see cref="DiffContentTooLargeException"/>/
 /// <see cref="DiffBinaryContentException"/>'s per-side reporting.
 /// </summary>
-public sealed class ShowOrDiffLinkedEntryException : Exception
+public sealed class ShowOrDiffLinkedEntryException : SnapshotException
 {
     public string RelativePath { get; }
     public bool? LeftIsLinked { get; }
@@ -221,7 +224,7 @@ public sealed class ShowOrDiffLinkedEntryException : Exception
 /// touching the live mirror.
 /// </summary>
 public sealed class RestoreDestinationInMirrorException(string destinationPath)
-    : Exception($"Restore destination '{destinationPath}' is inside the profile's live mirror and would corrupt it. Choose a destination outside the mirror.")
+    : SnapshotException($"Restore destination '{destinationPath}' is inside the profile's live mirror and would corrupt it. Choose a destination outside the mirror.")
 {
     public string DestinationPath { get; } = destinationPath;
 }
@@ -231,7 +234,7 @@ public sealed class RestoreDestinationInMirrorException(string destinationPath)
 /// explicit overwrite override was given.
 /// </summary>
 public sealed class DestinationExistsException(string destinationPath)
-    : Exception($"Restore destination '{destinationPath}' already exists. Pass --force to overwrite it.")
+    : SnapshotException($"Restore destination '{destinationPath}' already exists. Pass --force to overwrite it.")
 {
     public string DestinationPath { get; } = destinationPath;
 }
@@ -242,7 +245,7 @@ public sealed class DestinationExistsException(string destinationPath)
 /// there is nothing to extract.
 /// </summary>
 public sealed class RestoreLinkedEntryException(string relativePath)
-    : Exception($"Cannot restore '{relativePath}': the resolved version is a symlink/junction with no stored content.")
+    : SnapshotException($"Cannot restore '{relativePath}': the resolved version is a symlink/junction with no stored content.")
 {
     public string RelativePath { get; } = relativePath;
 }
@@ -255,7 +258,7 @@ public sealed class RestoreLinkedEntryException(string relativePath)
 /// snapshot-history spec's "Single confirmation for a directory restore" requirement.
 /// </summary>
 public sealed class RestoreDirectoryConfirmationRequiredException(string directoryPath, int writeCount, int removeCount)
-    : Exception(
+    : SnapshotException(
         $"Restoring directory '{directoryPath}' will write {writeCount} file(s)" +
         (removeCount > 0 ? $" and remove {removeCount} file(s)" : string.Empty) +
         ". Pass --force to confirm, or re-run interactively to be prompted.")

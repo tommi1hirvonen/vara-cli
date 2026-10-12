@@ -61,7 +61,8 @@ public static class DiffCommand
                 return 1;
             }
 
-            return ErrorReporting.Run(() =>
+            var resultExitCode = ExitCodes.Success;
+            var errorExitCode = ErrorReporting.Run(() =>
             {
                 var profile = profileResolver.ResolveForBrowsing(profileName, configPath);
                 using var services = serviceFactory.CreateFor(profile, createIfMissing: false);
@@ -79,19 +80,36 @@ public static class DiffCommand
                 var leftAsOf = leftAt is null ? (DateTimeOffset?)null : DateTimeOptionParser.Parse("--left-at", leftAt);
                 var rightAsOf = rightAt is null ? (DateTimeOffset?)null : DateTimeOptionParser.Parse("--right-at", rightAt);
 
-                var (left, right) = history.OpenVersionsForDiff(resolvedPath, leftVersion, leftAsOf, rightVersion, rightAsOf);
-                using (left)
-                using (right)
+                var result = history.OpenVersionsForDiff(resolvedPath, leftVersion, leftAsOf, rightVersion, rightAsOf);
+                resultExitCode = result switch
                 {
-                    var leftText = new StreamReader(left).ReadToEnd();
-                    var rightText = new StreamReader(right).ReadToEnd();
-
-                    RenderDiff(AnsiConsole.Console, leftText, rightText);
-                }
+                    DiffStreams streams => RenderDiffStreams(streams),
+                    DiffRefusal refusal => ReportRefusal(refusal),
+                };
             });
+
+            return errorExitCode == ExitCodes.Success ? resultExitCode : errorExitCode;
         });
 
         return command;
+    }
+
+    private static int RenderDiffStreams(DiffStreams streams)
+    {
+        using (streams)
+        using (var leftReader = new StreamReader(streams.Left, leaveOpen: true))
+        using (var rightReader = new StreamReader(streams.Right, leaveOpen: true))
+        {
+            RenderDiff(AnsiConsole.Console, leftReader.ReadToEnd(), rightReader.ReadToEnd());
+        }
+
+        return ExitCodes.Success;
+    }
+
+    private static int ReportRefusal(DiffRefusal refusal)
+    {
+        OutcomeStyle.WriteLineError(StandardError.Console, $"Error: {refusal.Message}");
+        return ExitCodes.HardError;
     }
 
     private static void RenderDiff(IAnsiConsole console, string leftText, string rightText)

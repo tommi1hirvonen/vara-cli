@@ -131,13 +131,13 @@ public static class ProfilesCommand
                 isErrorStatus = false;
             }
 
-            var row = console.Prompt(BuildMainMenuPrompt(profiles));
+            var action = console.Prompt(BuildMainMenuPrompt(profiles));
 
-            switch (row.Kind)
+            switch (action)
             {
-                case MenuRowKind.Quit:
+                case QuitAction:
                     return lastSavedProfile;
-                case MenuRowKind.AddNew:
+                case AddNewProfile:
                     var newSaved = RunEditScreen(console, ProfileDraft.ForNewProfile(), profiles, configWriter, configPath);
                     if (newSaved is not null)
                     {
@@ -145,7 +145,7 @@ public static class ProfilesCommand
                         lastSavedProfile = newSaved.Name;
                     }
                     break;
-                case MenuRowKind.DeletePrompt:
+                case StartDeleteProfile:
                     var deletedName = RunDeleteFlow(console, profiles, configWriter, configPath, out var deleteError);
                     if (deletedName is not null)
                     {
@@ -157,58 +157,58 @@ public static class ProfilesCommand
                         isErrorStatus = true;
                     }
                     break;
-                case MenuRowKind.Profile:
-                    var editSaved = RunEditScreen(console, ProfileDraft.FromProfile(row.Profile!), profiles, configWriter, configPath);
+                case EditProfile editProfile:
+                    var editSaved = RunEditScreen(console, ProfileDraft.FromProfile(editProfile.Profile), profiles, configWriter, configPath);
                     if (editSaved is not null)
                     {
                         statusMessage = $"Saved profile '{editSaved.Name}'.";
                         lastSavedProfile = editSaved.Name;
                     }
                     break;
+                case DeleteProfile:
+                case CancelAction:
+                    throw new InvalidOperationException($"Unexpected menu action: {action.GetType().Name}.");
             }
         }
     }
 
     // ---- Main menu ----
 
-    private enum MenuRowKind { Profile, AddNew, DeletePrompt, Quit, Cancel }
+    private closed record MenuAction(string Label);
 
-    private sealed class MenuRow
-    {
-        public required MenuRowKind Kind { get; init; }
-        public Profile? Profile { get; init; }
-        public required string Label { get; init; }
-    }
+    private sealed record EditProfile(Profile Profile, string Label) : MenuAction(Label);
+    private sealed record AddNewProfile() : MenuAction("Add new profile");
+    private sealed record StartDeleteProfile() : MenuAction("Delete a profile");
+    private sealed record DeleteProfile(Profile Profile, string Label) : MenuAction(Label);
+    private sealed record QuitAction() : MenuAction("Quit");
+    private sealed record CancelAction() : MenuAction("Cancel");
 
-    private static SelectionPrompt<MenuRow> BuildMainMenuPrompt(List<Profile> profiles)
+    private static SelectionPrompt<MenuAction> BuildMainMenuPrompt(List<Profile> profiles)
     {
-        var prompt = new SelectionPrompt<MenuRow>()
+        var prompt = new SelectionPrompt<MenuAction>()
             .Title("Vara profiles - select a profile to edit, or an action:")
             .PageSize(15)
             // Every prompt over a non-primitive type must set an explicit Converter - see
-            // design.md's "Command/presentation shape" decision: MenuRow has no
+            // design.md's "Command/presentation shape" decision: MenuAction has no
             // TypeConverter, so the default conversion path would throw
             // InvalidOperationException the first time this prompt is shown.
-            .UseConverter(row => row.Label);
+            .UseConverter(menuAction => menuAction.Label);
 
         foreach (var profile in profiles)
         {
-            prompt.AddChoice(new MenuRow
-            {
-                Kind = MenuRowKind.Profile,
-                Profile = profile,
-                Label = Markup.Escape($"{profile.Name} - {profile.TargetRoot} ({profile.Sources.Count} source(s))"),
-            });
+            prompt.AddChoice(new EditProfile(
+                profile,
+                Markup.Escape($"{profile.Name} - {profile.TargetRoot} ({profile.Sources.Count} source(s))")));
         }
 
-        prompt.AddChoice(new MenuRow { Kind = MenuRowKind.AddNew, Label = "Add new profile" });
+        prompt.AddChoice(new AddNewProfile());
 
         if (profiles.Count > 0)
         {
-            prompt.AddChoice(new MenuRow { Kind = MenuRowKind.DeletePrompt, Label = "Delete a profile" });
+            prompt.AddChoice(new StartDeleteProfile());
         }
 
-        prompt.AddChoice(new MenuRow { Kind = MenuRowKind.Quit, Label = "Quit" });
+        prompt.AddChoice(new QuitAction());
 
         return prompt;
     }
@@ -218,30 +218,31 @@ public static class ProfilesCommand
         errorMessage = null;
         console.Clear();
 
-        var prompt = new SelectionPrompt<MenuRow>()
+        var prompt = new SelectionPrompt<MenuAction>()
             .Title("Select a profile to delete:")
             .PageSize(15)
-            .UseConverter(row => row.Label);
+            .UseConverter(menuAction => menuAction.Label);
 
         foreach (var profile in profiles)
         {
-            prompt.AddChoice(new MenuRow
-            {
-                Kind = MenuRowKind.Profile,
-                Profile = profile,
-                Label = Markup.Escape($"{profile.Name} - {profile.TargetRoot}"),
-            });
+            prompt.AddChoice(new DeleteProfile(profile, Markup.Escape($"{profile.Name} - {profile.TargetRoot}")));
         }
 
-        prompt.AddChoice(new MenuRow { Kind = MenuRowKind.Cancel, Label = "Cancel" });
+        prompt.AddChoice(new CancelAction());
 
         var selected = console.Prompt(prompt);
-        if (selected.Kind != MenuRowKind.Profile)
+        var target = selected switch
+        {
+            DeleteProfile deleteProfile => deleteProfile.Profile,
+            CancelAction => null,
+            EditProfile or AddNewProfile or StartDeleteProfile or QuitAction =>
+                throw new InvalidOperationException($"Unexpected delete-menu action: {selected.GetType().Name}."),
+        };
+        if (target is null)
         {
             return null;
         }
 
-        var target = selected.Profile!;
         var confirmed = console.Confirm(
             $"Delete profile '{Markup.Escape(target.Name)}' (target '{Markup.Escape(target.TargetRoot)}')? This will not touch any backup data already written under that target.",
             defaultValue: false);
@@ -288,9 +289,15 @@ public static class ProfilesCommand
 
     // ---- Profile edit screen ----
 
-    private enum EditAction { Name, Target, Sources, Retention, Concurrency, Save, Discard }
+    private closed record EditFieldAction(string Label);
 
-    private sealed record EditActionRow(EditAction Action, string Label);
+    private sealed record EditNameAction(string Label) : EditFieldAction(Label);
+    private sealed record EditTargetAction(string Label) : EditFieldAction(Label);
+    private sealed record ManageSourcesAction(string Label) : EditFieldAction(Label);
+    private sealed record EditRetentionAction(string Label) : EditFieldAction(Label);
+    private sealed record EditConcurrencyAction(string Label) : EditFieldAction(Label);
+    private sealed record SaveProfileAction(string Label) : EditFieldAction(Label);
+    private sealed record DiscardProfileAction(string Label) : EditFieldAction(Label);
 
     private static Profile? RunEditScreen(IAnsiConsole console, ProfileDraft draft, List<Profile> profiles, IProfileConfigWriter configWriter, string configPath)
     {
@@ -310,46 +317,46 @@ public static class ProfilesCommand
 
             ProfileDraftPresenter.Render(console, draft);
 
-            var rows = new List<EditActionRow>
+            var rows = new List<EditFieldAction>
             {
-                new(EditAction.Name, $"Edit name (currently: {Markup.Escape(FormatOptional(draft.Name))})"),
-                new(EditAction.Target, $"Edit target root (currently: {Markup.Escape(FormatOptional(draft.Target))})"),
-                new(EditAction.Sources, $"Manage sources ({draft.Sources.Count} configured)"),
-                new(EditAction.Retention, $"Retention ({(draft.HasRetention ? "configured" : "not set")})"),
-                new(EditAction.Concurrency, $"Concurrency ({(draft.HasConcurrency ? "configured" : "not set")})"),
-                new(EditAction.Save, "Save"),
-                new(EditAction.Discard, "Discard"),
+                new EditNameAction($"Edit name (currently: {Markup.Escape(FormatOptional(draft.Name))})"),
+                new EditTargetAction($"Edit target root (currently: {Markup.Escape(FormatOptional(draft.Target))})"),
+                new ManageSourcesAction($"Manage sources ({draft.Sources.Count} configured)"),
+                new EditRetentionAction($"Retention ({(draft.HasRetention ? "configured" : "not set")})"),
+                new EditConcurrencyAction($"Concurrency ({(draft.HasConcurrency ? "configured" : "not set")})"),
+                new SaveProfileAction("Save"),
+                new DiscardProfileAction("Discard"),
             };
 
-            var action = console.Prompt(new SelectionPrompt<EditActionRow>()
+            var action = console.Prompt(new SelectionPrompt<EditFieldAction>()
                 .Title("Choose a field to edit, or Save/Discard:")
                 .PageSize(15)
-                .UseConverter(r => r.Label)
-                .AddChoices(rows)).Action;
+                .UseConverter(fieldAction => fieldAction.Label)
+                .AddChoices(rows));
 
             switch (action)
             {
-                case EditAction.Name:
+                case EditNameAction:
                     draft.Name = PromptOptionalText(console, "Name", draft.Name);
                     draft.Revalidate(profiles);
                     break;
-                case EditAction.Target:
+                case EditTargetAction:
                     draft.Target = PromptOptionalText(console, "Target root", draft.Target);
                     draft.Revalidate(profiles);
                     break;
-                case EditAction.Sources:
+                case ManageSourcesAction:
                     RunSourcesScreen(console, draft, profiles);
                     draft.Revalidate(profiles);
                     break;
-                case EditAction.Retention:
+                case EditRetentionAction:
                     EditRetention(console, draft);
                     draft.Revalidate(profiles);
                     break;
-                case EditAction.Concurrency:
+                case EditConcurrencyAction:
                     EditConcurrency(console, draft);
                     draft.Revalidate(profiles);
                     break;
-                case EditAction.Save:
+                case SaveProfileAction:
                     try
                     {
                         if (TrySave(draft, profiles, configWriter, configPath, out var saved))
@@ -369,7 +376,7 @@ public static class ProfilesCommand
                     }
 
                     break;
-                case EditAction.Discard:
+                case DiscardProfileAction:
                     return null;
             }
         }
@@ -517,9 +524,15 @@ public static class ProfilesCommand
         }
     }
 
-    private enum SourceFieldAction { Path, Recursive, Excludes, IncludeGlobs, ExcludeGlobs, Remove, Back }
+    private closed record SourceFieldAction(string Label);
 
-    private sealed record SourceFieldActionRow(SourceFieldAction Action, string Label);
+    private sealed record EditSourcePathAction(string Label) : SourceFieldAction(Label);
+    private sealed record ToggleSourceRecursiveAction(string Label) : SourceFieldAction(Label);
+    private sealed record EditSourceExcludesAction(string Label) : SourceFieldAction(Label);
+    private sealed record EditSourceIncludeGlobsAction(string Label) : SourceFieldAction(Label);
+    private sealed record EditSourceExcludeGlobsAction(string Label) : SourceFieldAction(Label);
+    private sealed record RemoveSourceAction(string Label) : SourceFieldAction(Label);
+    private sealed record BackFromSourceAction(string Label) : SourceFieldAction(Label);
 
     private static void EditSource(IAnsiConsole console, ProfileDraft draft, SourceDraft source, List<Profile> profiles)
     {
@@ -528,46 +541,46 @@ public static class ProfilesCommand
             console.Clear();
             ProfileDraftPresenter.RenderSource(console, source, draft.CurrentError);
 
-            var rows = new List<SourceFieldActionRow>
+            var rows = new List<SourceFieldAction>
             {
-                new(SourceFieldAction.Path, $"Edit path (currently: {Markup.Escape(FormatOptional(source.Path))})"),
-                new(SourceFieldAction.Recursive, $"Toggle recursive (currently: {source.Recursive})"),
-                new(SourceFieldAction.Excludes, $"Edit exclude list ({source.Excludes.Count} entries)"),
-                new(SourceFieldAction.IncludeGlobs, $"Edit include-glob list ({source.IncludeGlobs.Count} entries)"),
-                new(SourceFieldAction.ExcludeGlobs, $"Edit exclude-glob list ({source.ExcludeGlobs.Count} entries)"),
-                new(SourceFieldAction.Remove, "Remove this source"),
-                new(SourceFieldAction.Back, "Back"),
+                new EditSourcePathAction($"Edit path (currently: {Markup.Escape(FormatOptional(source.Path))})"),
+                new ToggleSourceRecursiveAction($"Toggle recursive (currently: {source.Recursive})"),
+                new EditSourceExcludesAction($"Edit exclude list ({source.Excludes.Count} entries)"),
+                new EditSourceIncludeGlobsAction($"Edit include-glob list ({source.IncludeGlobs.Count} entries)"),
+                new EditSourceExcludeGlobsAction($"Edit exclude-glob list ({source.ExcludeGlobs.Count} entries)"),
+                new RemoveSourceAction("Remove this source"),
+                new BackFromSourceAction("Back"),
             };
 
-            var action = console.Prompt(new SelectionPrompt<SourceFieldActionRow>()
+            var action = console.Prompt(new SelectionPrompt<SourceFieldAction>()
                 .Title("Edit source:")
                 .PageSize(15)
-                .UseConverter(r => r.Label)
-                .AddChoices(rows)).Action;
+                .UseConverter(fieldAction => fieldAction.Label)
+                .AddChoices(rows));
 
             switch (action)
             {
-                case SourceFieldAction.Path:
+                case EditSourcePathAction:
                     source.Path = PromptOptionalText(console, "Path", source.Path);
                     draft.Revalidate(profiles);
                     break;
-                case SourceFieldAction.Recursive:
+                case ToggleSourceRecursiveAction:
                     source.Recursive = console.Confirm("Recursive?", source.Recursive);
                     draft.Revalidate(profiles);
                     break;
-                case SourceFieldAction.Excludes:
+                case EditSourceExcludesAction:
                     EditStringList(console, "exclude entry", source.Excludes);
                     draft.Revalidate(profiles);
                     break;
-                case SourceFieldAction.IncludeGlobs:
+                case EditSourceIncludeGlobsAction:
                     EditStringList(console, "include-glob pattern", source.IncludeGlobs);
                     draft.Revalidate(profiles);
                     break;
-                case SourceFieldAction.ExcludeGlobs:
+                case EditSourceExcludeGlobsAction:
                     EditStringList(console, "exclude-glob pattern", source.ExcludeGlobs);
                     draft.Revalidate(profiles);
                     break;
-                case SourceFieldAction.Remove:
+                case RemoveSourceAction:
                     // Only permitted display-side - the containing ProfileDraft's own
                     // validation (via Profile's constructor) already rejects a save with
                     // zero sources, so removing the last one simply surfaces that error
@@ -575,7 +588,7 @@ public static class ProfilesCommand
                     draft.Sources.Remove(source);
                     draft.Revalidate(profiles);
                     return;
-                case SourceFieldAction.Back:
+                case BackFromSourceAction:
                     return;
             }
         }

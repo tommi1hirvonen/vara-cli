@@ -10,8 +10,10 @@ public class BackupDifferTests
     private readonly BackupDiffer _differ = new();
     private static readonly ScanFailure[] NoFailures = [];
 
-    private static ScannedEntry Entry(string path, long size, DateTimeOffset modifiedAt, bool isLink = false) =>
-        new(path, $@"C:\src\{path}", size, modifiedAt, isLink, isLink ? @"C:\target" : null);
+    private static ScanItem Entry(string path, long size, DateTimeOffset modifiedAt, bool isLink = false) =>
+        isLink
+            ? ScanItem.Link(path, $@"C:\src\{path}", @"C:\target")
+            : ScanItem.File(path, $@"C:\src\{path}", size, modifiedAt);
 
     [Fact]
     public void A_path_absent_from_current_state_is_classified_as_added()

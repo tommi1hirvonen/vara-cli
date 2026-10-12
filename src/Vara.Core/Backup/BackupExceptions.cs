@@ -1,3 +1,5 @@
+using Vara.Core.Exceptions;
+
 namespace Vara.Core.Backup;
 
 /// <summary>
@@ -9,7 +11,7 @@ namespace Vara.Core.Backup;
 /// one already running.
 /// </summary>
 public sealed class BackupAlreadyRunningException(string profileName, string targetRoot)
-    : Exception(
+    : ConcurrencyException(
         $"Another operation is already using target '{targetRoot}'; " +
         $"a backup run for profile '{profileName}' cannot start until it finishes.")
 {

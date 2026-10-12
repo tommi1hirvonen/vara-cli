@@ -50,12 +50,17 @@ public class SnapshotChangePresenterTests
         Assert.Contains("Moved from old\\file.txt", console.Output);
     }
 
+    public static TheoryData<FileChangeKind, string> ChangeKindColors => new()
+    {
+        { FileChangeKind.Added, "\u001b[38;5;121m" },
+        { FileChangeKind.Changed, "\u001b[38;5;186m" },
+        { FileChangeKind.Moved, "\u001b[38;5;153m" },
+        { FileChangeKind.Deleted, "\u001b[38;5;131m" },
+        { FileChangeKind.Linked, "\u001b[38;5;183m" },
+    };
+
     [Theory]
-    [InlineData(FileChangeKind.Added, "\u001b[38;5;121m")]
-    [InlineData(FileChangeKind.Changed, "\u001b[38;5;186m")]
-    [InlineData(FileChangeKind.Moved, "\u001b[38;5;153m")]
-    [InlineData(FileChangeKind.Deleted, "\u001b[38;5;131m")]
-    [InlineData(FileChangeKind.Linked, "\u001b[38;5;183m")]
+    [MemberData(nameof(ChangeKindColors))]
     public void Renders_each_directory_rollup_count_in_its_change_kind_color(FileChangeKind kind, string expectedEscapeCode)
     {
         var console = new TestConsole { EmitAnsiSequences = true };
@@ -81,12 +86,11 @@ public class SnapshotChangePresenterTests
         Assert.Contains(expectedEscapeCode, console.Output);
         Assert.Contains(kind switch
         {
-            FileChangeKind.Added => "+1",
-            FileChangeKind.Changed => "~1",
-            FileChangeKind.Moved => "->1",
-            FileChangeKind.Deleted => "-1",
-            FileChangeKind.Linked => "1",
-            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+            FileChangeKind.AddedChange => "+1",
+            FileChangeKind.ChangedChange => "~1",
+            FileChangeKind.MovedChange => "->1",
+            FileChangeKind.DeletedChange => "-1",
+            FileChangeKind.LinkedChange => "1",
         }, console.Output);
     }
 

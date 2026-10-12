@@ -27,7 +27,7 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
         return new ScanResult(EnumerateEntries(sources, failures), failures);
     }
 
-    private static IEnumerable<ScannedEntry> EnumerateEntries(IReadOnlyList<Source> sources, List<ScanFailure> failures)
+    private static IEnumerable<ScanItem> EnumerateEntries(IReadOnlyList<Source> sources, List<ScanFailure> failures)
     {
         foreach (var source in sources)
         {
@@ -38,7 +38,7 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
         }
     }
 
-    private static IEnumerable<ScannedEntry> ScanSource(Source source, List<ScanFailure> failures)
+    private static IEnumerable<ScanItem> ScanSource(Source source, List<ScanFailure> failures)
     {
         if (File.Exists(source.Path))
         {
@@ -48,7 +48,7 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
             var entry = ToEntry(source.Path, fileName, mirrorPath, failures);
             if (entry is not null)
             {
-                yield return entry;
+                yield return entry.Value;
             }
 
             yield break;
@@ -77,7 +77,7 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
             var entry = ToEntry(path, relativePath, mirrorPath, failures);
             if (entry is not null)
             {
-                yield return entry;
+                yield return entry.Value;
             }
         }
     }
@@ -162,10 +162,10 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
     /// <summary>
     /// <paramref name="relativePath"/> (source-relative) is used only for
     /// <see cref="ScanFailure"/> reporting; <paramref name="mirrorPath"/> (derived from
-    /// the entry's full absolute path) becomes the resulting <see cref="ScannedEntry"/>'s
-    /// <see cref="ScannedEntry.RelativePath"/>.
+    /// the entry's full absolute path) becomes the resulting <see cref="ScanItem"/>'s
+    /// relative path.
     /// </summary>
-    private static ScannedEntry? ToEntry(string absolutePath, string relativePath, string mirrorPath, List<ScanFailure> failures)
+    private static ScanItem? ToEntry(string absolutePath, string relativePath, string mirrorPath, List<ScanFailure> failures)
     {
         FileAttributes attributes;
         try
@@ -180,13 +180,13 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
 
         if (attributes.HasFlag(FileAttributes.ReparsePoint))
         {
-            return new ScannedEntry(mirrorPath, absolutePath, 0, DateTimeOffset.MinValue, IsLink: true, TryGetLinkTarget(absolutePath));
+            return ScanItem.Link(mirrorPath, absolutePath, TryGetLinkTarget(absolutePath));
         }
 
         try
         {
             var info = new FileInfo(absolutePath);
-            return new ScannedEntry(mirrorPath, absolutePath, info.Length, info.LastWriteTimeUtc, IsLink: false, LinkTarget: null);
+            return ScanItem.File(mirrorPath, absolutePath, info.Length, info.LastWriteTimeUtc);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
