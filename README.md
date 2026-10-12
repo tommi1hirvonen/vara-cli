@@ -349,6 +349,18 @@ Tests are split per architectural layer plus one cross-layer suite:
 `Vara.Core.Tests`, `Vara.Application.Tests`, `Vara.Infrastructure.Tests`,
 `Vara.Cli.Tests`, and `Vara.IntegrationTests`.
 
+Run the BenchmarkDotNet benchmarks in Release mode:
+
+```
+dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --list flat
+dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*StreamingSignatureBenchmarks*'
+```
+
+See [the benchmark project guide](benchmarks/Vara.Benchmarks/README.md) for benchmark
+coverage, scenario selection, and measurement guidance. BenchmarkDotNet runs the
+benchmarks out-of-process by default; use `--job Dry` only for a quick smoke test, not
+for performance comparisons.
+
 This project's specifications and design decisions are tracked with
 [OpenSpec](openspec/) under `openspec/specs/` (current, authoritative capability specs)
 and `openspec/changes/archive/` (the historical proposals that produced them) - useful

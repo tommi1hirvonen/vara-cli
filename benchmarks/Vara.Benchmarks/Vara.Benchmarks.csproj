@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <ImplicitUsings>enable</ImplicitUsings>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="BenchmarkDotNet" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\Vara.Application\Vara.Application.csproj" />
+        <ProjectReference Include="..\..\src\Vara.Core\Vara.Core.csproj" />
+        <ProjectReference Include="..\..\src\Vara.Infrastructure\Vara.Infrastructure.csproj" />
+    </ItemGroup>
+
+</Project>
