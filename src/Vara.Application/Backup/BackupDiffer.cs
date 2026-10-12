@@ -12,9 +12,9 @@ namespace Vara.Application.Backup;
 /// unreadable subtree, or an unreadable file) is never classified as deleted - see
 /// the backup-execution spec's "Unreadable files do not abort the run" requirement.
 /// </summary>
-public sealed class BackupDiffer
+public static class BackupDiffer
 {
-    public DiffResult Diff(
+    public static DiffResult Diff(
         IEnumerable<ScanItem> scanned,
         IReadOnlyDictionary<string, CurrentFileState> currentState,
         IReadOnlyList<ScanFailure> failures)

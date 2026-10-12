@@ -260,7 +260,7 @@ public sealed class BackupPipeline(
     {
         var currentState = repository.GetCurrentState();
         var scanResult = scanner.Scan(profile.Sources);
-        var diff = new BackupDiffer().Diff(scanResult.Entries, currentState, scanResult.Failures);
+        var diff = BackupDiffer.Diff(scanResult.Entries, currentState, scanResult.Failures);
         var plan = new BackupPlanner(hasher, profile.Concurrency?.ScanConcurrency ?? 0).Plan(diff, currentState);
         return (scanResult, plan);
     }
