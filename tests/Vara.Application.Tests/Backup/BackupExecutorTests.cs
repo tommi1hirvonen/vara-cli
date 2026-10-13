@@ -913,7 +913,7 @@ public class BackupExecutorTests : IDisposable
         // failed operation above never recorded anything.
         var currentOnDiskInfo = new FileInfo(path);
         var scannedEntry = ScanItem.File("torn.txt", path, currentOnDiskInfo.Length, currentOnDiskInfo.LastWriteTimeUtc);
-        var diffResult = new BackupDiffer().Diff([scannedEntry], _repository.GetCurrentState(), []);
+        var diffResult = BackupDiffer.Diff([scannedEntry], _repository.GetCurrentState(), []);
 
         var pending = Assert.Single(diffResult.Pending);
         Assert.True(pending.Entry.TryGetValue(out ScannedFile scannedFile));
