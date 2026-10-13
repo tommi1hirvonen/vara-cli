@@ -245,6 +245,7 @@ public static class RestoreCommand
         IAnsiConsole console)
     {
         var displayGate = new ProgressDisplayGate();
+        using var terminalProgress = WindowsTerminalProgress.TryCreate(console);
 
         console.Progress()
             .Columns(new TaskDescriptionColumn(), new ProgressBarColumn(), new PercentageColumn(), new RemainingTimeColumn(), new TransferSpeedColumn())
@@ -254,6 +255,10 @@ public static class RestoreCommand
 
                 void Render(BackupProgress admitted)
                 {
+                    var percent = admitted.TotalBytes > 0
+                        ? (double)admitted.BytesTransferred / admitted.TotalBytes * 100
+                        : 100;
+                    terminalProgress?.SetProgress(percent);
                     task ??= ctx.AddTask(BuildRestoreTaskLabel(path, console.Profile.Width), autoStart: true, maxValue: admitted.TotalBytes);
                     task.Value = admitted.BytesTransferred;
                     ctx.Refresh();
@@ -570,6 +575,7 @@ public static class RestoreCommand
     {
         var displayGate = new ProgressDisplayGate();
         var stoppedEarly = false;
+        using var terminalProgress = WindowsTerminalProgress.TryCreate(console);
 
         console.Progress()
             .Columns(new TaskDescriptionColumn(), new ProgressBarColumn(), new PercentageColumn(), new RemainingTimeColumn(), new TransferSpeedColumn())
@@ -579,6 +585,10 @@ public static class RestoreCommand
 
                 void Render(BackupProgress admitted)
                 {
+                    var percent = admitted.TotalBytes > 0
+                        ? (double)admitted.BytesTransferred / admitted.TotalBytes * 100
+                        : 100;
+                    terminalProgress?.SetProgress(percent);
                     task ??= ctx.AddTask(BuildDirectoryRestoreTaskLabel(directoryPath, console.Profile.Width), autoStart: true, maxValue: admitted.TotalBytes);
                     task.Value = admitted.BytesTransferred;
                     ctx.Refresh();
@@ -654,4 +664,3 @@ internal sealed class RestoreProgressReporter(ProgressDisplayGate gate, Action<B
         gate.Report(new BackupProgress(_bytesCopiedSoFar, _totalBytes), render);
     }
 }
-

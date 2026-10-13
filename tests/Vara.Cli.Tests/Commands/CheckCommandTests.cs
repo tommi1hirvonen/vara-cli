@@ -111,6 +111,7 @@ public class CheckCommandTests : IDisposable
         var exitCode = command.Parse(["test-profile"]).Invoke();
 
         Assert.Equal(0, exitCode);
+        Assert.DoesNotContain("\x1b]9;4;", console.Output);
         Assert.Contains("100.0%", console.Output);
         Assert.Contains("1 of 1 blobs", console.Output);
         Assert.Contains("ETA 0s", console.Output);

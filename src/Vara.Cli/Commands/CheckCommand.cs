@@ -70,6 +70,8 @@ public static class CheckCommand
     {
         IntegrityCheckResult result = null!;
         var calculator = new IntegrityCheckProgressCalculator();
+        using var terminalProgress = WindowsTerminalProgress.TryCreate(console);
+        terminalProgress?.SetIndeterminate();
         console.Progress()
             .Columns(new TaskDescriptionColumn(), new ProgressBarColumn(), new PercentageColumn())
             .Start(ctx =>
@@ -86,6 +88,7 @@ public static class CheckCommand
                     }
 
                     var snapshot = calculator.Calculate(p, quick);
+                    terminalProgress?.SetProgress(snapshot.PercentComplete);
                     task.Value = snapshot.PercentComplete;
                     var eta = snapshot.EstimatedTimeRemaining is { } remaining
                         ? BackupRunSummaryFormatter.FormatDuration(remaining)

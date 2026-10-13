@@ -65,6 +65,10 @@ to be a general-purpose, multi-client backup platform.
   automatic recovery/cleanup on the next run.
 - **Reports live progress**: byte-weighted progress bars, throughput and ETA during
   transfers, with a plain-text fallback when output isn't an interactive terminal.
+  In Windows Terminal 1.6 or later, live backup, restore, check, and prune progress is
+  also reflected in the tab and taskbar; indeterminate scan/evaluation phases are shown
+  until a percentage is available. Windows taskbar animation also requires "Show
+  animations in Windows" to be enabled.
 
 ## Architecture and technology
 

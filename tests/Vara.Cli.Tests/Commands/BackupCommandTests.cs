@@ -392,6 +392,7 @@ public class BackupCommandExitCodeTests : IDisposable
 
         Assert.Equal(ExitCodes.Success, exitCode);
         Assert.Empty(console.Output);
+        Assert.DoesNotContain("\x1b]9;4;", console.Output);
         var line = Assert.Single(writer.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries)).TrimEnd('\r');
         using var parsed = JsonDocument.Parse(line);
         Assert.Equal("dry-run", parsed.RootElement.GetProperty("mode").GetString());

@@ -112,6 +112,8 @@ public static class PruneCommand
     private static PruneResult RunWithLiveDisplay(PruneService pruneService, Vara.Core.Configuration.Profile profile, IAnsiConsole console, IReadOnlyList<long>? confirmedSnapshotIds, CancellationToken cancellationToken)
     {
         PruneResult result = null!;
+        using var terminalProgress = WindowsTerminalProgress.TryCreate(console);
+        terminalProgress?.SetIndeterminate();
         console.Progress()
             .Columns(new TaskDescriptionColumn(), new ProgressBarColumn())
             .Start(ctx =>
@@ -121,6 +123,7 @@ public static class PruneCommand
 
                 void Render(PruneProgress p)
                 {
+                    terminalProgress?.SetProgress(p.BlobsDeleted, p.TotalBlobs);
                     if (task.IsIndeterminate)
                     {
                         task.IsIndeterminate = false;

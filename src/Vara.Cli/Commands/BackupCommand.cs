@@ -212,6 +212,8 @@ public static class BackupCommand
         var calculator = new BackupProgressCalculator();
         var displayGate = new ProgressDisplayGate(renderFileCountAdvancesImmediately: false);
         var column = new BackupProgressColumn(calculator);
+        using var terminalProgress = WindowsTerminalProgress.TryCreate(console);
+        terminalProgress?.SetIndeterminate();
 
         BackupRunResult result = null!;
         console.Progress()
@@ -260,6 +262,7 @@ public static class BackupCommand
                         }
 
                         var snapshot = calculator.Calculate(admitted);
+                        terminalProgress?.SetProgress(snapshot.PercentComplete);
                         SetDisplayedState(new BackupProgressState(
                             admitted.BytesTransferred,
                             admitted.TotalBytes,
@@ -357,6 +360,8 @@ public static class BackupCommand
     private static BackupPlanSummary RunDryRunWithLiveDisplay(Func<BackupPlanSummary> plan, IAnsiConsole console)
     {
         var column = new BackupProgressColumn(new BackupProgressCalculator());
+        using var terminalProgress = WindowsTerminalProgress.TryCreate(console);
+        terminalProgress?.SetIndeterminate();
         BackupPlanSummary summary = null!;
 
         console.Progress()
