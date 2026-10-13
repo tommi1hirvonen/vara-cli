@@ -9,6 +9,7 @@ dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --list flat
 dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*BackupDifferBenchmarks*'
 dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*BackupPlannerBenchmarks*'
 dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*DirectoryScanBenchmarks*'
+dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*ContentStoreBufferBenchmarks*'
 dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*BackupExecutorBenchmarks*'
 dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*BackupPipelineBenchmarks*'
 ```
@@ -30,6 +31,9 @@ baseline results.
 - `BackupPlannerBenchmarks` measures the planner's real file reads and hashing for a
   same-size move candidate, both when the contents match and when the quick hash rules
   out a match. Its I/O is part of the measured operation.
+- `ContentStoreBufferBenchmarks` measures the existing buffered source-to-temp-file
+  tee-and-hash path across buffer sizes, including the current 1 MiB setting. It uses
+  prepared source files and measures the real file read, write, and hash work.
 - `DirectoryScanBenchmarks` scans and fully enumerates deterministic temporary trees;
   scan enumeration is lazy, so consuming `Entries` is required for a complete timing.
 - `BackupExecutorBenchmarks` measures source reads, hashing, content-store writes,
