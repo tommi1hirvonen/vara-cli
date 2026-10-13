@@ -17,7 +17,9 @@ public sealed class FileSystemContentStore : IContentStore
     // PlaceAtMirrorPath) so that progress-reporting chunk sizes requested by a reader (e.g. the
     // hasher's own internal read loop) don't shrink the actual disk read/write size below what
     // Stream.CopyTo's own default buffer achieved before this change.
-    private const int StreamBufferSize = 1024 * 1024;
+    // Pick a size < 85_000 bytes, because any objects larger than that are allocated
+    // on the Large Object Heap, causing Gen 2 Garbage Collections (stop-the-world collection).
+    private const int StreamBufferSize = 81_920; // 80 KiB
 
     private readonly string _mirrorRoot;
     private readonly string _versionsRoot;
