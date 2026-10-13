@@ -23,16 +23,22 @@ internal sealed class PrefixReplayStream(byte[] prefix, Stream inner) : Stream
 
     public override int Read(byte[] buffer, int offset, int count)
     {
+        ValidateBufferArguments(buffer, offset, count);
+        return Read(buffer.AsSpan(offset, count));
+    }
+
+    public override int Read(Span<byte> buffer)
+    {
         if (_prefixPosition < prefix.Length)
         {
-            var remainingPrefix = prefix.Length - _prefixPosition;
-            var toCopy = Math.Min(remainingPrefix, count);
-            Array.Copy(prefix, _prefixPosition, buffer, offset, toCopy);
+            var remainingPrefix = prefix.AsSpan(_prefixPosition);
+            var toCopy = Math.Min(remainingPrefix.Length, buffer.Length);
+            remainingPrefix[..toCopy].CopyTo(buffer);
             _prefixPosition += toCopy;
             return toCopy;
         }
 
-        return inner.Read(buffer, offset, count);
+        return inner.Read(buffer);
     }
 
     public override void Flush() { }

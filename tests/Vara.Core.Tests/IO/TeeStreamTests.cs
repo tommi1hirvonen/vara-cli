@@ -111,4 +111,27 @@ public class TeeStreamTests
         Assert.Equal(content, sink.ToArray());
         Assert.Equal(content.LongLength, tee.TotalBytesCopied);
     }
+
+    [Fact]
+    public void Read_with_span_yields_source_writes_to_sink_and_updates_progress()
+    {
+        var content = RandomBytes(10_000);
+        using var source = new MemoryStream(content);
+        using var sink = new MemoryStream();
+        var reported = 0L;
+        using var tee = new TeeStream(source, sink, bytes => reported += bytes);
+
+        Span<byte> buffer = stackalloc byte[1024];
+        using var result = new MemoryStream();
+        int read;
+        while ((read = tee.Read(buffer)) > 0)
+        {
+            result.Write(buffer[..read]);
+        }
+
+        Assert.Equal(content, result.ToArray());
+        Assert.Equal(content, sink.ToArray());
+        Assert.Equal(content.LongLength, tee.TotalBytesCopied);
+        Assert.Equal(content.LongLength, reported);
+    }
 }

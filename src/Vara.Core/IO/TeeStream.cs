@@ -28,10 +28,16 @@ public sealed class TeeStream(Stream source, Stream sink, Action<long>? onBytesC
 
     public override int Read(byte[] buffer, int offset, int count)
     {
-        var read = source.Read(buffer, offset, count);
+        ValidateBufferArguments(buffer, offset, count);
+        return Read(buffer.AsSpan(offset, count));
+    }
+
+    public override int Read(Span<byte> buffer)
+    {
+        var read = source.Read(buffer);
         if (read > 0)
         {
-            sink.Write(buffer, offset, read);
+            sink.Write(buffer[..read]);
             TotalBytesCopied += read;
             onBytesCopied?.Invoke(read);
         }
