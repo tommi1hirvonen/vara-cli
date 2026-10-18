@@ -88,7 +88,7 @@ Each layer has its own mirrored xUnit test project under `tests/` (`Vara.Core.Te
 
 **Key technology choices, and why:**
 
-- **.NET 10 / Native AOT** (`PublishAot=true`) - `vara.exe` publishes to a single,
+- **.NET 11 / Native AOT** (`PublishAot=true`) - `vara.exe` publishes to a single,
   self-contained native executable with fast startup and no separate runtime install,
   in service of the "just copy one .exe" distribution goal.
 - **`System.CommandLine`** for argument parsing/routing, and **`Microsoft.Extensions.Hosting`**
@@ -106,7 +106,7 @@ Each layer has its own mirrored xUnit test project under `tests/` (`Vara.Core.Te
   and wide enough that accidental collisions are not a practical concern for
   change-detection/dedup (this is not a security boundary).
 - **A hand-written `LibraryImport` P/Invoke wrapper around Win32 `CreateHardLinkW`** -
-  `File.CreateHardLink` isn't available on `net10.0`, and `LibraryImport`'s
+  `File.CreateHardLink` isn't available on the `net11.0` target, and `LibraryImport`'s
   source-generated marshalling keeps hardlink creation Native AOT/trimming safe (unlike
   reflection-driven classic `DllImport` stubs).
 - **`YamlDotNet`** for the human-editable `~/.vara/profiles.yml` profile format, and
@@ -343,6 +343,9 @@ live mirror.
   Scheduler).
 
 ## Development
+
+The solution targets **.NET 11** (`net11.0`) and uses preview C# language features;
+install the .NET 11 SDK to build, test, or publish it.
 
 ```
 dotnet build Vara.slnx
