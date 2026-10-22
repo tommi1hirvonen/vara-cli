@@ -13,7 +13,7 @@ public enum PendingChangeKind
     /// A symlink/junction newly observed at this path, or replacing a previously
     /// tracked regular file - never a move candidate (see <see cref="BackupPlanner"/>).
     /// </summary>
-    Linked,
+    Linked
 }
 
 /// <summary>A scanned entry whose content differs from (or is absent from) the current manifest state.</summary>

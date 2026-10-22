@@ -10,14 +10,36 @@ public static class ShowCommand
 {
     public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory)
     {
-        var profileOption = new Option<string?>("--profile") { Description = "The profile to query. Optional when the current directory is inside a profile's target root." };
-        var pathArgument = new Argument<string>("path") { Description = "The file whose content to show - a mirror-relative path, an absolute source path, or a path relative to the current directory." };
-        var atOption = new Option<string?>("--at") { Description = "Show the version current as of this date/time (for example, '2025-01-15' or '2025-01-15 14:30')." };
-        var versionOption = new Option<long?>("--version") { Description = "Show this specific version id (see the 'history' command)." };
-        var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
-        var forceBinaryOption = new Option<bool>("--force-binary") { Description = "Stream binary content to an interactive terminal instead of refusing it." };
+        var profileOption = new Option<string?>("--profile")
+        {
+            Description = "The profile to query. Optional when the current directory is inside a profile's target root."
+        };
+        var pathArgument = new Argument<string>("path")
+        {
+            Description = "The file whose content to show - a mirror-relative path, an absolute source path, " +
+                "relative to the current directory."
+        };
+        var atOption = new Option<string?>("--at")
+        {
+            Description = "Show the version current as of this date/time " +
+                "(for example, '2025-01-15' or '2025-01-15 14:30')."
+        };
+        var versionOption = new Option<long?>("--version")
+        {
+            Description = "Show this specific version id (see the 'history' command)."
+        };
+        var configOption = new Option<string?>("--config")
+        {
+            Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)."
+        };
+        var forceBinaryOption = new Option<bool>("--force-binary")
+        {
+            Description = "Stream binary content to an interactive terminal instead of refusing it."
+        };
 
-        var command = new Command("show", "Stream a specific version's content to standard output, without writing it to disk.")
+        var command = new Command(
+            "show",
+            "Stream a specific version's content to standard output, without writing it to disk.")
         {
             pathArgument, profileOption, atOption, versionOption, configOption, forceBinaryOption,
         };
@@ -33,13 +55,17 @@ public static class ShowCommand
 
             if (at is null && version is null)
             {
-                OutcomeStyle.WriteLineError(StandardError.Console, "Error: specify either --at <date> or --version <id>.");
+                OutcomeStyle.WriteLineError(
+                    StandardError.Console,
+                    "Error: specify either --at <date> or --version <id>.");
                 return 1;
             }
 
             if (at is not null && version is not null)
             {
-                OutcomeStyle.WriteLineError(StandardError.Console, "Error: --at and --version are mutually exclusive.");
+                OutcomeStyle.WriteLineError(
+                    StandardError.Console,
+                    "Error: --at and --version are mutually exclusive.");
                 return 1;
             }
 
@@ -62,7 +88,11 @@ public static class ShowCommand
                 var asOf = at is null ? (DateTimeOffset?)null : DateTimeOptionParser.Parse("--at", at);
 
                 using var stdout = Console.OpenStandardOutput();
-                var result = history.ShowVersion(resolvedPath, version, asOf, forceBinary: Console.IsOutputRedirected || forceBinary);
+                var result = history.ShowVersion(
+                    resolvedPath,
+                    version,
+                    asOf,
+                    forceBinary: Console.IsOutputRedirected || forceBinary);
                 resultExitCode = result switch
                 {
                     Stream stream => WriteVersion(stream, stdout),

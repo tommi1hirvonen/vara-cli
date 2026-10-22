@@ -57,14 +57,14 @@ public sealed class BackupExecutor(
         Action<long>? onBytesTransferred = null,
         Action? onTransferPhaseStarting = null,
         IManifestBatch? manifestBatch = null,
-        CancellationToken cancellationToken = default,
         Action? onFileTransferred = null,
         Action<string>? onFileStarted = null,
-        Action<string>? onFileFinished = null)
+        Action<string>? onFileFinished = null,
+        CancellationToken cancellationToken = default)
     {
         var counts = new Counts { LastCheckpointUtc = DateTime.UtcNow };
         var failedPaths = new List<string>();
-        var reportLock = new object();
+        var reportLock = new Lock();
 
         foreach (var operation in plan.Operations.Where(operation => operation switch
                  {
@@ -84,7 +84,9 @@ public sealed class BackupExecutor(
                 break;
             }
 
-            ExecuteMetadataOnlyOperation(operation, snapshotId, recordedAt, counts, failedPaths, reportLock, manifestBatch);
+            ExecuteMetadataOnlyOperation(
+                operation, snapshotId, recordedAt,
+                counts, failedPaths, reportLock, manifestBatch);
         }
 
         // Fired exactly once here, unconditionally - even when there are no Move/Delete
@@ -121,7 +123,14 @@ public sealed class BackupExecutor(
                     onBytesTransferred, manifestBatch, onFileTransferred, onFileStarted, onFileFinished);
             });
 
-        return new ExecutionOutcome(counts.BytesTransferred, counts.Added, counts.Changed, counts.Moved, counts.Deleted, counts.Failed, failedPaths);
+        return new ExecutionOutcome(
+            counts.BytesTransferred,
+            counts.Added,
+            counts.Changed,
+            counts.Moved,
+            counts.Deleted,
+            counts.Failed,
+            failedPaths);
     }
 
     /// <summary>
@@ -148,7 +157,14 @@ public sealed class BackupExecutor(
         counts.LastCheckpointUtc = now;
     }
 
-    private void ExecuteMetadataOnlyOperation(PlannedOperation operation, long snapshotId, DateTimeOffset recordedAt, Counts counts, List<string> failedPaths, object reportLock, IManifestBatch? manifestBatch)
+    private void ExecuteMetadataOnlyOperation(
+        PlannedOperation operation,
+        long snapshotId,
+        DateTimeOffset recordedAt,
+        Counts counts,
+        List<string> failedPaths,
+        Lock reportLock,
+        IManifestBatch? manifestBatch)
     {
         try
         {
@@ -221,7 +237,7 @@ public sealed class BackupExecutor(
         DateTimeOffset recordedAt,
         Counts counts,
         List<string> failedPaths,
-        object reportLock,
+        Lock reportLock,
         Action<long>? onBytesTransferred,
         IManifestBatch? manifestBatch,
         Action? onFileTransferred,

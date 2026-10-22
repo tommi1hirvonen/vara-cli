@@ -21,17 +21,28 @@ public static class SnapshotCommand
         var snapshotArgument = new Argument<long>("id") { Description = "The snapshot id to inspect." };
         var directoryArgument = new Argument<string>("directory")
         {
-            Description = "Optionally scope changes to a mirror-relative path, an absolute source path, or a path relative to the current directory.",
+            Description = "Optionally scope changes to a mirror-relative path, an absolute source path, or a path " +
+                "relative to the current directory.",
             Arity = ArgumentArity.ZeroOrOne,
             DefaultValueFactory = _ => ".",
         };
-        var profileOption = new Option<string?>("--profile") { Description = "The profile to query. Optional when the current directory is inside a profile's target root." };
-        var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
-        var filesOption = new Option<bool>("--files") { Description = "Show changed file paths and change kinds in the directory tree." };
+        var profileOption = new Option<string?>("--profile")
+        {
+            Description = "The profile to query. Optional when the current directory is inside a profile's target root."
+        };
+        var configOption = new Option<string?>("--config")
+        {
+            Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)."
+        };
+        var filesOption = new Option<bool>("--files")
+        {
+            Description = "Show changed file paths and change kinds in the directory tree."
+        };
         var depthOption = new Option<int?>("--depth")
         {
             Arity = ArgumentArity.ExactlyOne,
-            Description = "Limit displayed directory levels below the selected directory (0 shows only that directory; default: unlimited).",
+            Description = "Limit displayed directory levels below the selected directory " +
+                "(0 shows only that directory; default: unlimited).",
             CustomParser = result =>
             {
                 if (!result.Tokens.Any())
@@ -79,18 +90,25 @@ public static class SnapshotCommand
                 if (report is null)
                 {
                     unknownSnapshot = true;
-                    OutcomeStyle.WriteLineError(errorAnsiConsole, $"Error: snapshot #{snapshotId} is not recorded for profile '{profile.Name}'.");
+                    OutcomeStyle.WriteLineError(
+                        errorAnsiConsole,
+                        $"Error: snapshot #{snapshotId} is not recorded for profile '{profile.Name}'.");
                     return;
                 }
 
                 if (report.Directories.Count == 0)
                 {
-                    OutcomeStyle.WriteLineNeutral(ansiConsole, $"No changes recorded for snapshot #{snapshotId} in '{resolution.Path}'.");
+                    OutcomeStyle.WriteLineNeutral(
+                        ansiConsole,
+                        $"No changes recorded for snapshot #{snapshotId} in '{resolution.Path}'.");
                     return;
                 }
 
                 var sourceRoots = profile.Sources
-                    .Where(source => !string.Equals(source.Path, profile.TargetRoot, StringComparison.OrdinalIgnoreCase))
+                    .Where(source => !string.Equals(
+                        source.Path,
+                        profile.TargetRoot,
+                        StringComparison.OrdinalIgnoreCase))
                     .Select(source => AbsolutePathMirrorMapper.ToMirrorPath(source.Path))
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
                 SnapshotChangePresenter.Render(ansiConsole, report, sourceRoots, depth);

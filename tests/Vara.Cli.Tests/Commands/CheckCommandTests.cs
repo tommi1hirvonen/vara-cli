@@ -48,8 +48,8 @@ public class CheckCommandTests : IDisposable
             new ProfileResolver(new SingleProfileConfigLoader(profile)),
             new ProfileServiceFactory(_hasher),
             _hasher,
-            cancellationToken,
-            console);
+            console,
+            cancellationToken);
     }
 
     /// <summary>Stores <paramref name="content"/> in the profile's real content store

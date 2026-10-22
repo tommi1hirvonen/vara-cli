@@ -17,30 +17,30 @@ public static class BackupCommand
         ProfileServiceFactory serviceFactory,
         IFileSystemScanner scanner,
         IHasher hasher,
-        CancellationToken cancellationToken = default,
         TextWriter? jsonOutput = null,
-        IAnsiConsole? console = null) =>
+        IAnsiConsole? console = null,
+        CancellationToken cancellationToken = default) =>
         Create(
             profileResolver,
             serviceFactory,
             scanner,
             hasher,
-            cancellationToken,
             jsonOutput,
             console,
             powerRequestFactory: null,
-            errorConsole: null);
+            errorConsole: null,
+            cancellationToken);
 
     internal static Command Create(
         ProfileResolver profileResolver,
         ProfileServiceFactory serviceFactory,
         IFileSystemScanner scanner,
         IHasher hasher,
-        CancellationToken cancellationToken,
         TextWriter? jsonOutput,
         IAnsiConsole? console,
         IBackupPowerRequestFactory? powerRequestFactory,
-        IAnsiConsole? errorConsole)
+        IAnsiConsole? errorConsole,
+        CancellationToken cancellationToken)
     {
         // Both default to the real ambient console/standard output - overridable so
         // tests can assert against in-memory equivalents instead of the process-wide
@@ -51,11 +51,28 @@ public static class BackupCommand
         var jsonWriter = jsonOutput ?? Console.Out;
         var ansiConsole = console ?? AnsiConsole.Console;
 
-        var profileArgument = new Argument<string>("profile") { Description = "The profile to back up." };
-        var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
-        var dryRunOption = new Option<bool>("--dry-run") { Description = "Preview the planned added/changed/moved/deleted changes and bytes to transfer without performing any writes." };
-        var jsonOption = new Option<bool>("--json") { Description = "Print a single machine-readable JSON summary of the outcome to stdout instead of the human-oriented output, and suppress the progress display." };
-        var command = new Command("backup", "Run an incremental backup for a profile.") { profileArgument, configOption, dryRunOption, jsonOption };
+        var profileArgument = new Argument<string>("profile")
+        {
+            Description = "The profile to back up."
+        };
+        var configOption = new Option<string?>("--config")
+        {
+            Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)."
+        };
+        var dryRunOption = new Option<bool>("--dry-run")
+        {
+            Description = "Preview the planned added/changed/moved/deleted changes " +
+                "and bytes to transfer without performing any writes."
+        };
+        var jsonOption = new Option<bool>("--json")
+        {
+            Description = "Print a single machine-readable JSON summary of the outcome to stdout " +
+                "instead of the human-oriented output, and suppress the progress display."
+            };
+        var command = new Command("backup", "Run an incremental backup for a profile.")
+        {
+            profileArgument, configOption, dryRunOption, jsonOption
+        };
 
         command.SetAction(parseResult =>
         {
@@ -109,7 +126,7 @@ public static class BackupCommand
                             // No IProgress<T> callback: --json suppresses progress display
                             // entirely, per the cli-presentation delta's "Machine-readable JSON
                             // output for the backup command" requirement.
-                            var jsonResult = pipeline.Run(profile, progress: null, cancellationToken);
+                            var jsonResult = pipeline.Run(profile, progress: null, cancellationToken: cancellationToken);
                             failedPaths = jsonResult.FailedPaths;
                             cancelled = jsonResult.Cancelled;
                             WriteJson(jsonWriter, jsonResult.ToJson(profile.Name));
@@ -203,7 +220,11 @@ public static class BackupCommand
     // design.md's "one unified column" decision. Progress()'s own AutoRefresh (unlike
     // Live, which has none) is what keeps throughput/ETA advancing during a stall - no
     // manual heartbeat timer is needed any more.
-    private static BackupRunResult RunWithLiveDisplay(BackupPipeline pipeline, Vara.Core.Configuration.Profile profile, IAnsiConsole console, CancellationToken cancellationToken)
+    private static BackupRunResult RunWithLiveDisplay(
+        BackupPipeline pipeline,
+        Vara.Core.Configuration.Profile profile,
+        IAnsiConsole console,
+        CancellationToken cancellationToken)
     {
         // Bounded per design.md's "bounded timeout ... best-effort" decision: long enough
         // to cover the handful of reports racing the final one in practice, short enough
@@ -337,7 +358,7 @@ public static class BackupCommand
                 // thrown before transfer begins (e.g. during scanning/diffing/planning).
                 try
                 {
-                    result = pipeline.Run(profile, progress, cancellationToken, activePathRefresh.Request);
+                    result = pipeline.Run(profile, progress, activePathRefresh.Request, cancellationToken);
                     DrainCallbacks();
                     activePathRefresh.ThrowIfFaulted();
                     activePathRefresh.Close();
@@ -407,7 +428,11 @@ public static class BackupCommand
     // Non-interactive/redirected path: plain, uncolored, appended lines with no
     // in-place redraw, per the cli-presentation delta's "Non-interactive or
     // color-incapable output falls back to plain text" requirement.
-    private static BackupRunResult RunWithPlainOutput(BackupPipeline pipeline, Vara.Core.Configuration.Profile profile, IAnsiConsole console, CancellationToken cancellationToken)
+    private static BackupRunResult RunWithPlainOutput(
+        BackupPipeline pipeline,
+        Vara.Core.Configuration.Profile profile,
+        IAnsiConsole console,
+        CancellationToken cancellationToken)
     {
         var calculator = new BackupProgressCalculator();
         var displayGate = new ProgressDisplayGate(renderFileCountAdvancesImmediately: true);
@@ -425,6 +450,6 @@ public static class BackupCommand
         }
 
         var progress = new Progress<BackupProgress>(p => displayGate.Report(p, Render));
-        return pipeline.Run(profile, progress, cancellationToken);
+        return pipeline.Run(profile, progress, cancellationToken: cancellationToken);
     }
 }

@@ -7,7 +7,7 @@ namespace Vara.Application.History;
 public enum DirectoryEntryKind
 {
     File,
-    Directory,
+    Directory
 }
 
 /// <summary>

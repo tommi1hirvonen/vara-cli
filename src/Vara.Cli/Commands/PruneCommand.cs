@@ -10,12 +10,26 @@ namespace Vara.Cli.Commands;
 
 public static class PruneCommand
 {
-    public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory, CancellationToken cancellationToken = default)
+    public static Command Create(
+        ProfileResolver profileResolver,
+        ProfileServiceFactory serviceFactory,
+        CancellationToken cancellationToken = default)
     {
         var profileArgument = new Argument<string>("profile") { Description = "The profile to prune." };
-        var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
-        var yesOption = new Option<bool>("--yes", "-y") { Description = "Confirm the run without prompting, even if snapshots are eligible for removal." };
-        var command = new Command("prune", "Apply a profile's retention policy: remove expired snapshots and unreferenced content.") { profileArgument, configOption, yesOption };
+        var configOption = new Option<string?>("--config")
+        {
+            Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)."
+        };
+        var yesOption = new Option<bool>("--yes", "-y")
+        {
+            Description = "Confirm the run without prompting, even if snapshots are eligible for removal."
+        };
+        var command = new Command(
+            "prune",
+            "Apply a profile's retention policy: remove expired snapshots and unreferenced content.")
+        {
+            profileArgument, configOption, yesOption
+        };
 
         command.SetAction(parseResult =>
         {
@@ -63,7 +77,8 @@ public static class PruneCommand
                 // Interactive session, no --yes: ask before pruning. The prompt goes to
                 // stderr so it's still visible even if stdout is redirected.
                 var confirmed = StandardError.Console.Confirm(
-                    $"This will permanently remove {eligibleIds.Count} snapshot(s) and any content no longer referenced. Continue?",
+                    $"This will permanently remove {eligibleIds.Count} snapshot(s) and any content no longer " +
+                    "referenced. Continue?",
                     defaultValue: false);
 
                 if (confirmed)
@@ -109,7 +124,12 @@ public static class PruneCommand
     // callback only updates an in-memory ProgressTask.Value on every iteration and
     // never forces its own redraw, so Spectre's own AutoRefresh already bounds the
     // display's redraw rate.
-    private static PruneResult RunWithLiveDisplay(PruneService pruneService, Vara.Core.Configuration.Profile profile, IAnsiConsole console, IReadOnlyList<long>? confirmedSnapshotIds, CancellationToken cancellationToken)
+    private static PruneResult RunWithLiveDisplay(
+        PruneService pruneService,
+        Vara.Core.Configuration.Profile profile,
+        IAnsiConsole console,
+        IReadOnlyList<long>? confirmedSnapshotIds,
+        CancellationToken cancellationToken)
     {
         PruneResult result = null!;
         using var terminalProgress = WindowsTerminalProgress.TryCreate(console);
@@ -149,7 +169,12 @@ public static class PruneCommand
     // Non-interactive/redirected path: plain, appended lines with no in-place redraw,
     // per the cli-presentation delta's "Non-interactive or color-incapable output
     // falls back to plain text" requirement.
-    private static PruneResult RunWithPlainOutput(PruneService pruneService, Vara.Core.Configuration.Profile profile, IAnsiConsole console, IReadOnlyList<long>? confirmedSnapshotIds, CancellationToken cancellationToken)
+    private static PruneResult RunWithPlainOutput(
+        PruneService pruneService,
+        Vara.Core.Configuration.Profile profile,
+        IAnsiConsole console,
+        IReadOnlyList<long>? confirmedSnapshotIds,
+        CancellationToken cancellationToken)
     {
         console.WriteLine("Evaluating...");
 

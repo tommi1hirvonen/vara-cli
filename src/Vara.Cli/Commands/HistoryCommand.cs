@@ -11,10 +11,23 @@ public static class HistoryCommand
 {
     public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory)
     {
-        var profileOption = new Option<string?>("--profile") { Description = "The profile to query. Optional when the current directory is inside a profile's target root." };
-        var pathArgument = new Argument<string>("path") { Description = "The file to show history for - a mirror-relative path, an absolute source path, or a path relative to the current directory." };
-        var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
-        var command = new Command("history", "List the recorded versions of a file, most recent first.") { pathArgument, profileOption, configOption };
+        var profileOption = new Option<string?>("--profile")
+        {
+            Description = "The profile to query. Optional when the current directory is inside a profile's target root."
+        };
+        var pathArgument = new Argument<string>("path")
+        {
+            Description = "The file to show history for - a mirror-relative path, an absolute source path, or a path " +
+                "relative to the current directory."
+        };
+        var configOption = new Option<string?>("--config")
+        {
+            Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)."
+        };
+        var command = new Command("history", "List the recorded versions of a file, most recent first.")
+        {
+            pathArgument, profileOption, configOption
+        };
 
         command.SetAction(parseResult =>
         {
@@ -45,4 +58,3 @@ public static class HistoryCommand
         return command;
     }
 }
-

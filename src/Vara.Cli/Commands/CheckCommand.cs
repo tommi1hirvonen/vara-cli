@@ -11,12 +11,30 @@ namespace Vara.Cli.Commands;
 
 public static class CheckCommand
 {
-    public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory, IHasher hasher, CancellationToken cancellationToken = default, IAnsiConsole? console = null)
+    public static Command Create(
+        ProfileResolver profileResolver,
+        ProfileServiceFactory serviceFactory,
+        IHasher hasher,
+        IAnsiConsole? console = null,
+        CancellationToken cancellationToken = default)
     {
-        var profileArgument = new Argument<string>("profile") { Description = "The profile to check." };
-        var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
-        var quickOption = new Option<bool>("--quick") { Description = "Only check that each referenced blob is physically present in the store, without re-reading and re-hashing its content." };
-        var command = new Command("check", "Verify that content physically stored in a profile's target still matches the manifest.") { profileArgument, configOption, quickOption };
+        var profileArgument = new Argument<string>("profile")
+        {
+            Description = "The profile to check."
+        };
+        var configOption = new Option<string?>("--config")
+        {
+            Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)."
+        };
+        var quickOption = new Option<bool>("--quick")
+        {
+            Description = "Only check that each referenced blob is physically present in the store, " +
+                "without re-reading and re-hashing its content."
+        };
+        var command = new Command("check", "Verify that content physically stored in a profile's target still matches the manifest.")
+        {
+            profileArgument, configOption, quickOption
+        };
 
         command.SetAction(parseResult =>
         {
@@ -66,7 +84,11 @@ public static class CheckCommand
     // hash enumeration, whose duration isn't practically predictable upfront; the
     // first IntegrityCheckProgress report swaps it for a percentage bar once total
     // workload is known, mirroring PruneCommand's indeterminate-to-determinate swap.
-    private static IntegrityCheckResult RunWithLiveDisplay(IntegrityCheckService checkService, bool quick, IAnsiConsole console, CancellationToken cancellationToken)
+    private static IntegrityCheckResult RunWithLiveDisplay(
+        IntegrityCheckService checkService,
+        bool quick,
+        IAnsiConsole console,
+        CancellationToken cancellationToken)
     {
         IntegrityCheckResult result = null!;
         var calculator = new IntegrityCheckProgressCalculator();
@@ -111,7 +133,11 @@ public static class CheckCommand
     // Non-interactive/redirected path: plain, appended lines with no in-place redraw,
     // per the cli-presentation delta's "Non-interactive or color-incapable output
     // falls back to plain text" requirement.
-    private static IntegrityCheckResult RunWithPlainOutput(IntegrityCheckService checkService, bool quick, IAnsiConsole console, CancellationToken cancellationToken)
+    private static IntegrityCheckResult RunWithPlainOutput(
+        IntegrityCheckService checkService,
+        bool quick,
+        IAnsiConsole console,
+        CancellationToken cancellationToken)
     {
         console.WriteLine("Enumerating...");
         var calculator = new IntegrityCheckProgressCalculator();

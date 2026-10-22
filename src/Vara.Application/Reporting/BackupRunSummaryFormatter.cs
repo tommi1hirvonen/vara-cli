@@ -9,6 +9,8 @@ namespace Vara.Application.Reporting;
 /// </summary>
 public static class BackupRunSummaryFormatter
 {
+    private static readonly string[] ByteUnits = ["B", "KB", "MB", "GB", "TB"];
+
     public static string Format(BackupRunResult result)
     {
         var builder = new StringBuilder();
@@ -34,22 +36,23 @@ public static class BackupRunSummaryFormatter
 
     public static string FormatBytes(long bytes)
     {
-        string[] units = ["B", "KB", "MB", "GB", "TB"];
         double value = bytes;
         var unitIndex = 0;
-        while (value >= 1024 && unitIndex < units.Length - 1)
+        while (value >= 1024 && unitIndex < ByteUnits.Length - 1)
         {
             value /= 1024;
             unitIndex++;
         }
 
-        return unitIndex == 0 ? $"{bytes} {units[0]}" : $"{value:0.##} {units[unitIndex]}";
+        return unitIndex == 0
+            ? $"{bytes} {ByteUnits[0]}"
+            : $"{value:0.##} {ByteUnits[unitIndex]}";
     }
 
-    public static string FormatDuration(TimeSpan duration) =>
-        duration.TotalHours >= 1
-            ? $"{(int)duration.TotalHours}h {duration.Minutes}m {duration.Seconds}s"
-            : duration.TotalMinutes >= 1
-                ? $"{duration.Minutes}m {duration.Seconds}s"
-                : $"{duration.TotalSeconds:0.#}s";
+    public static string FormatDuration(TimeSpan duration) => duration switch
+    {
+        { TotalHours: >= 1 } => $"{(int)duration.TotalHours}h {duration.Minutes}m {duration.Seconds}s",
+        { TotalMinutes: >= 1 } => $"{duration.Minutes}m {duration.Seconds}s",
+        _ => $"{duration.TotalSeconds:0.#}s"
+    };
 }

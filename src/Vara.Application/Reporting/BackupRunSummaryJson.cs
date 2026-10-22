@@ -47,17 +47,21 @@ public static class BackupRunSummaryJsonMapper
         result.FailedPaths,
         result.Stats.BytesTransferred);
 
-    public static BackupRunSummaryJson ToJson(this BackupPlanSummary summary, string profileName, DateTimeOffset startedAt, DateTimeOffset completedAt) => new(
-        DryRunMode,
-        profileName,
-        startedAt,
-        completedAt,
-        Cancelled: false,
-        summary.FilesAdded,
-        summary.FilesChanged,
-        summary.FilesMoved,
-        summary.FilesDeleted,
-        summary.FailedPaths.Count,
-        summary.FailedPaths,
-        summary.TotalBytesToTransfer);
+    public static BackupRunSummaryJson ToJson(
+        this BackupPlanSummary summary,
+        string profileName,
+        DateTimeOffset startedAt,
+        DateTimeOffset completedAt) => new(
+            DryRunMode,
+            profileName,
+            startedAt,
+            completedAt,
+            Cancelled: false,
+            summary.FilesAdded,
+            summary.FilesChanged,
+            summary.FilesMoved,
+            summary.FilesDeleted,
+            summary.FailedPaths.Count,
+            summary.FailedPaths,
+            summary.TotalBytesToTransfer);
 }

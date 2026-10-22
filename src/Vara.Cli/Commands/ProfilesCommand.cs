@@ -17,10 +17,19 @@ namespace Vara.Cli.Commands;
 /// </summary>
 public static class ProfilesCommand
 {
-    public static Command Create(IProfileConfigLoader configLoader, IProfileConfigWriter configWriter, CancellationToken cancellationToken = default)
+    public static Command Create(
+        IProfileConfigLoader configLoader,
+        IProfileConfigWriter configWriter,
+        CancellationToken cancellationToken = default)
     {
-        var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
-        var command = new Command("profiles", "Interactively create, edit, and delete backup profiles.") { configOption };
+        var configOption = new Option<string?>("--config")
+        {
+            Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)."
+        };
+        var command = new Command("profiles", "Interactively create, edit, and delete backup profiles.")
+        {
+            configOption
+        };
 
         command.SetAction(parseResult =>
         {
@@ -35,7 +44,9 @@ public static class ProfilesCommand
             // half-rendered prompt and no file change.
             if (Console.IsInputRedirected || !OutputMode.IsLiveCapable(AnsiConsole.Console))
             {
-                OutcomeStyle.WriteLineError(StandardError.Console, "Error: 'profiles' requires an interactive terminal.");
+                OutcomeStyle.WriteLineError(
+                    StandardError.Console,
+                    "Error: 'profiles' requires an interactive terminal.");
                 return 1;
             }
 
@@ -89,7 +100,10 @@ public static class ProfilesCommand
     // Extracted so a test can invoke cancellation directly without a live terminal or a
     // real Environment.Exit call. The callback only ever calls <paramref name="exit"/>
     // after running any optional <paramref name="cleanup"/> action.
-    internal static IDisposable RegisterCancellationExit(CancellationToken cancellationToken, Action<int> exit, Action? cleanup = null) =>
+    internal static IDisposable RegisterCancellationExit(
+        CancellationToken cancellationToken,
+        Action<int> exit,
+        Action? cleanup = null) =>
         cancellationToken.Register(() =>
         {
             cleanup?.Invoke();
@@ -104,7 +118,11 @@ public static class ProfilesCommand
         // file does not yet exist" scenario), rather than the loader's own not-found error.
         File.Exists(configPath) ? [.. configLoader.LoadProfiles(configPath)] : [];
 
-    private static string? RunMenu(IAnsiConsole console, IProfileConfigLoader configLoader, IProfileConfigWriter configWriter, string configPath)
+    private static string? RunMenu(
+        IAnsiConsole console,
+        IProfileConfigLoader configLoader,
+        IProfileConfigWriter configWriter,
+        string configPath)
     {
         var profiles = LoadProfilesOrEmpty(configLoader, configPath);
         string? statusMessage = null;
@@ -138,7 +156,12 @@ public static class ProfilesCommand
                 case QuitAction:
                     return lastSavedProfile;
                 case AddNewProfile:
-                    var newSaved = RunEditScreen(console, ProfileDraft.ForNewProfile(), profiles, configWriter, configPath);
+                    var newSaved = RunEditScreen(
+                        console,
+                        ProfileDraft.ForNewProfile(),
+                        profiles,
+                        configWriter,
+                        configPath);
                     if (newSaved is not null)
                     {
                         statusMessage = $"Saved profile '{newSaved.Name}'.";
@@ -146,7 +169,12 @@ public static class ProfilesCommand
                     }
                     break;
                 case StartDeleteProfile:
-                    var deletedName = RunDeleteFlow(console, profiles, configWriter, configPath, out var deleteError);
+                    var deletedName = RunDeleteFlow(
+                        console,
+                        profiles,
+                        configWriter,
+                        configPath,
+                        out var deleteError);
                     if (deletedName is not null)
                     {
                         statusMessage = $"Deleted profile '{deletedName}'.";
@@ -158,7 +186,12 @@ public static class ProfilesCommand
                     }
                     break;
                 case EditProfile editProfile:
-                    var editSaved = RunEditScreen(console, ProfileDraft.FromProfile(editProfile.Profile), profiles, configWriter, configPath);
+                    var editSaved = RunEditScreen(
+                        console,
+                        ProfileDraft.FromProfile(editProfile.Profile),
+                        profiles,
+                        configWriter,
+                        configPath);
                     if (editSaved is not null)
                     {
                         statusMessage = $"Saved profile '{editSaved.Name}'.";
@@ -213,7 +246,12 @@ public static class ProfilesCommand
         return prompt;
     }
 
-    private static string? RunDeleteFlow(IAnsiConsole console, List<Profile> profiles, IProfileConfigWriter configWriter, string configPath, out string? errorMessage)
+    private static string? RunDeleteFlow(
+        IAnsiConsole console,
+        List<Profile> profiles,
+        IProfileConfigWriter configWriter,
+        string configPath,
+        out string? errorMessage)
     {
         errorMessage = null;
         console.Clear();
@@ -244,7 +282,8 @@ public static class ProfilesCommand
         }
 
         var confirmed = console.Confirm(
-            $"Delete profile '{Markup.Escape(target.Name)}' (target '{Markup.Escape(target.TargetRoot)}')? This will not touch any backup data already written under that target.",
+            $"Delete profile '{Markup.Escape(target.Name)}' (target '{Markup.Escape(target.TargetRoot)}')? " +
+            "This will not touch any backup data already written under that target.",
             defaultValue: false);
 
         if (!confirmed)
@@ -277,7 +316,11 @@ public static class ProfilesCommand
     /// can be exercised directly by an automated test. Only ever touches the configuration
     /// file; never the deleted profile's target root.
     /// </summary>
-    internal static void ApplyDelete(List<Profile> profiles, Profile target, IProfileConfigWriter configWriter, string configPath)
+    internal static void ApplyDelete(
+        List<Profile> profiles,
+        Profile target,
+        IProfileConfigWriter configWriter,
+        string configPath)
     {
         var candidate = new List<Profile>(profiles);
         candidate.RemoveAll(p => string.Equals(p.Name, target.Name, StringComparison.OrdinalIgnoreCase));
@@ -299,7 +342,12 @@ public static class ProfilesCommand
     private sealed record SaveProfileAction(string Label) : EditFieldAction(Label);
     private sealed record DiscardProfileAction(string Label) : EditFieldAction(Label);
 
-    private static Profile? RunEditScreen(IAnsiConsole console, ProfileDraft draft, List<Profile> profiles, IProfileConfigWriter configWriter, string configPath)
+    private static Profile? RunEditScreen(
+        IAnsiConsole console,
+        ProfileDraft draft,
+        List<Profile> profiles,
+        IProfileConfigWriter configWriter,
+        string configPath)
     {
         draft.Revalidate(profiles);
         string? errorMessage = null;
@@ -426,7 +474,12 @@ public static class ProfilesCommand
     /// add-vs-replace-by-OriginalName logic can be exercised directly by an automated test,
     /// without needing to drive the surrounding prompts.
     /// </summary>
-    internal static Profile ApplySave(ProfileDraft draft, Profile profileToSave, List<Profile> profiles, IProfileConfigWriter configWriter, string configPath)
+    internal static Profile ApplySave(
+        ProfileDraft draft,
+        Profile profileToSave,
+        List<Profile> profiles,
+        IProfileConfigWriter configWriter,
+        string configPath)
     {
         var saved = profileToSave;
         var candidate = new List<Profile>(profiles);
@@ -436,7 +489,8 @@ public static class ProfilesCommand
         }
         else
         {
-            var index = candidate.FindIndex(p => string.Equals(p.Name, draft.OriginalName, StringComparison.OrdinalIgnoreCase));
+            var index = candidate.FindIndex(p =>
+                string.Equals(p.Name, draft.OriginalName, StringComparison.OrdinalIgnoreCase));
             if (index >= 0)
             {
                 candidate[index] = saved;
@@ -472,7 +526,9 @@ public static class ProfilesCommand
     private static void EditConcurrency(IAnsiConsole console, ProfileDraft draft)
     {
         console.Clear();
-        draft.HasConcurrency = console.Confirm("Configure concurrency settings for this profile?", draft.HasConcurrency);
+        draft.HasConcurrency = console.Confirm(
+            "Configure concurrency settings for this profile?",
+            draft.HasConcurrency);
         if (!draft.HasConcurrency)
         {
             return;
@@ -495,7 +551,9 @@ public static class ProfilesCommand
             var rows = new List<SourceRow>();
             for (var i = 0; i < draft.Sources.Count; i++)
             {
-                rows.Add(new SourceRow(i, $"{i + 1}. {Markup.Escape(ProfileDraftPresenter.FormatSourceSummary(draft.Sources[i]))}"));
+                rows.Add(new SourceRow(
+                    i,
+                    $"{i + 1}. {Markup.Escape(ProfileDraftPresenter.FormatSourceSummary(draft.Sources[i]))}"));
             }
 
             rows.Add(new SourceRow(-1, "Add source"));
@@ -634,7 +692,10 @@ public static class ProfilesCommand
                     }
 
                     var indexedRows = list.Select((value, i) => $"{i + 1}. {value}").ToList();
-                    var toRemove = console.Prompt(new SelectionPrompt<string>().Title("Remove which entry?").AddChoices(indexedRows));
+                    var toRemove = console.Prompt(
+                        new SelectionPrompt<string>()
+                            .Title("Remove which entry?")
+                            .AddChoices(indexedRows));
                     list.RemoveAt(indexedRows.IndexOf(toRemove));
                     break;
                 case "Done":
@@ -656,9 +717,11 @@ public static class ProfilesCommand
     private static int? PromptOptionalInt(IAnsiConsole console, string label, int? current)
     {
         var input = console.Prompt(new TextPrompt<string>(
-                $"{label} (currently: {FormatOptional(current)}; leave blank for the pipeline's own default):")
+                $"{label} (currently: {FormatOptional(current)}; " +
+                "leave blank for the pipeline's own default):")
             .AllowEmpty()
-            .Validate(value => string.IsNullOrWhiteSpace(value) || int.TryParse(value, CultureInfo.InvariantCulture, out _)
+            .Validate(value =>
+                string.IsNullOrWhiteSpace(value) || int.TryParse(value, CultureInfo.InvariantCulture, out _)
                 ? ValidationResult.Success()
                 : ValidationResult.Error("Enter a whole number, or leave blank.")));
 

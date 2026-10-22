@@ -644,8 +644,13 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
     /// snapshot-history spec's "Graceful cancellation of a directory restore via Ctrl+C"
     /// requirement.
     /// </param>
-    /// <returns><see langword="true"/> when the plan was only partially applied because a graceful Ctrl+C stop was requested before every planned path was written/removed; <see langword="false"/> when the whole plan was applied.</returns>
-    public bool ExecuteDirectoryRestore(DirectoryRestorePlan plan, Action<long>? onBytesCopied = null, Action<long>? onSizeResolved = null, CancellationToken cancellationToken = default)
+    /// <returns><see langword="true"/> when the plan was only partially applied because a graceful Ctrl+C stop was requested
+    /// before every planned path was written/removed; <see langword="false"/> when the whole plan was applied.</returns>
+    public bool ExecuteDirectoryRestore(
+        DirectoryRestorePlan plan,
+        Action<long>? onBytesCopied = null,
+        Action<long>? onSizeResolved = null,
+        CancellationToken cancellationToken = default)
     {
         onSizeResolved?.Invoke(plan.TotalBytes);
 
@@ -743,7 +748,8 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
             }
 
             var (totalFiles, totalBytes, totalLinks) = DirectoryTotalsAsOf(prefix, snapshot.StartedAt);
-            candidates.Add(new DirectorySnapshotCandidate(snapshot, added, changed, moved, deleted, netBytesDelta, totalFiles, totalBytes, totalLinks));
+            candidates.Add(new DirectorySnapshotCandidate(
+                snapshot, added, changed, moved, deleted, netBytesDelta, totalFiles, totalBytes, totalLinks));
         }
 
         return candidates.OrderByDescending(c => c.Snapshot.Id).ToList();

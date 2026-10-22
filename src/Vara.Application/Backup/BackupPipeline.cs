@@ -27,26 +27,28 @@ public sealed class BackupPipeline(
     private readonly TextWriter _diagnostics = diagnostics ?? Console.Error;
 
 
-    /// <param name="cancellationToken">
-    /// Cooperative "stop starting new work" signal, set by a graceful Ctrl+C stop (see
-    /// <c>Vara.Cli.Program</c>'s <c>Console.CancelKeyPress</c> handler). When requested,
-    /// <see cref="BackupExecutor"/> finishes whatever operations are already in flight
-    /// and starts no new ones; this method then forces an immediate checkpoint covering
-    /// everything completed so far and records the snapshot as <see cref="SnapshotStatus.Cancelled"/>
-    /// instead of <see cref="SnapshotStatus.Complete"/> - see backup-execution's
-    /// "Graceful cancellation via Ctrl+C" requirement and design.md.
-    /// </param>
+    /// <param name="profile"></param>
+    /// <param name="progress"></param>
     /// <param name="requestActivePathsRefresh">
-    /// Optional notification invoked on a transfer worker after a file enters or leaves
-    /// the in-flight set. The callback should return promptly; the supplied capture
-    /// function reads the current set when invoked rather than preserving the lifecycle
-    /// event's path snapshot.
+    ///     Optional notification invoked on a transfer worker after a file enters or leaves
+    ///     the in-flight set. The callback should return promptly; the supplied capture
+    ///     function reads the current set when invoked rather than preserving the lifecycle
+    ///     event's path snapshot.
+    /// </param>
+    /// <param name="cancellationToken">
+    ///     Cooperative "stop starting new work" signal, set by a graceful Ctrl+C stop (see
+    ///     <c>Vara.Cli.Program</c>'s <c>Console.CancelKeyPress</c> handler). When requested,
+    ///     <see cref="BackupExecutor"/> finishes whatever operations are already in flight
+    ///     and starts no new ones; this method then forces an immediate checkpoint covering
+    ///     everything completed so far and records the snapshot as <see cref="SnapshotStatus.Cancelled"/>
+    ///     instead of <see cref="SnapshotStatus.Complete"/> - see backup-execution's
+    ///     "Graceful cancellation via Ctrl+C" requirement and design.md.
     /// </param>
     public BackupRunResult Run(
         Profile profile,
         IProgress<BackupProgress>? progress = null,
-        CancellationToken cancellationToken = default,
-        Action<Func<IReadOnlyList<string>>>? requestActivePathsRefresh = null)
+        Action<Func<IReadOnlyList<string>>>? requestActivePathsRefresh = null,
+        CancellationToken cancellationToken = default)
     {
         using (runLock)
         {
@@ -106,29 +108,43 @@ public sealed class BackupPipeline(
                 // zero bytes) would be folded into the throughput denominator as if it
                 // were part of the byte-transfer phase, permanently skewing the run's
                 // reported throughput and ETA (fix-transfer-clock-start change's design.md).
-                var outcome = new BackupExecutor(contentStore, repository, hasher, profile.Concurrency?.TransferConcurrency ?? 0).Execute(
+                var executor = new BackupExecutor(contentStore, repository, hasher, profile.Concurrency?.TransferConcurrency ?? 0);
+                var outcome = executor.Execute(
                     snapshotId,
                     startedAt,
                     plan,
                     transferred =>
                     {
                         var total = Interlocked.Add(ref bytesSoFar, transferred);
-                        progress?.Report(new BackupProgress(
-                            total, progressTotalBytes, Volatile.Read(ref filesSoFar), plan.TotalFilesToTransfer, inFlight.Keys.ToArray()));
+                        var report = new BackupProgress(
+                            total,
+                            progressTotalBytes,
+                            Volatile.Read(ref filesSoFar),
+                            plan.TotalFilesToTransfer,
+                            inFlight.Keys.ToArray());
+                        progress?.Report(report);
                     },
-                    onTransferPhaseStarting: () => progress?.Report(new BackupProgress(
-                        0, progressTotalBytes, 0, plan.TotalFilesToTransfer, inFlight.Keys.ToArray())),
+                    onTransferPhaseStarting: () =>
+                    {
+                        var report = new BackupProgress(
+                            0,
+                            progressTotalBytes,
+                            0,
+                            plan.TotalFilesToTransfer,
+                            inFlight.Keys.ToArray());
+                        progress?.Report(report);
+                    },
                     manifestBatch: manifestBatch,
-                    cancellationToken: cancellationToken,
                     onFileTransferred: () =>
                     {
                         var completedFiles = Interlocked.Increment(ref filesSoFar);
-                        progress?.Report(new BackupProgress(
+                        var report = new BackupProgress(
                             Interlocked.Read(ref bytesSoFar),
                             progressTotalBytes,
                             completedFiles,
                             plan.TotalFilesToTransfer,
-                            inFlight.Keys.ToArray()));
+                            inFlight.Keys.ToArray());
+                        progress?.Report(report);
                     },
                     onFileStarted: path =>
                     {
@@ -139,7 +155,8 @@ public sealed class BackupPipeline(
                     {
                         inFlight.TryRemove(path, out _);
                         requestActivePathsRefresh?.Invoke(captureActivePaths);
-                    });
+                    },
+                    cancellationToken: cancellationToken);
 
                 // BackupDiffer.Diff above fully enumerates scanResult.Entries, so
                 // scanResult.Failures is guaranteed complete by this point. Scan-time

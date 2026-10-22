@@ -14,17 +14,42 @@ public static class DiffCommand
 {
     public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory)
     {
-        var profileOption = new Option<string?>("--profile") { Description = "The profile to query. Optional when the current directory is inside a profile's target root." };
-        var pathArgument = new Argument<string>("path") { Description = "The file whose versions to diff - a mirror-relative path, an absolute source path, or a path relative to the current directory." };
-        var leftAtOption = new Option<string?>("--left-at") { Description = "The earlier side of the diff: the version current as of this date/time (for example, '2025-01-15' or '2025-01-15 14:30')." };
-        var leftVersionOption = new Option<long?>("--left-version") { Description = "The earlier side of the diff: this specific version id." };
-        var rightAtOption = new Option<string?>("--right-at") { Description = "The later side of the diff: the version current as of this date/time (for example, '2025-01-15' or '2025-01-15 14:30')." };
-        var rightVersionOption = new Option<long?>("--right-version") { Description = "The later side of the diff: this specific version id." };
-        var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
+        var profileOption = new Option<string?>("--profile")
+        {
+            Description = "The profile to query. Optional when the current directory is inside a profile's target root."
+        };
+        var pathArgument = new Argument<string>("path")
+        {
+            Description = "The file whose versions to diff - a mirror-relative path, an absolute source path, " +
+                "relative to the current directory."
+        };
+        var leftAtOption = new Option<string?>("--left-at")
+        {
+            Description = "The earlier side of the diff: the version current as of this date/time " +
+                "(for example, '2025-01-15' or '2025-01-15 14:30')."
+        };
+        var leftVersionOption = new Option<long?>("--left-version")
+        {
+            Description = "The earlier side of the diff: this specific version id."
+        };
+        var rightAtOption = new Option<string?>("--right-at")
+        {
+            Description = "The later side of the diff: the version current as of this date/time " +
+                "(for example, '2025-01-15' or '2025-01-15 14:30')."
+        };
+        var rightVersionOption = new Option<long?>("--right-version")
+        {
+            Description = "The later side of the diff: this specific version id."
+        };
+        var configOption = new Option<string?>("--config")
+        {
+            Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)."
+        };
 
         var command = new Command("diff", "Show a textual diff between two versions of the same file.")
         {
-            pathArgument, profileOption, leftAtOption, leftVersionOption, rightAtOption, rightVersionOption, configOption,
+            pathArgument, profileOption, leftAtOption, leftVersionOption,
+            rightAtOption, rightVersionOption, configOption,
         };
 
         command.SetAction(parseResult =>
@@ -39,25 +64,33 @@ public static class DiffCommand
 
             if (leftAt is null && leftVersion is null)
             {
-                OutcomeStyle.WriteLineError(StandardError.Console, "Error: specify either --left-at <date> or --left-version <id>.");
+                OutcomeStyle.WriteLineError(
+                    StandardError.Console,
+                    "Error: specify either --left-at <date> or --left-version <id>.");
                 return 1;
             }
 
             if (leftAt is not null && leftVersion is not null)
             {
-                OutcomeStyle.WriteLineError(StandardError.Console, "Error: --left-at and --left-version are mutually exclusive.");
+                OutcomeStyle.WriteLineError(
+                    StandardError.Console,
+                    "Error: --left-at and --left-version are mutually exclusive.");
                 return 1;
             }
 
             if (rightAt is null && rightVersion is null)
             {
-                OutcomeStyle.WriteLineError(StandardError.Console, "Error: specify either --right-at <date> or --right-version <id>.");
+                OutcomeStyle.WriteLineError(
+                    StandardError.Console,
+                    "Error: specify either --right-at <date> or --right-version <id>.");
                 return 1;
             }
 
             if (rightAt is not null && rightVersion is not null)
             {
-                OutcomeStyle.WriteLineError(StandardError.Console, "Error: --right-at and --right-version are mutually exclusive.");
+                OutcomeStyle.WriteLineError(
+                    StandardError.Console,
+                    "Error: --right-at and --right-version are mutually exclusive.");
                 return 1;
             }
 
@@ -77,8 +110,12 @@ public static class DiffCommand
                     ? candidatePath
                     : path;
 
-                var leftAsOf = leftAt is null ? (DateTimeOffset?)null : DateTimeOptionParser.Parse("--left-at", leftAt);
-                var rightAsOf = rightAt is null ? (DateTimeOffset?)null : DateTimeOptionParser.Parse("--right-at", rightAt);
+                var leftAsOf = leftAt is null
+                    ? (DateTimeOffset?)null
+                    : DateTimeOptionParser.Parse("--left-at", leftAt);
+                var rightAsOf = rightAt is null
+                    ? (DateTimeOffset?)null
+                    : DateTimeOptionParser.Parse("--right-at", rightAt);
 
                 var result = history.OpenVersionsForDiff(resolvedPath, leftVersion, leftAsOf, rightVersion, rightAsOf);
                 resultExitCode = result switch

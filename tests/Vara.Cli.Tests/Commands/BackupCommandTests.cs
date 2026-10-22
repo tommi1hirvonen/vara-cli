@@ -131,11 +131,11 @@ public class BackupCommandExitCodeTests : IDisposable
             new ProfileServiceFactory(hasher),
             scanner,
             hasher,
-            cancellationToken,
             jsonOutput,
             console,
             powerRequestFactory,
-            errorConsole);
+            errorConsole,
+            cancellationToken);
     }
 
     [Fact]

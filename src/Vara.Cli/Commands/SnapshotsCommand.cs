@@ -13,11 +13,18 @@ public static class SnapshotsCommand
     {
         var profileArgument = new Argument<string?>("profile")
         {
-            Description = "The profile whose snapshots to list. Optional when the current directory is inside a profile's target root.",
+            Description = "The profile whose snapshots to list. Optional when the current directory is inside a " +
+                "profile's target root.",
             Arity = ArgumentArity.ZeroOrOne,
         };
-        var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
-        var command = new Command("snapshots", "List recorded snapshots for a profile.") { profileArgument, configOption };
+        var configOption = new Option<string?>("--config")
+        {
+            Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)."
+        };
+        var command = new Command("snapshots", "List recorded snapshots for a profile.")
+        {
+            profileArgument, configOption
+        };
 
         command.SetAction(parseResult =>
         {

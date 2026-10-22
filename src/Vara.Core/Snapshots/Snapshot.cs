@@ -16,7 +16,7 @@ public enum SnapshotStatus
     /// termination) - see backup-execution's "Graceful cancellation via Ctrl+C"
     /// requirement.
     /// </summary>
-    Cancelled,
+    Cancelled
 }
 
 /// <summary>

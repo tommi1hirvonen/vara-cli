@@ -41,7 +41,7 @@ Console.CancelKeyPress += (_, e) => e.Cancel = gracefulCancellation.RequestCance
 
 var rootCommand = new RootCommand("Vara - versioned, deduplicated backup tool")
 {
-    BackupCommand.Create(profileResolver, serviceFactory, scanner, hasher, gracefulCancellation.TokenSource.Token),
+    BackupCommand.Create(profileResolver, serviceFactory, scanner, hasher, cancellationToken: gracefulCancellation.TokenSource.Token),
     SnapshotsCommand.Create(profileResolver, serviceFactory),
     SnapshotCommand.Create(profileResolver, serviceFactory),
     HistoryCommand.Create(profileResolver, serviceFactory),
@@ -51,7 +51,7 @@ var rootCommand = new RootCommand("Vara - versioned, deduplicated backup tool")
     ShowCommand.Create(profileResolver, serviceFactory),
     DiffCommand.Create(profileResolver, serviceFactory),
     PruneCommand.Create(profileResolver, serviceFactory, gracefulCancellation.TokenSource.Token),
-    CheckCommand.Create(profileResolver, serviceFactory, hasher, gracefulCancellation.TokenSource.Token),
+    CheckCommand.Create(profileResolver, serviceFactory, hasher, cancellationToken: gracefulCancellation.TokenSource.Token),
     ProfilesCommand.Create(configLoader, configWriter, gracefulCancellation.TokenSource.Token),
 };
 

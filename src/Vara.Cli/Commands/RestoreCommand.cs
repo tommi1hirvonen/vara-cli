@@ -13,7 +13,11 @@ namespace Vara.Cli.Commands;
 
 public static class RestoreCommand
 {
-    public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory, CancellationToken cancellationToken = default, IAnsiConsole? console = null)
+    public static Command Create(
+        ProfileResolver profileResolver,
+        ProfileServiceFactory serviceFactory,
+        CancellationToken cancellationToken = default,
+        IAnsiConsole? console = null)
     {
         // Overridable so tests can assert against an in-memory console instead of the
         // process-wide AnsiConsole.Console static (which would otherwise race other tests'
@@ -21,20 +25,66 @@ public static class RestoreCommand
         // testability seam BackupCommand.Create's own console parameter uses.
         var ansiConsole = console ?? AnsiConsole.Console;
 
-        var profileOption = new Option<string?>("--profile") { Description = "The profile to restore from. Optional when the current directory is inside a profile's target root." };
-        var pathArgument = new Argument<string>("path") { Description = "The file (or, with --recursive, directory) to restore - a mirror-relative path, an absolute source path, or a path relative to the current directory." };
-        var outOption = new Option<string?>("--out") { Description = "Destination path to write the restored content to. Mutually exclusive with --in-place." };
-        var inPlaceOption = new Option<bool>("--in-place") { Description = "Restore back to the original source location instead of an explicit --out destination. Mutually exclusive with --out." };
-        var atOption = new Option<string?>("--at") { Description = "Restore the version current as of this date/time (for example, '2025-01-15' or '2025-01-15 14:30'). With --recursive, omitting this (and --snapshot) restores the directory's current tracked state in a non-interactive session, or presents a snapshot picker interactively. Mutually exclusive with --snapshot." };
-        var versionOption = new Option<long?>("--version") { Description = "Restore this specific version id (see the 'history' command). If neither this nor --at is given in an interactive session, a version picker is shown instead. Mutually exclusive with --recursive." };
-        var configOption = new Option<string?>("--config") { Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)." };
-        var forceOption = new Option<bool>("--force") { Description = "Skip the overwrite confirmation (single-file restore) or the single directory-restore confirmation (--recursive) without prompting." };
-        var recursiveOption = new Option<bool>("--recursive") { Description = "Restore an entire directory (subtree) instead of a single file, reconstructing its exact tracked state as of --at/--snapshot (or the current state if neither is given). Mutually exclusive with --version." };
-        var snapshotOption = new Option<long?>("--snapshot") { Description = "Restore the directory's tracked state as of this specific snapshot id (see the 'snapshots' command) - the non-interactive equivalent of selecting it from the --recursive snapshot picker. Only valid with --recursive. Mutually exclusive with --at." };
+        var profileOption = new Option<string?>("--profile")
+        {
+            Description = "The profile to restore from. Optional when the current directory is inside a " +
+                "profile's target root."
+        };
+        var pathArgument = new Argument<string>("path")
+        {
+            Description = "The file (or, with --recursive, directory) to restore - a mirror-relative path, " +
+                "an absolute " +
+                "source path, or a path relative to the current directory."
+        };
+        var outOption = new Option<string?>("--out")
+        {
+            Description = "Destination path to write the restored content to. Mutually exclusive with --in-place."
+        };
+        var inPlaceOption = new Option<bool>("--in-place")
+        {
+            Description = "Restore back to the original source location instead of an explicit --out destination. " +
+                "Mutually exclusive with --out."
+        };
+        var atOption = new Option<string?>("--at")
+        {
+            Description = "Restore the version current as of this date/time (for example, '2025-01-15' or " +
+                "'2025-01-15 14:30'). With --recursive, omitting this (and --snapshot) restores the directory's " +
+                "current tracked state in a non-interactive session, or presents a snapshot picker interactively. " +
+                "Mutually exclusive with --snapshot."
+        };
+        var versionOption = new Option<long?>("--version")
+        {
+            Description = "Restore this specific version id (see the 'history' command). If neither this nor --at " +
+                "is given in an interactive session, a version picker is shown instead. Mutually exclusive with " +
+                "--recursive."
+        };
+        var configOption = new Option<string?>("--config")
+        {
+            Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)."
+        };
+        var forceOption = new Option<bool>("--force")
+        {
+            Description = "Skip the overwrite confirmation (single-file restore) or the single directory-restore " +
+                "confirmation (--recursive) without prompting."
+        };
+        var recursiveOption = new Option<bool>("--recursive")
+        {
+            Description = "Restore an entire directory (subtree) instead of a single file, reconstructing its exact " +
+                "tracked state as of --at/--snapshot (or the current state if neither is given). " +
+                "Mutually exclusive with --version."
+        };
+        var snapshotOption = new Option<long?>("--snapshot")
+        {
+            Description = "Restore the directory's tracked state as of this specific snapshot id " +
+                "(see the 'snapshots' " +
+                "command) - the non-interactive equivalent of selecting it from the --recursive snapshot picker. " +
+                "Only valid with --recursive. Mutually exclusive with --at."
+        };
 
         var command = new Command("restore", "Restore a file's historical content, without touching the live mirror.")
         {
-            pathArgument, profileOption, outOption, inPlaceOption, atOption, versionOption, configOption, forceOption, recursiveOption, snapshotOption,
+            pathArgument, profileOption, outOption, inPlaceOption, atOption,
+            versionOption, configOption, forceOption, recursiveOption, snapshotOption,
         };
 
         command.SetAction(parseResult =>
@@ -52,7 +102,9 @@ public static class RestoreCommand
 
             if (outPath is not null && inPlace)
             {
-                OutcomeStyle.WriteLineError(StandardError.Console, "Error: --out and --in-place are mutually exclusive.");
+                OutcomeStyle.WriteLineError(
+                    StandardError.Console,
+                    "Error: --out and --in-place are mutually exclusive.");
                 return 1;
             }
 
@@ -64,7 +116,9 @@ public static class RestoreCommand
 
             if (recursive && version is not null)
             {
-                OutcomeStyle.WriteLineError(StandardError.Console, "Error: --recursive and --version are mutually exclusive.");
+                OutcomeStyle.WriteLineError(
+                    StandardError.Console,
+                    "Error: --recursive and --version are mutually exclusive.");
                 return 1;
             }
 
@@ -76,13 +130,17 @@ public static class RestoreCommand
 
             if (snapshotId is not null && at is not null)
             {
-                OutcomeStyle.WriteLineError(StandardError.Console, "Error: --snapshot and --at are mutually exclusive.");
+                OutcomeStyle.WriteLineError(
+                    StandardError.Console,
+                    "Error: --snapshot and --at are mutually exclusive.");
                 return 1;
             }
 
             if (snapshotId is not null && !recursive)
             {
-                OutcomeStyle.WriteLineError(StandardError.Console, "Error: --snapshot only applies to a recursive directory restore (--recursive).");
+                OutcomeStyle.WriteLineError(
+                    StandardError.Console,
+                    "Error: --snapshot only applies to a recursive directory restore (--recursive).");
                 return 1;
             }
 
@@ -100,7 +158,9 @@ public static class RestoreCommand
 
             if (!recursive && at is null && version is null && !canPromptForVersion)
             {
-                OutcomeStyle.WriteLineError(StandardError.Console, "Error: specify either --at <date> or --version <id>.");
+                OutcomeStyle.WriteLineError(
+                    StandardError.Console,
+                    "Error: specify either --at <date> or --version <id>.");
                 return 1;
             }
 
@@ -115,7 +175,21 @@ public static class RestoreCommand
 
                 if (recursive)
                 {
-                    RunRecursiveRestore(history, profile.TargetRoot, path, at, snapshotId, outPath, inPlace, force, console, services.ContentStore.IsWithinMirror, canPromptForVersion, cancellationToken, ref cancelled, ref gracefullyCancelled);
+                    RunRecursiveRestore(
+                        history,
+                        profile.TargetRoot,
+                        path,
+                        at,
+                        snapshotId,
+                        outPath,
+                        inPlace,
+                        force,
+                        console,
+                        services.ContentStore.IsWithinMirror,
+                        canPromptForVersion,
+                        cancellationToken,
+                        ref cancelled,
+                        ref gracefullyCancelled);
                     return;
                 }
 
@@ -151,7 +225,7 @@ public static class RestoreCommand
                                     // restoring" requirement, reusing HistoryTablePresenter's per-row
                                     // formatting for the prompt's choice labels. A Linked version has no
                                     // stored content to restore, so it's excluded alongside Deleted.
-                                    var selectable = SelectableVersionsForInteractivePicker(history.GetFileHistory(path));
+                    var selectable = SelectableVersionsForInteractivePicker(history.GetFileHistory(path));
 
                     if (selectable.Count == 0)
                     {
@@ -162,12 +236,16 @@ public static class RestoreCommand
                         new SelectionPrompt<FileVersionRecord>()
                             .Title("Select a version to restore:")
                             .PageSize(10)
-                            .UseConverter(v => $"#{v.Id} - {v.RecordedAt:yyyy-MM-dd HH:mm:ss zzz} - {v.ChangeKind} - {BackupRunSummaryFormatter.FormatBytes(v.Size)}")
+                            .UseConverter(v =>
+                                $"#{v.Id} - {v.RecordedAt:yyyy-MM-dd HH:mm:ss zzz} - {v.ChangeKind} - " +
+                                $"{BackupRunSummaryFormatter.FormatBytes(v.Size)}")
                             .AddChoices(selectable));
                     version = selected.Id;
                 }
 
-                var effectiveOutPath = inPlace ? AbsolutePathMirrorMapper.FromMirrorPath(path) : outPath!;
+                var effectiveOutPath = inPlace
+                    ? AbsolutePathMirrorMapper.FromMirrorPath(path)
+                    : outPath!;
 
                 void RunRestore(bool overwrite)
                 {
@@ -184,7 +262,9 @@ public static class RestoreCommand
                 try
                 {
                     RunRestore(force);
-                    OutcomeStyle.WriteLineSuccess(AnsiConsole.Console, $"Restored '{path}' to '{effectiveOutPath}'.");
+                    OutcomeStyle.WriteLineSuccess(
+                        AnsiConsole.Console,
+                        $"Restored '{path}' to '{effectiveOutPath}'.");
                 }
                 catch (DestinationExistsException) when (!force && !Console.IsInputRedirected)
                 {
@@ -198,7 +278,9 @@ public static class RestoreCommand
                     if (overwrite)
                     {
                         RunRestore(overwrite: true);
-                        OutcomeStyle.WriteLineSuccess(AnsiConsole.Console, $"Restored '{path}' to '{effectiveOutPath}'.");
+                        OutcomeStyle.WriteLineSuccess(
+                            AnsiConsole.Console,
+                            $"Restored '{path}' to '{effectiveOutPath}'.");
                     }
                     else
                     {
@@ -248,7 +330,12 @@ public static class RestoreCommand
         using var terminalProgress = WindowsTerminalProgress.TryCreate(console);
 
         console.Progress()
-            .Columns(new TaskDescriptionColumn(), new ProgressBarColumn(), new PercentageColumn(), new RemainingTimeColumn(), new TransferSpeedColumn())
+            .Columns(
+                new TaskDescriptionColumn(),
+                new ProgressBarColumn(),
+                new PercentageColumn(),
+                new RemainingTimeColumn(),
+                new TransferSpeedColumn())
             .Start(ctx =>
             {
                 ProgressTask? task = null;
@@ -259,13 +346,24 @@ public static class RestoreCommand
                         ? (double)admitted.BytesTransferred / admitted.TotalBytes * 100
                         : 100;
                     terminalProgress?.SetProgress(percent);
-                    task ??= ctx.AddTask(BuildRestoreTaskLabel(path, console.Profile.Width), autoStart: true, maxValue: admitted.TotalBytes);
+                    task ??= ctx.AddTask(
+                        BuildRestoreTaskLabel(path, console.Profile.Width),
+                        autoStart: true,
+                        maxValue: admitted.TotalBytes);
                     task.Value = admitted.BytesTransferred;
                     ctx.Refresh();
                 }
 
                 var reporter = new RestoreProgressReporter(displayGate, Render);
-                RunRestoreOnce(history, path, version, at, outPath, overwrite, reporter.OnBytesCopied, reporter.OnSizeResolved);
+                RunRestoreOnce(
+                    history,
+                    path,
+                    version,
+                    at,
+                    outPath,
+                    overwrite,
+                    reporter.OnBytesCopied,
+                    reporter.OnSizeResolved);
             });
     }
 
@@ -314,8 +412,10 @@ public static class RestoreCommand
                 ? BackupRunSummaryFormatter.FormatDuration(remaining)
                 : "calculating...";
             console.WriteLine(
-                $"{BackupRunSummaryFormatter.FormatBytes(snapshot.BytesTransferred)} / {BackupRunSummaryFormatter.FormatBytes(snapshot.TotalBytes)} " +
-                $"({snapshot.PercentComplete:0.0}%) - {BackupRunSummaryFormatter.FormatBytes((long)snapshot.ThroughputBytesPerSecond)}/s - ETA {eta}");
+                $"{BackupRunSummaryFormatter.FormatBytes(snapshot.BytesTransferred)} / " +
+                $"{BackupRunSummaryFormatter.FormatBytes(snapshot.TotalBytes)} " +
+                $"({snapshot.PercentComplete:0.0}%) - " +
+                $"{BackupRunSummaryFormatter.FormatBytes((long)snapshot.ThroughputBytesPerSecond)}/s - ETA {eta}");
         }
 
         var reporter = new RestoreProgressReporter(displayGate, Render);
@@ -373,7 +473,9 @@ public static class RestoreCommand
 
         if (resolution.FellBackToMirrorRoot)
         {
-            OutcomeStyle.WriteLineNeutral(console, "The current directory has no recorded history; falling back to the mirror root.");
+            OutcomeStyle.WriteLineNeutral(
+                console,
+                "The current directory has no recorded history; falling back to the mirror root.");
         }
 
         // --snapshot resolves directly, bypassing the picker (task 3.2). Otherwise, --at
@@ -414,16 +516,20 @@ public static class RestoreCommand
                 // a completed restore, in the same warning style BackupOutcomeReporter/
                 // PruneOutcomeReporter already use for their own graceful cancellations.
                 stoppedEarlyByCtrlC = true;
-                OutcomeStyle.WriteLinePartialFailure(
+                    OutcomeStyle.WriteLinePartialFailure(
                     AnsiConsole.Console,
-                    $"Restore of directory '{resolvedPath}' cancelled: stopped early, some planned files may not have been written/removed.");
+                        $"Restore of directory '{resolvedPath}' cancelled: stopped early, some planned files may not " +
+                        "have been written/removed.");
                 return;
             }
 
-            var skippedClause = plan.Skipped.Count > 0 ? $", {plan.Skipped.Count} link(s) skipped" : string.Empty;
+            var skippedClause = plan.Skipped.Count > 0
+                ? $", {plan.Skipped.Count} link(s) skipped"
+                : string.Empty;
             OutcomeStyle.WriteLineSuccess(
                 AnsiConsole.Console,
-                $"Restored directory '{resolvedPath}': {plan.ToWrite.Count} file(s) written, {plan.ToRemove.Count} file(s) removed{skippedClause}.");
+                $"Restored directory '{resolvedPath}': {plan.ToWrite.Count} file(s) written, " +
+                $"{plan.ToRemove.Count} file(s) removed{skippedClause}.");
         }
 
         if (force)
@@ -438,16 +544,22 @@ public static class RestoreCommand
             // Non-interactive session, no --force: refuse rather than silently writing and
             // removing potentially many files without explicit authorization. Reported as a
             // normal error (exit 1) by ErrorReporting, directing the user to --force.
-            throw new RestoreDirectoryConfirmationRequiredException(resolvedPath, plan.ToWrite.Count, plan.ToRemove.Count);
+            throw new RestoreDirectoryConfirmationRequiredException(
+                resolvedPath,
+                plan.ToWrite.Count,
+                plan.ToRemove.Count);
         }
 
         // Interactive session, no --force: ask once before making any change, covering every
         // planned write and removal - replacing the per-file overwrite prompt single-file
         // restore uses, per the "Single confirmation for a directory restore" requirement. The
         // prompt goes to stderr so it's still visible even if stdout is redirected.
-        var removalClause = plan.ToRemove.Count > 0 ? $" and remove {plan.ToRemove.Count} file(s)" : string.Empty;
+        var removalClause = plan.ToRemove.Count > 0
+            ? $" and remove {plan.ToRemove.Count} file(s)"
+            : string.Empty;
         var confirmed = StandardError.Console.Confirm(
-            $"This will write {plan.ToWrite.Count} file(s){removalClause} under '{Markup.Escape(resolvedPath)}'. Continue?",
+            $"This will write {plan.ToWrite.Count} file(s){removalClause} under '{Markup.Escape(resolvedPath)}'. " +
+            "Continue?",
             defaultValue: false);
 
         if (confirmed)
@@ -471,7 +583,9 @@ public static class RestoreCommand
     /// <see cref="RunRecursiveRestore"/> otherwise uses) when the user accepts the default
     /// entry, or the selected candidate's <see cref="Snapshots.Snapshot.StartedAt"/> otherwise.
     /// </summary>
-    private static DateTimeOffset? PromptForDirectorySnapshot(SnapshotHistoryService history, string directoryPath)
+    private static DateTimeOffset? PromptForDirectorySnapshot(
+        SnapshotHistoryService history,
+        string directoryPath)
     {
         var candidates = history.ListDirectorySnapshotCandidates(directoryPath);
 
@@ -525,9 +639,12 @@ public static class RestoreCommand
 
         var linksClause = candidate.TotalLinks > 0 ? $", {candidate.TotalLinks} link(s)" : string.Empty;
 
-        return $"#{candidate.Snapshot.Id} - {candidate.Snapshot.StartedAt:yyyy-MM-dd HH:mm:ss zzz} - {statusMarkup} - " +
-            $"+{candidate.FilesAdded}/~{candidate.FilesChanged}/\u2192{candidate.FilesMoved}/-{candidate.FilesDeleted} ({netBytes}) - " +
-            $"{candidate.TotalFiles} file(s), {BackupRunSummaryFormatter.FormatBytes(candidate.TotalBytes)}{linksClause}";
+        return $"#{candidate.Snapshot.Id} - " +
+            $"{candidate.Snapshot.StartedAt:yyyy-MM-dd HH:mm:ss zzz} - {statusMarkup} - " +
+            $"+{candidate.FilesAdded}/~{candidate.FilesChanged}/" +
+            $"\u2192{candidate.FilesMoved}/-{candidate.FilesDeleted} " +
+            $"({netBytes}) - {candidate.TotalFiles} file(s), " +
+            $"{BackupRunSummaryFormatter.FormatBytes(candidate.TotalBytes)}{linksClause}";
     }
 
     /// <summary>
@@ -539,7 +656,8 @@ public static class RestoreCommand
     /// private) so it can be unit-tested directly without simulating an interactive console
     /// session.
     /// </summary>
-    internal static IReadOnlyList<FileVersionRecord> SelectableVersionsForInteractivePicker(IReadOnlyList<FileVersionRecord> history) =>
+    internal static IReadOnlyList<FileVersionRecord> SelectableVersionsForInteractivePicker(
+        IReadOnlyList<FileVersionRecord> history) =>
         history.Where(v => v.ChangeKind is not (FileChangeKind.DeletedChange or FileChangeKind.LinkedChange)).ToList();
 
     /// <summary>
@@ -578,7 +696,12 @@ public static class RestoreCommand
         using var terminalProgress = WindowsTerminalProgress.TryCreate(console);
 
         console.Progress()
-            .Columns(new TaskDescriptionColumn(), new ProgressBarColumn(), new PercentageColumn(), new RemainingTimeColumn(), new TransferSpeedColumn())
+            .Columns(
+                new TaskDescriptionColumn(),
+                new ProgressBarColumn(),
+                new PercentageColumn(),
+                new RemainingTimeColumn(),
+                new TransferSpeedColumn())
             .Start(ctx =>
             {
                 ProgressTask? task = null;
@@ -589,13 +712,20 @@ public static class RestoreCommand
                         ? (double)admitted.BytesTransferred / admitted.TotalBytes * 100
                         : 100;
                     terminalProgress?.SetProgress(percent);
-                    task ??= ctx.AddTask(BuildDirectoryRestoreTaskLabel(directoryPath, console.Profile.Width), autoStart: true, maxValue: admitted.TotalBytes);
+                    task ??= ctx.AddTask(
+                        BuildDirectoryRestoreTaskLabel(directoryPath, console.Profile.Width),
+                        autoStart: true,
+                        maxValue: admitted.TotalBytes);
                     task.Value = admitted.BytesTransferred;
                     ctx.Refresh();
                 }
 
                 var reporter = new RestoreProgressReporter(displayGate, Render);
-                stoppedEarly = history.ExecuteDirectoryRestore(plan, reporter.OnBytesCopied, reporter.OnSizeResolved, cancellationToken);
+                stoppedEarly = history.ExecuteDirectoryRestore(
+                    plan,
+                    reporter.OnBytesCopied,
+                    reporter.OnSizeResolved,
+                    cancellationToken);
             });
 
         return stoppedEarly;
@@ -624,12 +754,18 @@ public static class RestoreCommand
                 ? BackupRunSummaryFormatter.FormatDuration(remaining)
                 : "calculating...";
             console.WriteLine(
-                $"{BackupRunSummaryFormatter.FormatBytes(snapshot.BytesTransferred)} / {BackupRunSummaryFormatter.FormatBytes(snapshot.TotalBytes)} " +
-                $"({snapshot.PercentComplete:0.0}%) - {BackupRunSummaryFormatter.FormatBytes((long)snapshot.ThroughputBytesPerSecond)}/s - ETA {eta}");
+                $"{BackupRunSummaryFormatter.FormatBytes(snapshot.BytesTransferred)} / " +
+                $"{BackupRunSummaryFormatter.FormatBytes(snapshot.TotalBytes)} " +
+                $"({snapshot.PercentComplete:0.0}%) - " +
+                $"{BackupRunSummaryFormatter.FormatBytes((long)snapshot.ThroughputBytesPerSecond)}/s - ETA {eta}");
         }
 
         var reporter = new RestoreProgressReporter(displayGate, Render);
-        return history.ExecuteDirectoryRestore(plan, reporter.OnBytesCopied, reporter.OnSizeResolved, cancellationToken);
+        return history.ExecuteDirectoryRestore(
+            plan,
+            reporter.OnBytesCopied,
+            reporter.OnSizeResolved,
+            cancellationToken);
     }
 }
 
