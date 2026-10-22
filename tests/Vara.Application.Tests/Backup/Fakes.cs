@@ -5,7 +5,9 @@ using Vara.Core.Snapshots;
 
 namespace Vara.Application.Tests.Backup;
 
-/// <summary>Deterministic content-based fake hasher (SHA-256, hex) - no production dependency, just distinguishes content for tests.</summary>
+/// <summary>
+/// Deterministic content-based fake hasher (SHA-256, hex) - no production dependency, just distinguishes content for tests.
+/// </summary>
 internal sealed class FakeHasher : IHasher
 {
     public string ComputeHash(Stream content)
@@ -60,7 +62,10 @@ internal sealed class ConcurrencyObservingHasher : IHasher
     }
 }
 
-/// <summary>Fully in-memory content store standing in for <see cref="Vara.Infrastructure.Storage.FileSystemContentStore"/>. Thread-safe, since production execution parallelizes Add/Change operations.</summary>
+/// <summary>
+/// Fully in-memory content store standing in for <see cref="Vara.Infrastructure.Storage.FileSystemContentStore"/>.
+/// Thread-safe, since production execution parallelizes Add/Change operations.
+/// </summary>
 internal sealed class FakeContentStore : IContentStore
 {
     // Mirrors FileSystemContentStore's own chunked reads closely enough to exercise
@@ -74,10 +79,18 @@ internal sealed class FakeContentStore : IContentStore
     private readonly HashSet<string> _existingTargets = new(StringComparer.OrdinalIgnoreCase);
     private bool? _forcedSupportsHardlinks;
 
-    /// <summary>Test seam: when set, <see cref="PlaceAtMirrorPath"/> throws this instead of performing the placement - only for a call whose <c>mirrorRelativePath</c> equals <see cref="ThrowOnPlaceForPath"/> (or for every call, when that is left unset), so a test can fail one specific placement while others in the same run proceed normally.</summary>
+    /// <summary>
+    /// Test seam: when set, <see cref="PlaceAtMirrorPath"/> throws this instead of performing the placement -
+    /// only for a call whose <c>mirrorRelativePath</c> equals <see cref="ThrowOnPlaceForPath"/> (or for every
+    /// call, when that is left unset), so a test can fail one specific placement while others in the same
+    /// run proceed normally.
+    /// </summary>
     public Exception? ThrowOnPlace { get; set; }
 
-    /// <summary>Test seam: restricts <see cref="ThrowOnPlace"/> to only the placement whose <c>mirrorRelativePath</c> matches this value. Unset (<see langword="null"/>) means every placement throws.</summary>
+    /// <summary>
+    /// Test seam: restricts <see cref="ThrowOnPlace"/> to only the placement whose <c>mirrorRelativePath</c>
+    /// matches this value. Unset (<see langword="null"/>) means every placement throws.
+    /// </summary>
     public string? ThrowOnPlaceForPath { get; set; }
 
     /// <summary>Test seam: when set, <see cref="MoveMirrorEntry"/> throws this instead of performing the move.</summary>
@@ -89,11 +102,20 @@ internal sealed class FakeContentStore : IContentStore
     /// <summary>Test seam: destination paths for which <see cref="IsWithinMirror"/> should report containment.</summary>
     public HashSet<string> MirrorPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Test seam: records the <c>previousContentHash</c> argument passed to each <see cref="PlaceAtMirrorPath"/> call, keyed by mirror path - lets a test assert BackupExecutor threads the previous content's hash through correctly for a Changed operation.</summary>
-    public System.Collections.Concurrent.ConcurrentDictionary<string, string?> PreviousContentHashesSeen { get; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// Test seam: records the <c>previousContentHash</c> argument passed to each <see cref="PlaceAtMirrorPath"/> call,
+    /// keyed by mirror path - lets a test assert BackupExecutor threads the previous content's hash through correctly
+    /// for a Changed operation.
+    /// </summary>
+    public System.Collections.Concurrent.ConcurrentDictionary<string, string?> PreviousContentHashesSeen { get; } =
+        new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Test seam: records the <c>hash</c> argument passed to each <see cref="RemoveFromMirror"/> call, keyed by mirror path - lets a test assert BackupExecutor threads the deleted file's known hash through correctly.</summary>
-    public System.Collections.Concurrent.ConcurrentDictionary<string, string> RemoveFromMirrorHashesSeen { get; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>
+    /// Test seam: records the <c>hash</c> argument passed to each <see cref="RemoveFromMirror"/> call,
+    /// keyed by mirror path - lets a test assert BackupExecutor threads the deleted file's known hash through correctly.
+    /// </summary>
+    public System.Collections.Concurrent.ConcurrentDictionary<string, string> RemoveFromMirrorHashesSeen { get; } =
+        new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Test seam: marks <paramref name="absolutePath"/> as already existing, so <see cref="TargetExists"/> reports it.</summary>
     public void SeedExistingTarget(string absolutePath) => _existingTargets.Add(absolutePath);
@@ -126,10 +148,17 @@ internal sealed class FakeContentStore : IContentStore
 
     public bool HasContent(string hash) => _blobs.ContainsKey(hash);
 
-    /// <summary>Test seam: when set, <see cref="OpenRead"/> throws this instead of returning a stream for a call whose <c>hash</c> equals this value - lets a test simulate one side of a diff failing to open after the other side already opened successfully, to verify the successfully-opened stream is disposed rather than leaked.</summary>
+    /// <summary>
+    /// Test seam: when set, <see cref="OpenRead"/> throws this instead of returning a stream for a call whose
+    /// <c>hash</c> equals this value - lets a test simulate one side of a diff failing to open after the other side
+    /// already opened successfully, to verify the successfully-opened stream is disposed rather than leaked.
+    /// </summary>
     public string? ThrowOnOpenReadForHash { get; set; }
 
-    /// <summary>Test seam: records each hash whose returned stream has been disposed, so a test can assert a stream opened for one side of a diff was released even though the caller never got to read from it.</summary>
+    /// <summary>
+    /// Test seam: records each hash whose returned stream has been disposed, so a test can assert a stream
+    /// opened for one side of a diff was released even though the caller never got to read from it.
+    /// </summary>
     public System.Collections.Concurrent.ConcurrentBag<string> DisposedHashes { get; } = new();
 
     public Stream OpenRead(string hash)
@@ -147,8 +176,14 @@ internal sealed class FakeContentStore : IContentStore
         return new DisposeTrackingStream(bytes, hash, DisposedHashes);
     }
 
-    /// <summary>Wraps a read-only <see cref="MemoryStream"/> so <see cref="FakeContentStore.OpenRead"/> can report when its caller disposes it, without changing any other observable behavior.</summary>
-    private sealed class DisposeTrackingStream(byte[] bytes, string hash, System.Collections.Concurrent.ConcurrentBag<string> disposedHashes) : MemoryStream(bytes, writable: false)
+    /// <summary>
+    /// Wraps a read-only <see cref="MemoryStream"/> so <see cref="FakeContentStore.OpenRead"/> can report when its
+    /// caller disposes it, without changing any other observable behavior.
+    /// </summary>
+    private sealed class DisposeTrackingStream(
+        byte[] bytes,
+        string hash,
+        System.Collections.Concurrent.ConcurrentBag<string> disposedHashes) : MemoryStream(bytes, writable: false)
     {
         protected override void Dispose(bool disposing)
         {
@@ -163,10 +198,16 @@ internal sealed class FakeContentStore : IContentStore
 
     public Action<long>? LastOnBytesCopiedPassedToPlace { get; private set; }
 
-    public void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null, string? previousContentHash = null)
+    public void PlaceAtMirrorPath(
+        string hash,
+        string mirrorRelativePath,
+        Action<long>? onBytesCopied = null,
+        string? previousContentHash = null)
     {
         LastOnBytesCopiedPassedToPlace = onBytesCopied;
-        if (ThrowOnPlace is not null && (ThrowOnPlaceForPath is null || string.Equals(ThrowOnPlaceForPath, mirrorRelativePath, StringComparison.OrdinalIgnoreCase)))
+        if (ThrowOnPlace is not null &&
+            (ThrowOnPlaceForPath is null ||
+             string.Equals(ThrowOnPlaceForPath, mirrorRelativePath, StringComparison.OrdinalIgnoreCase)))
         {
             throw ThrowOnPlace;
         }
@@ -513,14 +554,24 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
     }
 
     public IReadOnlyList<Snapshot> ListSnapshots() => _snapshots.OrderByDescending(s => s.Id).ToList();
-    public Snapshot? GetLastCompletedSnapshot() => _snapshots.Where(s => s.Status == SnapshotStatus.Complete).OrderByDescending(s => s.Id).FirstOrDefault();
-    public IReadOnlyList<FileVersionRecord> GetFileHistory(string relativePath) => _fileVersions.Where(r => r.RelativePath == relativePath).OrderByDescending(r => r.Id).ToList();
+    public Snapshot? GetLastCompletedSnapshot() =>
+        _snapshots.Where(s => s.Status == SnapshotStatus.Complete).OrderByDescending(s => s.Id).FirstOrDefault();
+    public IReadOnlyList<FileVersionRecord> GetFileHistory(string relativePath) =>
+        _fileVersions.Where(r => r.RelativePath == relativePath).OrderByDescending(r => r.Id).ToList();
     public IReadOnlyList<FileVersionRecord> GetFileHistoryUnderPrefix(string prefix) =>
-        _fileVersions.Where(r => prefix.Length == 0 || r.RelativePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).OrderByDescending(r => r.Id).ToList();
+        _fileVersions
+            .Where(r => prefix.Length == 0 || r.RelativePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(r => r.Id)
+            .ToList();
     public IReadOnlyList<FileVersionRecord> GetSnapshotFileChanges(long snapshotId, string prefix) =>
-        _fileVersions.Where(r => r.SnapshotId == snapshotId && (prefix.Length == 0 || r.RelativePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))).OrderByDescending(r => r.Id).ToList();
+        _fileVersions
+            .Where(r => r.SnapshotId == snapshotId &&
+                (prefix.Length == 0 || r.RelativePath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            .OrderByDescending(r => r.Id)
+            .ToList();
     public FileVersionRecord? FindVersionAsOf(string relativePath, DateTimeOffset asOf) =>
-        GetFileHistory(relativePath).FirstOrDefault(r => r.RecordedAt <= asOf) is { ChangeKind: not FileChangeKind.DeletedChange } match ? match : null;
+        GetFileHistory(relativePath).FirstOrDefault(r => r.RecordedAt <= asOf) is
+            { ChangeKind: not FileChangeKind.DeletedChange } match ? match : null;
 
     public void DeleteSnapshot(long snapshotId)
     {
@@ -563,11 +614,17 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
             .Where(r => r.ContentHash is not null)
             .GroupBy(r => r.ContentHash!)
             .ToDictionary(g => g.Key, g => g.Max(r => r.Size));
-    public IReadOnlyList<string> GetPathsForContentHash(string hash) => _fileVersions.Where(r => r.ContentHash == hash).Select(r => r.RelativePath).Distinct().ToList();
+    public IReadOnlyList<string> GetPathsForContentHash(string hash) =>
+        _fileVersions.Where(r => r.ContentHash == hash).Select(r => r.RelativePath).Distinct().ToList();
 }
 
-/// <summary>Fake scanner returning a pre-set, test-controlled list of entries (and, optionally, scan failures) regardless of the sources argument.</summary>
-internal sealed class FakeFileSystemScanner(IReadOnlyList<ScanItem> entries, IReadOnlyList<ScanFailure>? failures = null) : IFileSystemScanner
+/// <summary>
+/// Fake scanner returning a pre-set, test-controlled list of entries (and, optionally, scan failures)
+/// regardless of the sources argument.
+/// </summary>
+internal sealed class FakeFileSystemScanner(
+    IReadOnlyList<ScanItem> entries,
+    IReadOnlyList<ScanFailure>? failures = null) : IFileSystemScanner
 {
     public ScanResult Scan(IReadOnlyList<Source> sources) => new(entries, failures ?? []);
 }

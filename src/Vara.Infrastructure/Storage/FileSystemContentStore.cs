@@ -55,7 +55,8 @@ public sealed class FileSystemContentStore : IContentStore
     }
 
     public bool SupportsHardlinks =>
-        _supportsHardlinks ?? throw new InvalidOperationException($"{nameof(ProbeHardlinkSupport)} must be called before the content store is used.");
+        _supportsHardlinks ?? throw new InvalidOperationException(
+            $"{nameof(ProbeHardlinkSupport)} must be called before the content store is used.");
 
     public bool ProbeHardlinkSupport()
     {
@@ -144,7 +145,11 @@ public sealed class FileSystemContentStore : IContentStore
         return new FileStream(blobPath, FileMode.Open, FileAccess.Read, FileShare.Read);
     }
 
-    public void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null, string? previousContentHash = null)
+    public void PlaceAtMirrorPath(
+        string hash,
+        string mirrorRelativePath,
+        Action<long>? onBytesCopied = null,
+        string? previousContentHash = null)
     {
         var blobPath = BlobPath(hash);
         if (!File.Exists(blobPath))

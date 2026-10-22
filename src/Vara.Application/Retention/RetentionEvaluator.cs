@@ -33,7 +33,11 @@ public sealed class RetentionEvaluator
 
         RetainNewestPerBucket(completed, policy.KeepDaily, s => Timestamp(s).UtcDateTime.Date, retained);
         RetainNewestPerBucket(completed, policy.KeepWeekly, s => WeekBucket(Timestamp(s)), retained);
-        RetainNewestPerBucket(completed, policy.KeepMonthly, s => new DateTime(Timestamp(s).UtcDateTime.Year, Timestamp(s).UtcDateTime.Month, 1), retained);
+        RetainNewestPerBucket(
+            completed,
+            policy.KeepMonthly,
+            s => new DateTime(Timestamp(s).UtcDateTime.Year, Timestamp(s).UtcDateTime.Month, 1),
+            retained);
         RetainNewestPerBucket(completed, policy.KeepYearly, s => new DateTime(Timestamp(s).UtcDateTime.Year, 1, 1), retained);
 
         return retained;
@@ -80,7 +84,9 @@ public sealed class RetentionEvaluator
         }
     }
 
-    /// <summary>The Monday that starts the ISO-8601 week containing <paramref name="timestamp"/>, used as a stable per-week bucket key.</summary>
+    /// <summary>
+    /// The Monday that starts the ISO-8601 week containing <paramref name="timestamp"/>, used as a stable per-week bucket key.
+    /// </summary>
     private static DateTime WeekBucket(DateTimeOffset timestamp)
     {
         var date = timestamp.UtcDateTime.Date;

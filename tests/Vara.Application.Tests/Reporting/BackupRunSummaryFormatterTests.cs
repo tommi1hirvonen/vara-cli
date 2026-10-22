@@ -12,7 +12,8 @@ public class BackupRunSummaryFormatterTests
     {
         var startedAt = new DateTimeOffset(2026, 1, 1, 10, 0, 0, TimeSpan.Zero);
         var completedAt = startedAt.AddMinutes(1).AddSeconds(30);
-        var stats = new SnapshotStats(BytesTransferred: 2048, FilesAdded: 3, FilesChanged: 1, FilesMoved: 2, FilesDeleted: 1, FilesFailed: 0);
+        var stats = new SnapshotStats(
+            BytesTransferred: 2048, FilesAdded: 3, FilesChanged: 1, FilesMoved: 2, FilesDeleted: 1, FilesFailed: 0);
         var result = new BackupRunResult(SnapshotId: 42, startedAt, completedAt, stats, FailedPaths: []);
 
         var summary = BackupRunSummaryFormatter.Format(result);

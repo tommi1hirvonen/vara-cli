@@ -33,7 +33,8 @@ public class BackupPipelineTests : IDisposable
     public void Run_throws_when_the_lock_cannot_be_acquired()
     {
         var repository = new FakeSnapshotRepository();
-        var pipeline = new BackupPipeline(new FakeFileSystemScanner([]), new FakeHasher(), new FakeContentStore(), repository, new FakeRunLock(acquirable: false));
+        var pipeline = new BackupPipeline(
+            new FakeFileSystemScanner([]), new FakeHasher(), new FakeContentStore(), repository, new FakeRunLock(acquirable: false));
 
         var ex = Assert.Throws<BackupAlreadyRunningException>(() => pipeline.Run(SimpleProfile(_root)));
         Assert.Equal("files", ex.ProfileName);
@@ -68,7 +69,8 @@ public class BackupPipelineTests : IDisposable
     public void PlanOnly_throws_when_the_lock_cannot_be_acquired()
     {
         var repository = new FakeSnapshotRepository();
-        var pipeline = new BackupPipeline(new FakeFileSystemScanner([]), new FakeHasher(), new FakeContentStore(), repository, new FakeRunLock(acquirable: false));
+        var pipeline = new BackupPipeline(
+            new FakeFileSystemScanner([]), new FakeHasher(), new FakeContentStore(), repository, new FakeRunLock(acquirable: false));
 
         var ex = Assert.Throws<BackupAlreadyRunningException>(() => pipeline.PlanOnly(SimpleProfile(_root)));
         Assert.Equal("files", ex.ProfileName);
@@ -83,19 +85,23 @@ public class BackupPipelineTests : IDisposable
     {
         var unchangedPath = Path.Combine(_root, "unchanged.txt");
         File.WriteAllText(unchangedPath, "same");
-        var unchangedEntry = ScanItem.File("unchanged.txt", unchangedPath, new FileInfo(unchangedPath).Length, File.GetLastWriteTimeUtc(unchangedPath));
+        var unchangedEntry = ScanItem.File(
+            "unchanged.txt", unchangedPath, new FileInfo(unchangedPath).Length, File.GetLastWriteTimeUtc(unchangedPath));
 
         var oldNamePath = Path.Combine(_root, "old-name.txt");
         File.WriteAllText(oldNamePath, "move-me");
-        var oldNameEntry = ScanItem.File("old-name.txt", oldNamePath, new FileInfo(oldNamePath).Length, File.GetLastWriteTimeUtc(oldNamePath));
+        var oldNameEntry = ScanItem.File(
+            "old-name.txt", oldNamePath, new FileInfo(oldNamePath).Length, File.GetLastWriteTimeUtc(oldNamePath));
 
         var changedPath = Path.Combine(_root, "changed.txt");
         File.WriteAllText(changedPath, "v1");
-        var changedEntryV1 = ScanItem.File("changed.txt", changedPath, new FileInfo(changedPath).Length, File.GetLastWriteTimeUtc(changedPath));
+        var changedEntryV1 = ScanItem.File(
+            "changed.txt", changedPath, new FileInfo(changedPath).Length, File.GetLastWriteTimeUtc(changedPath));
 
         var deletedPath = Path.Combine(_root, "deleted.txt");
         File.WriteAllText(deletedPath, "gone");
-        var deletedEntry = ScanItem.File("deleted.txt", deletedPath, new FileInfo(deletedPath).Length, File.GetLastWriteTimeUtc(deletedPath));
+        var deletedEntry = ScanItem.File(
+            "deleted.txt", deletedPath, new FileInfo(deletedPath).Length, File.GetLastWriteTimeUtc(deletedPath));
 
         var repository = new FakeSnapshotRepository();
         var contentStore = new FakeContentStore();
@@ -112,11 +118,13 @@ public class BackupPipelineTests : IDisposable
         // content -> Move), changed.txt's content updated (Change), deleted.txt no longer
         // scanned (Delete), and a brand-new added.txt (Add). unchanged.txt stays as-is.
         File.WriteAllText(changedPath, "v2-longer-content");
-        var changedEntryV2 = ScanItem.File("changed.txt", changedPath, new FileInfo(changedPath).Length, File.GetLastWriteTimeUtc(changedPath));
+        var changedEntryV2 = ScanItem.File(
+            "changed.txt", changedPath, new FileInfo(changedPath).Length, File.GetLastWriteTimeUtc(changedPath));
 
         var newNamePath = Path.Combine(_root, "new-name.txt");
         File.WriteAllText(newNamePath, "move-me");
-        var newNameEntry = ScanItem.File("new-name.txt", newNamePath, new FileInfo(newNamePath).Length, File.GetLastWriteTimeUtc(newNamePath));
+        var newNameEntry = ScanItem.File(
+            "new-name.txt", newNamePath, new FileInfo(newNamePath).Length, File.GetLastWriteTimeUtc(newNamePath));
 
         var addedPath = Path.Combine(_root, "added.txt");
         File.WriteAllText(addedPath, "brand-new");
@@ -284,7 +292,9 @@ public class BackupPipelineTests : IDisposable
 
         pipeline.Run(profile);
 
-        Assert.True(hasher.MaxObservedConcurrency > 1, $"expected more than one concurrent transfer, observed {hasher.MaxObservedConcurrency}");
+        Assert.True(
+            hasher.MaxObservedConcurrency > 1,
+            $"expected more than one concurrent transfer, observed {hasher.MaxObservedConcurrency}");
     }
 
     [Fact]
@@ -448,7 +458,8 @@ public class BackupPipelineTests : IDisposable
                 contentStore.Mirror.ContainsKey("new.txt") && !contentStore.Mirror.ContainsKey("old.txt");
         });
 
-        var secondRun = new BackupPipeline(new FakeFileSystemScanner([newEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock())
+        var secondRun = new BackupPipeline(
+                new FakeFileSystemScanner([newEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock())
             .Run(SimpleProfile(_root), progress);
 
         Assert.Equal(1, secondRun.Stats.FilesMoved);
@@ -606,7 +617,9 @@ public class BackupPipelineTests : IDisposable
         // Second run: same file, unchanged. Must use a fresh lock instance (a run lock
         // is scoped to one run's process lifetime), but the same repository/content
         // store, representing persisted state from the first run.
-        var secondRun = new BackupPipeline(scanner, new FakeHasher(), contentStore, repository, new FakeRunLock()).Run(SimpleProfile(_root));
+        var secondRun = new BackupPipeline(
+                scanner, new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .Run(SimpleProfile(_root));
 
         Assert.Equal(0, secondRun.Stats.FilesAdded);
         Assert.Equal(0, secondRun.Stats.FilesChanged);
@@ -626,7 +639,8 @@ public class BackupPipelineTests : IDisposable
 
         var firstEntry = ScanItem.File("Photo.JPG", path, 5, modifiedAt);
         var firstRun = new BackupPipeline(
-            new FakeFileSystemScanner([firstEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock()).Run(SimpleProfile(_root));
+                new FakeFileSystemScanner([firstEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .Run(SimpleProfile(_root));
         Assert.Equal(1, firstRun.Stats.FilesAdded);
 
         // Simulate the source file being renamed with only its casing changed - size and
@@ -635,7 +649,8 @@ public class BackupPipelineTests : IDisposable
         // lifetime, but the same repository/content store carries persisted state forward.
         var secondEntry = ScanItem.File("photo.jpg", path, 5, modifiedAt);
         var secondRun = new BackupPipeline(
-            new FakeFileSystemScanner([secondEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock()).Run(SimpleProfile(_root));
+                new FakeFileSystemScanner([secondEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .Run(SimpleProfile(_root));
 
         Assert.Equal(0, secondRun.Stats.FilesAdded);
         Assert.Equal(0, secondRun.Stats.FilesChanged);
@@ -671,7 +686,8 @@ public class BackupPipelineTests : IDisposable
     {
         var repository = new FakeSnapshotRepository();
         var diagnostics = new StringWriter();
-        var pipeline = new BackupPipeline(new ThrowingScanner(), new FakeHasher(), new FakeContentStore(), repository, new FakeRunLock(), diagnostics);
+        var pipeline = new BackupPipeline(
+            new ThrowingScanner(), new FakeHasher(), new FakeContentStore(), repository, new FakeRunLock(), diagnostics);
 
         repository.ThrowOnNextCommit = new InvalidOperationException("commit failed while recording failure");
 
@@ -690,7 +706,8 @@ public class BackupPipelineTests : IDisposable
         // operation has started (backup-execution's "Ctrl+C pressed before any file
         // has been transferred" scenario).
         var repository = new FakeSnapshotRepository();
-        var pipeline = new BackupPipeline(new FakeFileSystemScanner([]), new FakeHasher(), new FakeContentStore(), repository, new FakeRunLock());
+        var pipeline = new BackupPipeline(
+            new FakeFileSystemScanner([]), new FakeHasher(), new FakeContentStore(), repository, new FakeRunLock());
         using var cts = new CancellationTokenSource();
         cts.Cancel();
 

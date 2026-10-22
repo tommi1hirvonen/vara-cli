@@ -9,10 +9,22 @@ public sealed record RetentionPolicy
 {
     public RetentionPolicy(int keepDaily, int keepWeekly, int keepMonthly, int keepYearly)
     {
-        if (keepDaily < 0) throw new ArgumentOutOfRangeException(nameof(keepDaily), keepDaily, "Retention counts must be non-negative.");
-        if (keepWeekly < 0) throw new ArgumentOutOfRangeException(nameof(keepWeekly), keepWeekly, "Retention counts must be non-negative.");
-        if (keepMonthly < 0) throw new ArgumentOutOfRangeException(nameof(keepMonthly), keepMonthly, "Retention counts must be non-negative.");
-        if (keepYearly < 0) throw new ArgumentOutOfRangeException(nameof(keepYearly), keepYearly, "Retention counts must be non-negative.");
+        if (keepDaily < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(keepDaily), keepDaily, "Retention counts must be non-negative.");
+        }
+        if (keepWeekly < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(keepWeekly), keepWeekly, "Retention counts must be non-negative.");
+        }
+        if (keepMonthly < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(keepMonthly), keepMonthly, "Retention counts must be non-negative.");
+        }
+        if (keepYearly < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(keepYearly), keepYearly, "Retention counts must be non-negative.");
+        }
 
         KeepDaily = keepDaily;
         KeepWeekly = keepWeekly;

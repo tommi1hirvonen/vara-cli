@@ -82,7 +82,10 @@ public class DirectoryListingPresenterTests
         var console = new TestConsole { EmitAnsiSequences = true };
         console.Profile.Capabilities.Ansi = true;
         console.Profile.Capabilities.ColorSystem = Spectre.Console.ColorSystem.EightBit;
-        var entries = new[] { new DirectoryEntry("a.txt", DirectoryEntryKind.File, status, 10, status == DirectoryEntryStatus.Moved ? "b.txt" : null) };
+        var entries = new[]
+        {
+            new DirectoryEntry("a.txt", DirectoryEntryKind.File, status, 10, status == DirectoryEntryStatus.Moved ? "b.txt" : null),
+        };
 
         DirectoryListingPresenter.Render(console, entries);
 

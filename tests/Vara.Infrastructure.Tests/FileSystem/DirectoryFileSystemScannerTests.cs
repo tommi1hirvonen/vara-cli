@@ -41,7 +41,10 @@ public class DirectoryFileSystemScannerTests : IDisposable
 
     private string Path_(params string[] segments) => Path.Combine([_root, .. segments]);
 
-    /// <summary>Expected mirror-space path for an entry at <see cref="Path_"/>, derived from its full absolute path with the drive letter's colon stripped.</summary>
+    /// <summary>
+    /// Expected mirror-space path for an entry at <see cref="Path_"/>, derived from its full
+    /// absolute path with the drive letter's colon stripped.
+    /// </summary>
     private string MirrorPath_(params string[] segments) => AbsolutePathMirrorMapper.ToMirrorPath(Path_(segments));
 
     private static string RelativePath(ScanItem item)
@@ -182,7 +185,9 @@ public class DirectoryFileSystemScannerTests : IDisposable
 
             Assert.Equal(2, entries.Count);
             Assert.Contains(entries, e => RelativePath(e) == AbsolutePathMirrorMapper.ToMirrorPath($"{driveLetter}:\\marker.txt"));
-            Assert.Contains(entries, e => RelativePath(e) == AbsolutePathMirrorMapper.ToMirrorPath($"{driveLetter}:\\decoy\\decoyfile.txt"));
+            Assert.Contains(
+                entries,
+                e => RelativePath(e) == AbsolutePathMirrorMapper.ToMirrorPath($"{driveLetter}:\\decoy\\decoyfile.txt"));
         }
         finally
         {
@@ -386,7 +391,10 @@ public class DirectoryFileSystemScannerTests : IDisposable
         throw new InvalidOperationException("No unused drive letter available for the drive-root scan test.");
     }
 
-    /// <summary>Maps <paramref name="driveLetter"/> to <paramref name="targetPath"/> as a virtual drive, via the `subst` command. Remove with <see cref="Unsubst"/>.</summary>
+    /// <summary>
+    /// Maps <paramref name="driveLetter"/> to <paramref name="targetPath"/> as a virtual drive,
+    /// via the `subst` command. Remove with <see cref="Unsubst"/>.
+    /// </summary>
     private static void Subst(char driveLetter, string targetPath) => RunCmd($"subst {driveLetter}: \"{targetPath}\"");
 
     /// <summary>Removes a virtual drive mapping created by <see cref="Subst"/>.</summary>
@@ -419,7 +427,12 @@ public class DirectoryFileSystemScannerTests : IDisposable
         Assert.Equal(0, process.ExitCode);
     }
 
-    /// <summary>Adds an explicit ACL deny entry for the current user on <paramref name="path"/>, denying <paramref name="rights"/> (an icacls simple/specific rights token, e.g. "RA" or "RD"). Explicit deny entries take precedence over any inherited allow, including group-based ones such as Administrators.</summary>
+    /// <summary>
+    /// Adds an explicit ACL deny entry for the current user on <paramref name="path"/>, denying
+    /// <paramref name="rights"/> (an icacls simple/specific rights token, e.g. "RA" or "RD").
+    /// Explicit deny entries take precedence over any inherited allow, including group-based ones
+    /// such as Administrators.
+    /// </summary>
     private static void DenyCurrentUser(string path, string rights) => RunIcacls($"\"{path}\" /deny \"%USERNAME%:({rights})\"");
 
     /// <summary>Removes the deny entry added by <see cref="DenyCurrentUser"/>, restoring normal access.</summary>

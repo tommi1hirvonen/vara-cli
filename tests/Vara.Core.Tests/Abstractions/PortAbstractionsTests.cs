@@ -92,7 +92,10 @@ public class PortAbstractionsTests
             return id;
         }
 
-        public void RecordFileVersion(long snapshotId, string relativePath, string? previousRelativePath, string? contentHash, long size, DateTimeOffset sourceModifiedAt, FileChangeKind changeKind, DateTimeOffset recordedAt, string? quickHash = null, int? quickHashScheme = null, string? linkTarget = null) { }
+        public void RecordFileVersion(
+            long snapshotId, string relativePath, string? previousRelativePath, string? contentHash,
+            long size, DateTimeOffset sourceModifiedAt, FileChangeKind changeKind,
+            DateTimeOffset recordedAt, string? quickHash = null, int? quickHashScheme = null, string? linkTarget = null) { }
 
         public void CompleteSnapshot(long snapshotId, DateTimeOffset completedAt, SnapshotStats stats)
         {
@@ -104,7 +107,8 @@ public class PortAbstractionsTests
         public void CancelSnapshot(long snapshotId, DateTimeOffset cancelledAt, SnapshotStats stats) { }
         public IManifestBatch BeginManifestBatch() => new NoOpManifestBatch();
         public IReadOnlyDictionary<string, CurrentFileState> GetCurrentState() => new Dictionary<string, CurrentFileState>();
-        public IReadOnlyDictionary<string, CurrentFileState> GetStateAsOf(DateTimeOffset asOf) => new Dictionary<string, CurrentFileState>();
+        public IReadOnlyDictionary<string, CurrentFileState> GetStateAsOf(DateTimeOffset asOf) =>
+            new Dictionary<string, CurrentFileState>();
         public IReadOnlyList<FileVersionRecord> GetTombstones(DateTimeOffset? asOf) => [];
         public IReadOnlyDictionary<string, string> GetMoveOrigins() => new Dictionary<string, string>();
         public IReadOnlyList<Snapshot> ListSnapshots() => _snapshots;
@@ -130,10 +134,12 @@ public class PortAbstractionsTests
     {
         public bool ProbeHardlinkSupport() => SupportsHardlinks = true;
         public bool SupportsHardlinks { get; private set; }
-        public (string Hash, long Size) StoreFromStream(Stream content, Action<long>? onBytesWritten = null) => ("fake-hash", content.Length);
+        public (string Hash, long Size) StoreFromStream(Stream content, Action<long>? onBytesWritten = null) =>
+            ("fake-hash", content.Length);
         public bool HasContent(string hash) => false;
         public Stream OpenRead(string hash) => throw new FileNotFoundException($"No stored content for hash '{hash}'.");
-        public void PlaceAtMirrorPath(string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null, string? previousContentHash = null) { }
+        public void PlaceAtMirrorPath(
+            string hash, string mirrorRelativePath, Action<long>? onBytesCopied = null, string? previousContentHash = null) { }
         public void MoveMirrorEntry(string fromRelativePath, string toRelativePath) { }
         public void RemoveFromMirror(string mirrorRelativePath, string hash) { }
         public void DeleteContent(string hash) { }

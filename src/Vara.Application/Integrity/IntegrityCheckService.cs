@@ -16,8 +16,14 @@ public sealed record IntegrityFinding(string ContentHash, IReadOnlyList<string> 
 /// <summary>The outcome of an <see cref="IntegrityCheckService.Check"/> run.</summary>
 /// <param name="BlobsChecked">Total number of content blobs referenced by the manifest that were examined.</param>
 /// <param name="Missing">Referenced blobs not physically present in the target's content store.</param>
-/// <param name="Corrupt">Referenced blobs present in the store but whose re-hashed content no longer matches the manifest. Always empty in quick mode, since quick mode never re-hashes.</param>
-/// <param name="Orphaned">Blobs physically present in the store but not referenced by any snapshot - informational only; <see cref="IntegrityCheckService.Check"/> never deletes these (that remains <c>vara prune</c>'s job).</param>
+/// <param name="Corrupt">
+/// Referenced blobs present in the store but whose re-hashed content no longer matches the manifest. Always empty in quick mode,
+/// since quick mode never re-hashes.
+/// </param>
+/// <param name="Orphaned">
+/// Blobs physically present in the store but not referenced by any snapshot - informational only;
+/// <see cref="IntegrityCheckService.Check"/> never deletes these (that remains <c>vara prune</c>'s job).
+/// </param>
 /// <param name="Cancelled">
 /// <see langword="true"/> when a graceful Ctrl+C stop was requested before verification of every
 /// referenced blob completed, per the backup-integrity spec's "Graceful cancellation via Ctrl+C"
@@ -75,7 +81,10 @@ public sealed class IntegrityCheckService(ISnapshotRepository repository, IConte
     /// each referenced blob verified; whatever was already verified is reported normally - see
     /// the backup-integrity spec's "Graceful cancellation via Ctrl+C" requirement.
     /// </param>
-    public IntegrityCheckResult Check(bool quick, IProgress<IntegrityCheckProgress>? progress = null, CancellationToken cancellationToken = default)
+    public IntegrityCheckResult Check(
+        bool quick,
+        IProgress<IntegrityCheckProgress>? progress = null,
+        CancellationToken cancellationToken = default)
     {
         var referencedSizes = repository.GetAllReferencedContentSizes();
         var referencedHashes = referencedSizes.Keys.ToList();

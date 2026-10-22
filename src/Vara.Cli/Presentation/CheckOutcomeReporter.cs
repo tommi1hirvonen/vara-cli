@@ -20,7 +20,9 @@ public static class CheckOutcomeReporter
     {
         var hasProblems = result.Missing.Count > 0 || result.Corrupt.Count > 0;
         var cancelledClause = result.Cancelled ? " Check cancelled: stopped early." : string.Empty;
-        var headline = $"Checked {result.BlobsChecked} blob(s): {result.Missing.Count} missing, {result.Corrupt.Count} corrupt, {result.Orphaned.Count} orphaned.{cancelledClause}";
+        var headline =
+            $"Checked {result.BlobsChecked} blob(s): " +
+            $"{result.Missing.Count} missing, {result.Corrupt.Count} corrupt, {result.Orphaned.Count} orphaned.{cancelledClause}";
 
         if (hasProblems || result.Cancelled)
         {

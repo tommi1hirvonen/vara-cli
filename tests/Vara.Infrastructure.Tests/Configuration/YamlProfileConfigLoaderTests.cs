@@ -525,6 +525,7 @@ public class YamlProfileConfigLoaderTests
             }
         }
 
-        throw new FileNotFoundException($"Could not locate '{Path.Combine(relativeSegments)}' by walking up from '{AppContext.BaseDirectory}'.");
+        throw new FileNotFoundException(
+            $"Could not locate '{Path.Combine(relativeSegments)}' by walking up from '{AppContext.BaseDirectory}'.");
     }
 }

@@ -43,9 +43,15 @@ public sealed class ProfileResolver(IProfileConfigLoader configLoader)
     /// metadata directory, and constructs a synthetic <see cref="Profile"/> for the directory
     /// it is found in - without reading <c>~/.vara/profiles.yml</c> at all in that case.
     /// </summary>
-    /// <exception cref="ProfileConfigNotFoundException">The configuration file does not exist (only when <paramref name="profileName"/> is given).</exception>
-    /// <exception cref="UnknownProfileException">No profile with that name is defined (only when <paramref name="profileName"/> is given).</exception>
-    /// <exception cref="ProfileNameRequiredException">No profile name was given, and no <c>.vara\profile.db</c> was found walking upward to the filesystem root.</exception>
+    /// <exception cref="ProfileConfigNotFoundException">
+    /// The configuration file does not exist (only when <paramref name="profileName"/> is given).
+    /// </exception>
+    /// <exception cref="UnknownProfileException">
+    /// No profile with that name is defined (only when <paramref name="profileName"/> is given).
+    /// </exception>
+    /// <exception cref="ProfileNameRequiredException">
+    /// No profile name was given, and no <c>.vara\profile.db</c> was found walking upward to the filesystem root.
+    /// </exception>
     public Profile ResolveForBrowsing(string? profileName, string? configPath = null, string? startDirectory = null)
     {
         if (!string.IsNullOrWhiteSpace(profileName))

@@ -72,7 +72,9 @@ public sealed class NoMatchingVersionException : SnapshotException
 /// directory").
 /// </summary>
 public sealed class NoMatchingDirectorySnapshotException(string directoryPath, long snapshotId)
-    : SnapshotException($"Snapshot {snapshotId} is not a valid candidate for directory '{directoryPath}': it does not exist, never touched that directory, or is not Complete/Cancelled.")
+    : SnapshotException(
+        $"Snapshot {snapshotId} is not a valid candidate for directory '{directoryPath}': " +
+        "it does not exist, never touched that directory, or is not Complete/Cancelled.")
 {
     public string DirectoryPath { get; } = directoryPath;
     public long SnapshotId { get; } = snapshotId;
@@ -164,7 +166,9 @@ public sealed class DiffBinaryContentException : SnapshotException
 /// resolves exactly one stream, unlike <c>diff</c>'s two named sides.
 /// </summary>
 public sealed class ShowBinaryContentException(string relativePath)
-    : SnapshotException($"Cannot show '{relativePath}': content appears to be binary. Pass --force-binary to show it anyway, or redirect output to a file.")
+    : SnapshotException(
+        $"Cannot show '{relativePath}': content appears to be binary. " +
+        "Pass --force-binary to show it anyway, or redirect output to a file.")
 {
     public string RelativePath { get; } = relativePath;
 }
@@ -224,7 +228,9 @@ public sealed class ShowOrDiffLinkedEntryException : SnapshotException
 /// touching the live mirror.
 /// </summary>
 public sealed class RestoreDestinationInMirrorException(string destinationPath)
-    : SnapshotException($"Restore destination '{destinationPath}' is inside the profile's live mirror and would corrupt it. Choose a destination outside the mirror.")
+    : SnapshotException(
+        $"Restore destination '{destinationPath}' is inside the profile's live mirror and would corrupt it. " +
+        "Choose a destination outside the mirror.")
 {
     public string DestinationPath { get; } = destinationPath;
 }

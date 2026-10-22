@@ -444,7 +444,8 @@ public static class BackupCommand
                 ? BackupRunSummaryFormatter.FormatDuration(remaining)
                 : "calculating...";
             console.WriteLine(
-                $"{BackupRunSummaryFormatter.FormatBytes(snapshot.BytesTransferred)} / {BackupRunSummaryFormatter.FormatBytes(snapshot.TotalBytes)} " +
+                $"{BackupRunSummaryFormatter.FormatBytes(snapshot.BytesTransferred)} / " +
+                $"{BackupRunSummaryFormatter.FormatBytes(snapshot.TotalBytes)} " +
                 $"({snapshot.PercentComplete:0.0}%) - Files {admitted.FilesTransferred} / {admitted.TotalFiles} - " +
                 $"{BackupRunSummaryFormatter.FormatBytes((long)snapshot.ThroughputBytesPerSecond)}/s - ETA {eta}");
         }

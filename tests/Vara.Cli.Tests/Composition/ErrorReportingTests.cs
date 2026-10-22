@@ -246,7 +246,9 @@ public class ErrorReportingTests
             console);
 
         Assert.Equal(1, exitCode);
-        Assert.Contains(@"Error: Could not write profile configuration file 'C:\fake\.vara\profiles.yml': Access to the path is denied.", console.Output);
+        Assert.Contains(
+            @"Error: Could not write profile configuration file 'C:\fake\.vara\profiles.yml': Access to the path is denied.",
+            console.Output);
         Assert.DoesNotContain("Unhandled exception", console.Output);
         Assert.DoesNotContain("ProfileConfigWriteFailedException", console.Output);
     }

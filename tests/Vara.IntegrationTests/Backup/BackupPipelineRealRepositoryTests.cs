@@ -72,7 +72,8 @@ public class BackupPipelineRealRepositoryTests : IDisposable
 
         // Second run: same file, unchanged. Fresh lock (scoped to one run's process
         // lifetime), same real repository/content store carrying persisted state forward.
-        var secondRun = new BackupPipeline(scanner, new FakeHasher(), contentStore, Repository, new FakeRunLock()).Run(SimpleProfile(_root));
+        var secondRun = new BackupPipeline(
+            scanner, new FakeHasher(), contentStore, Repository, new FakeRunLock()).Run(SimpleProfile(_root));
 
         Assert.Equal(0, secondRun.Stats.FilesAdded);
         Assert.Equal(0, secondRun.Stats.FilesChanged);
@@ -90,7 +91,8 @@ public class BackupPipelineRealRepositoryTests : IDisposable
 
         var firstEntry = ScanItem.File("Photo.JPG", path, 5, modifiedAt);
         var firstRun = new BackupPipeline(
-            new FakeFileSystemScanner([firstEntry]), new FakeHasher(), contentStore, Repository, new FakeRunLock()).Run(SimpleProfile(_root));
+            new FakeFileSystemScanner([firstEntry]), new FakeHasher(), contentStore,
+            Repository, new FakeRunLock()).Run(SimpleProfile(_root));
         Assert.Equal(1, firstRun.Stats.FilesAdded);
 
         // Simulate the source file being renamed with only its casing changed - size and
@@ -99,7 +101,8 @@ public class BackupPipelineRealRepositoryTests : IDisposable
         // exercised FakeSnapshotRepository).
         var secondEntry = ScanItem.File("photo.jpg", path, 5, modifiedAt);
         var secondRun = new BackupPipeline(
-            new FakeFileSystemScanner([secondEntry]), new FakeHasher(), contentStore, Repository, new FakeRunLock()).Run(SimpleProfile(_root));
+            new FakeFileSystemScanner([secondEntry]), new FakeHasher(), contentStore,
+            Repository, new FakeRunLock()).Run(SimpleProfile(_root));
 
         Assert.Equal(0, secondRun.Stats.FilesAdded);
         Assert.Equal(0, secondRun.Stats.FilesChanged);

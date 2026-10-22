@@ -60,7 +60,9 @@ public class RestoreCommandTests : IDisposable
     private static System.CommandLine.Command CreateCommand() =>
         RestoreCommand.Create(new ProfileResolver(new UnusedProfileConfigLoader()), new ProfileServiceFactory(new UnusedHasher()));
 
-    private System.CommandLine.Command CreateRealCommand(CancellationToken cancellationToken = default, Spectre.Console.IAnsiConsole? console = null)
+    private System.CommandLine.Command CreateRealCommand(
+        CancellationToken cancellationToken = default,
+        Spectre.Console.IAnsiConsole? console = null)
     {
         var profile = new Profile("test-profile", _targetRoot, [new Source(_sourceRoot)], null);
         return RestoreCommand.Create(
@@ -301,7 +303,8 @@ public class RestoreCommandTests : IDisposable
         var t0 = DateTimeOffset.UtcNow;
         var added = new FileVersionRecord(1, 1, "a.txt", null, "hash-1", 5, t0, FileChangeKind.Added, t0);
         var deleted = new FileVersionRecord(2, 2, "a.txt", null, "hash-1", 5, t0.AddMinutes(1), FileChangeKind.Deleted, t0.AddMinutes(1));
-        var linked = new FileVersionRecord(3, 3, "a.txt", null, null, 0, t0.AddMinutes(2), FileChangeKind.Linked, t0.AddMinutes(2), LinkTarget: @"C:\target");
+        var linked = new FileVersionRecord(
+            3, 3, "a.txt", null, null, 0, t0.AddMinutes(2), FileChangeKind.Linked, t0.AddMinutes(2), LinkTarget: @"C:\target");
         var history = new List<FileVersionRecord> { linked, deleted, added };
 
         var selectable = RestoreCommand.SelectableVersionsForInteractivePicker(history);
@@ -315,7 +318,8 @@ public class RestoreCommandTests : IDisposable
     {
         var t0 = DateTimeOffset.UtcNow;
         var deleted = new FileVersionRecord(1, 1, "link", null, "hash-1", 5, t0, FileChangeKind.Deleted, t0);
-        var linked = new FileVersionRecord(2, 2, "link", null, null, 0, t0.AddMinutes(1), FileChangeKind.Linked, t0.AddMinutes(1), LinkTarget: @"C:\target");
+        var linked = new FileVersionRecord(
+            2, 2, "link", null, null, 0, t0.AddMinutes(1), FileChangeKind.Linked, t0.AddMinutes(1), LinkTarget: @"C:\target");
         var history = new List<FileVersionRecord> { linked, deleted };
 
         var selectable = RestoreCommand.SelectableVersionsForInteractivePicker(history);
@@ -370,7 +374,9 @@ public class RestoreCommandTests : IDisposable
         // --force skips the (unrelated) write/removal confirmation; --snapshot's own
         // resolution never prompts regardless of --force, since it bypasses the picker
         // entirely (task 3.2).
-        var exitCode = command.Parse(["src", "--profile", "test-profile", "--recursive", "--snapshot", firstSnapshotId.ToString(), "--out", _outRoot, "--force"]).Invoke();
+        var exitCode = command.Parse(
+            ["src", "--profile", "test-profile", "--recursive",
+             "--snapshot", firstSnapshotId.ToString(), "--out", _outRoot, "--force"]).Invoke();
 
         Assert.Equal(ExitCodes.Success, exitCode);
         Assert.True(File.Exists(Path.Combine(_outRoot, "a.txt")));
@@ -383,7 +389,8 @@ public class RestoreCommandTests : IDisposable
         SeedTwoTrackedFiles();
         var command = CreateRealCommand();
 
-        var exitCode = command.Parse(["src", "--profile", "test-profile", "--recursive", "--snapshot", "999999", "--out", _outRoot, "--force"]).Invoke();
+        var exitCode = command.Parse(
+            ["src", "--profile", "test-profile", "--recursive", "--snapshot", "999999", "--out", _outRoot, "--force"]).Invoke();
 
         Assert.Equal(ExitCodes.HardError, exitCode);
     }

@@ -93,7 +93,8 @@ public class SqliteSnapshotRepositoryTests : IDisposable
                 VALUES (1, '2026-01-01T00:00:00Z', '2026-01-01T00:05:00Z', 'Complete');
 
                 INSERT INTO file_versions
-                    (id, snapshot_id, relative_path, previous_relative_path, content_hash, size, source_modified_at, change_kind, recorded_at, quick_hash, quick_hash_scheme)
+                    (id, snapshot_id, relative_path, previous_relative_path, content_hash,
+                     size, source_modified_at, change_kind, recorded_at, quick_hash, quick_hash_scheme)
                 VALUES
                     (1, 1, 'a.txt', NULL, 'hash-a', 10, '2026-01-01T00:00:00Z', 'Added', '2026-01-01T00:00:00Z', NULL, NULL),
                     (2, 1, 'B.txt', NULL, 'hash-b', 20, '2026-01-01T00:00:00Z', 'Added', '2026-01-01T00:00:00Z', 'quick-b', 1);
@@ -117,7 +118,8 @@ public class SqliteSnapshotRepositoryTests : IDisposable
 
         // Future writes must still auto-increment past the migrated rows' ids.
         var snapshotId = Repository.BeginSnapshot(DateTimeOffset.UtcNow);
-        Repository.RecordFileVersion(snapshotId, "c.txt", null, "hash-c", 30, DateTimeOffset.UtcNow, FileChangeKind.Added, DateTimeOffset.UtcNow);
+        Repository.RecordFileVersion(
+            snapshotId, "c.txt", null, "hash-c", 30, DateTimeOffset.UtcNow, FileChangeKind.Added, DateTimeOffset.UtcNow);
         var history = Repository.GetFileHistory("c.txt");
         Assert.True(Assert.Single(history).Id > 2);
     }
@@ -136,7 +138,8 @@ public class SqliteSnapshotRepositoryTests : IDisposable
     {
         var startedAt = new DateTimeOffset(2026, 1, 1, 10, 0, 0, TimeSpan.Zero);
         var completedAt = startedAt.AddMinutes(5);
-        var stats = new SnapshotStats(BytesTransferred: 1024, FilesAdded: 2, FilesChanged: 1, FilesMoved: 0, FilesDeleted: 0, FilesFailed: 0);
+        var stats = new SnapshotStats(
+            BytesTransferred: 1024, FilesAdded: 2, FilesChanged: 1, FilesMoved: 0, FilesDeleted: 0, FilesFailed: 0);
 
         var id = Repository.BeginSnapshot(startedAt);
         Repository.CompleteSnapshot(id, completedAt, stats);
@@ -205,7 +208,8 @@ public class SqliteSnapshotRepositoryTests : IDisposable
         Repository.CompleteSnapshot(s1, now, SnapshotStats.Empty);
 
         var s2 = Repository.BeginSnapshot(now.AddMinutes(1));
-        Repository.RecordFileVersion(s2, "photo.jpg", null, "hash-new-casing", 20, now.AddMinutes(1), FileChangeKind.Added, now.AddMinutes(1));
+        Repository.RecordFileVersion(
+            s2, "photo.jpg", null, "hash-new-casing", 20, now.AddMinutes(1), FileChangeKind.Added, now.AddMinutes(1));
         Repository.CompleteSnapshot(s2, now.AddMinutes(1), SnapshotStats.Empty);
 
         for (var i = 0; i < 5; i++)
@@ -237,7 +241,8 @@ public class SqliteSnapshotRepositoryTests : IDisposable
     {
         var now = DateTimeOffset.UtcNow;
         var snapshot = Repository.BeginSnapshot(now);
-        Repository.RecordFileVersion(snapshot, "a.txt", null, "hash-v1", 10, now, FileChangeKind.Added, now, quickHash: "quick-v1", quickHashScheme: 1);
+        Repository.RecordFileVersion(
+            snapshot, "a.txt", null, "hash-v1", 10, now, FileChangeKind.Added, now, quickHash: "quick-v1", quickHashScheme: 1);
         Repository.CompleteSnapshot(snapshot, now, SnapshotStats.Empty);
 
         var state = Repository.GetCurrentState()["a.txt"];
@@ -829,7 +834,8 @@ public class SqliteSnapshotRepositoryTests : IDisposable
         Repository.CompleteSnapshot(first, now, SnapshotStats.Empty);
 
         var second = Repository.BeginSnapshot(now.AddMinutes(1));
-        Repository.RecordFileVersion(second, "a.txt", null, "hash-shared", 12, now.AddMinutes(1), FileChangeKind.Changed, now.AddMinutes(1));
+        Repository.RecordFileVersion(
+            second, "a.txt", null, "hash-shared", 12, now.AddMinutes(1), FileChangeKind.Changed, now.AddMinutes(1));
         Repository.RecordFileVersion(second, "c.txt", null, "hash-other", 20, now.AddMinutes(1), FileChangeKind.Added, now.AddMinutes(1));
         Repository.CompleteSnapshot(second, now.AddMinutes(1), SnapshotStats.Empty);
 

@@ -240,7 +240,8 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
         var versionIds = Repository.GetFileHistory("big.log").OrderBy(r => r.Id).Select(r => r.Id).ToList();
         var service = new SnapshotHistoryService(Repository, ContentStore);
 
-        var ex = Assert.IsType<OversizedDiffRefusal>(GetDiffRefusal(service.OpenVersionsForDiff("big.log", versionIds[0], null, versionIds[1], null)));
+        var ex = Assert.IsType<OversizedDiffRefusal>(
+            GetDiffRefusal(service.OpenVersionsForDiff("big.log", versionIds[0], null, versionIds[1], null)));
 
         Assert.Equal(sizeV1, ex.LeftSize);
         Assert.Null(ex.RightSize);
@@ -263,7 +264,8 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
         var versionIds = Repository.GetFileHistory("image.png").OrderBy(r => r.Id).Select(r => r.Id).ToList();
         var service = new SnapshotHistoryService(Repository, ContentStore);
 
-        var ex = Assert.IsType<BinaryDiffRefusal>(GetDiffRefusal(service.OpenVersionsForDiff("image.png", versionIds[0], null, versionIds[1], null)));
+        var ex = Assert.IsType<BinaryDiffRefusal>(
+            GetDiffRefusal(service.OpenVersionsForDiff("image.png", versionIds[0], null, versionIds[1], null)));
 
         Assert.True(ex.LeftIsBinary);
         Assert.False(ex.RightIsBinary);
@@ -302,7 +304,7 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
     }
 
     [Fact]
-    public void TryResolve_reproduces_the_reported_scenario_a_cwd_relative_file_is_no_longer_shadowed_by_an_unrelated_root_level_literal_match()
+    public void TryResolve_reproduces_scenario_cwd_relative_file_is_no_longer_shadowed_by_unrelated_root_level_literal_match()
     {
         // Reproduces the bug report end-to-end against the real FileSystemContentStore and
         // SqliteSnapshotRepository, exactly as HistoryCommand/RestoreCommand/ShowCommand/
@@ -365,7 +367,7 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
     }
 
     [Fact]
-    public void PlanAndExecuteDirectoryRestore_in_place_removes_a_currently_live_file_not_present_at_the_requested_date_and_maps_each_source_correctly()
+    public void PlanAndExecuteDirectoryRestore_in_place_removes_live_file_absent_at_requested_date_and_maps_each_source_correctly()
     {
         var sourceRootA = Path.Combine(Path.GetTempPath(), $"vara-inttest-sourceA-{Guid.NewGuid():N}");
         var sourceRootB = Path.Combine(Path.GetTempPath(), $"vara-inttest-sourceB-{Guid.NewGuid():N}");

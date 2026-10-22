@@ -88,6 +88,7 @@ public class ProfileResolverTests
     private sealed class ThrowingConfigLoader : IProfileConfigLoader
     {
         public string DefaultConfigPath => throw new InvalidOperationException("Config loader should not be consulted.");
-        public IReadOnlyList<Profile> LoadProfiles(string configPath) => throw new InvalidOperationException("Config loader should not be consulted.");
+        public IReadOnlyList<Profile> LoadProfiles(string configPath) =>
+            throw new InvalidOperationException("Config loader should not be consulted.");
     }
 }

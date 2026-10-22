@@ -75,7 +75,9 @@ public sealed class RetentionPolicyNotConfiguredException(string profileName)
 /// is required whenever the working directory does not resolve one on its own.
 /// </summary>
 public sealed class ProfileNameRequiredException()
-    : ProfileConfigException("No profile name was given, and the current directory is not inside a profile's target root. Specify a profile name.");
+    : ProfileConfigException(
+        "No profile name was given, and the current directory is not inside a profile's target root. " +
+        "Specify a profile name.");
 
 /// <summary>
 /// The configuration file could not be written (for example, the file is read-only,

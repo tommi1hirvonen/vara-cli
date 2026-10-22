@@ -140,7 +140,10 @@ public sealed class BackupProgressColumn(BackupProgressCalculator calculator) : 
             .AddColumn(new GridColumn { Width = LabelWidth, NoWrap = true, Padding = new Padding(0) })
             .AddColumn(new GridColumn { Width = barWidth, NoWrap = true, Padding = new Padding(0) })
             .AddColumn(new GridColumn { Width = TrailingWidth, NoWrap = true, Padding = new Padding(0) });
-        grid.AddRow(new Text(labelText.PadRight(LabelWidth)), _bar.Render(options, task, deltaTime), new Text(trailingText.PadRight(TrailingWidth)));
+        grid.AddRow(
+            new Text(labelText.PadRight(LabelWidth)),
+            _bar.Render(options, task, deltaTime),
+            new Text(trailingText.PadRight(TrailingWidth)));
         return grid;
     }
 
@@ -181,7 +184,9 @@ public sealed class BackupProgressColumn(BackupProgressCalculator calculator) : 
 
     private static IRenderable BuildStatsRow(ProgressSnapshot snapshot, BackupProgressState progress)
     {
-        var transferred = $"{BackupRunSummaryFormatter.FormatBytes(snapshot.BytesTransferred)} / {BackupRunSummaryFormatter.FormatBytes(snapshot.TotalBytes)}";
+        var transferred =
+            $"{BackupRunSummaryFormatter.FormatBytes(snapshot.BytesTransferred)} / " +
+            $"{BackupRunSummaryFormatter.FormatBytes(snapshot.TotalBytes)}";
         var files = $"Files {progress.FilesTransferred} / {progress.TotalFiles}";
         var throughput = $"{BackupRunSummaryFormatter.FormatBytes((long)snapshot.ThroughputBytesPerSecond)}/s";
         var eta = snapshot.EstimatedTimeRemaining is { } remaining

@@ -92,7 +92,9 @@ public class BackupCommandExitCodeTests : IDisposable
     /// equivalent fake in <c>Vara.Application.Tests</c>/<c>Vara.IntegrationTests</c> per this
     /// project's convention of duplicating small, drift-risk-free test fakes rather than
     /// referencing another test project.</summary>
-    private sealed class FakeFileSystemScanner(IReadOnlyList<ScanFailure>? failures = null, IReadOnlyList<ScanItem>? entries = null) : IFileSystemScanner
+    private sealed class FakeFileSystemScanner(
+        IReadOnlyList<ScanFailure>? failures = null,
+        IReadOnlyList<ScanItem>? entries = null) : IFileSystemScanner
     {
         public ScanResult Scan(IReadOnlyList<Source> sources) => new(entries ?? [], failures ?? []);
     }

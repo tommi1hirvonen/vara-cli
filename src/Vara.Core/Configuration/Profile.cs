@@ -47,7 +47,8 @@ public sealed record Profile
                 if (PathsOverlap(targetRoot, source.Path))
                 {
                     throw new ArgumentException(
-                        $"Target root '{targetRoot}' overlaps source path '{source.Path}'. A profile's target must not be the same as, contain, or be contained by any of its own sources.",
+                        $"Target root '{targetRoot}' overlaps source path '{source.Path}'. " +
+                        "A profile's target must not be the same as, contain, or be contained by any of its own sources.",
                         nameof(targetRoot));
                 }
             }
@@ -59,7 +60,8 @@ public sealed record Profile
                     if (PathsOverlap(sources[i].Path, sources[j].Path))
                     {
                         throw new ArgumentException(
-                            $"Source path '{sources[i].Path}' overlaps source path '{sources[j].Path}'. A profile's sources must not be the same as, contain, or be contained by any of its own other sources.",
+                            $"Source path '{sources[i].Path}' overlaps source path '{sources[j].Path}'. " +
+                            "A profile's sources must not be the same as, contain, or be contained by any of its own other sources.",
                             nameof(sources));
                     }
                 }

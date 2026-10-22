@@ -680,7 +680,9 @@ public class BackupExecutorTests : IDisposable
 
         executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
 
-        Assert.True(hasher.MaxObservedConcurrency > 1, $"expected more than one concurrent transfer, observed {hasher.MaxObservedConcurrency}");
+        Assert.True(
+            hasher.MaxObservedConcurrency > 1,
+            $"expected more than one concurrent transfer, observed {hasher.MaxObservedConcurrency}");
     }
 
     [Fact]

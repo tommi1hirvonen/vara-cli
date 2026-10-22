@@ -61,6 +61,7 @@ public class SnapshotsTablePresenterRealRepositoryTests : IDisposable
         Assert.Contains("Cancelled", console.Output);
         Assert.Contains("\u001b[1;38;5;121m", console.Output); // bold PaleGreen1 - Complete
         Assert.Contains("\u001b[1;38;5;131m", console.Output); // bold IndianRed - Failed
-        Assert.Contains("\u001b[1;38;5;186m", console.Output); // bold LightGoldenrod2 - Cancelled (warning, distinct from Failed's hard-error style)
+        // bold LightGoldenrod2 - Cancelled (warning, distinct from Failed's hard-error style)
+        Assert.Contains("\u001b[1;38;5;186m", console.Output);
     }
 }

@@ -16,7 +16,8 @@ public class BackupRunSummaryJsonTests
     {
         var startedAt = new DateTimeOffset(2026, 1, 1, 10, 0, 0, TimeSpan.Zero);
         var completedAt = startedAt.AddMinutes(1);
-        var stats = new SnapshotStats(BytesTransferred: 2048, FilesAdded: 3, FilesChanged: 1, FilesMoved: 2, FilesDeleted: 1, FilesFailed: 1);
+        var stats = new SnapshotStats(
+            BytesTransferred: 2048, FilesAdded: 3, FilesChanged: 1, FilesMoved: 2, FilesDeleted: 1, FilesFailed: 1);
         var result = new BackupRunResult(42, startedAt, completedAt, stats, FailedPaths: ["locked.txt"]);
 
         var dto = result.ToJson("my-profile");

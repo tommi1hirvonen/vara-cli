@@ -19,7 +19,10 @@ public enum PendingChangeKind
 /// <summary>A scanned entry whose content differs from (or is absent from) the current manifest state.</summary>
 public sealed record PendingChange(ScanItem Entry, PendingChangeKind Kind);
 
-/// <summary>The result of the diff stage: candidate changes needing content resolution, and paths no longer present in any source.</summary>
+/// <summary>
+/// The result of the diff stage: candidate changes needing content resolution,
+/// and paths no longer present in any source.
+/// </summary>
 public sealed record DiffResult(IReadOnlyList<PendingChange> Pending, IReadOnlyList<string> DeletedPaths);
 
 /// <summary>

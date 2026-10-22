@@ -39,7 +39,11 @@ public class SnapshotCommandTests : IDisposable
         var profile = new Profile("test-profile", _targetRoot, [new Source(_sourceRoot)], null);
         var console = new TestConsole();
         return (
-            SnapshotCommand.Create(new ProfileResolver(new SingleProfileConfigLoader(profile)), new ProfileServiceFactory(_hasher), console, console),
+            SnapshotCommand.Create(
+                new ProfileResolver(new SingleProfileConfigLoader(profile)),
+                new ProfileServiceFactory(_hasher),
+                console,
+                console),
             console);
     }
 
@@ -50,10 +54,15 @@ public class SnapshotCommandTests : IDisposable
         var now = DateTimeOffset.UtcNow;
         var snapshot = repository.BeginSnapshot(now);
         var sourcePath = AbsolutePathMirrorMapper.ToMirrorPath(_sourceRoot);
-        repository.RecordFileVersion(snapshot, Path.Combine(sourcePath, "nested", "added.txt"), null, "hash-a", 10, now, FileChangeKind.Added, now);
-        repository.RecordFileVersion(snapshot, Path.Combine(sourcePath, "nested", "moved.txt"), @"old\moved.txt", "hash-m", 20, now, FileChangeKind.Moved, now);
-        repository.RecordFileVersion(snapshot, Path.Combine(sourcePath, "nested", "deep", "depth-one.txt"), null, "hash-deep", 5, now, FileChangeKind.Added, now);
-        repository.RecordFileVersion(snapshot, Path.Combine(sourcePath, "nested", "deep", "deeper", "depth-two.txt"), null, "hash-deeper", 5, now, FileChangeKind.Added, now);
+        repository.RecordFileVersion(
+            snapshot, Path.Combine(sourcePath, "nested", "added.txt"), null, "hash-a", 10, now, FileChangeKind.Added, now);
+        repository.RecordFileVersion(
+            snapshot, Path.Combine(sourcePath, "nested", "moved.txt"), @"old\moved.txt", "hash-m", 20, now, FileChangeKind.Moved, now);
+        repository.RecordFileVersion(
+            snapshot, Path.Combine(sourcePath, "nested", "deep", "depth-one.txt"), null, "hash-deep", 5, now, FileChangeKind.Added, now);
+        repository.RecordFileVersion(
+            snapshot, Path.Combine(sourcePath, "nested", "deep", "deeper", "depth-two.txt"),
+            null, "hash-deeper", 5, now, FileChangeKind.Added, now);
         repository.RecordFileVersion(snapshot, Path.Combine(sourcePath, "deleted.txt"), null, null, 0, now, FileChangeKind.Deleted, now);
         repository.CompleteSnapshot(snapshot, now, new SnapshotStats(30, 1, 0, 1, 1, 0));
         return snapshot;

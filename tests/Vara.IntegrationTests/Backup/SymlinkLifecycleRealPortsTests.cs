@@ -63,7 +63,8 @@ public class SymlinkLifecycleRealPortsTests : IDisposable
 
         var staleFilePath = Path.Combine(_sourceRoot, "stale.txt");
         File.WriteAllText(staleFilePath, "will become a link");
-        var staleFileEntry = ScanItem.File("stale.txt", staleFilePath, new FileInfo(staleFilePath).Length, File.GetLastWriteTimeUtc(staleFilePath));
+        var staleFileEntry = ScanItem.File(
+            "stale.txt", staleFilePath, new FileInfo(staleFilePath).Length, File.GetLastWriteTimeUtc(staleFilePath));
 
         var linkPath = Path.Combine(_sourceRoot, "link");
         var linkEntry = ScanItem.Link("link", linkPath, @"C:\somewhere\else.txt");
@@ -89,7 +90,8 @@ public class SymlinkLifecycleRealPortsTests : IDisposable
         // file-to-link transition. The regular file and the pre-existing link are unchanged.
         var staleBecomesLinkEntry = ScanItem.Link("stale.txt", staleFilePath, @"C:\somewhere\else.txt");
         var secondRun = new BackupPipeline(
-                new FakeFileSystemScanner([regularEntry, staleBecomesLinkEntry, linkEntry]), hasher, ContentStore, Repository, new FakeRunLock())
+                new FakeFileSystemScanner([regularEntry, staleBecomesLinkEntry, linkEntry]),
+                hasher, ContentStore, Repository, new FakeRunLock())
             .Run(SimpleProfile(_sourceRoot, _targetRoot));
 
         Assert.Equal(0, secondRun.Stats.FilesAdded);

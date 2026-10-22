@@ -13,7 +13,8 @@ public class BackupProgressColumnTests
     private static RenderOptions CreateOptions(TestConsole console) =>
         new(console.Profile.Capabilities, new Size(console.Profile.Width, console.Profile.Height));
 
-    private static ProgressTask CreateTask(BackupProgressRole role, BackupProgressState? state = null, BackupProgressOutcome? outcome = null)
+    private static ProgressTask CreateTask(
+        BackupProgressRole role, BackupProgressState? state = null, BackupProgressOutcome? outcome = null)
     {
         var task = new ProgressTask(1, "task", 100);
         BackupProgressColumn.SetRole(task, role);

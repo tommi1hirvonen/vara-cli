@@ -93,7 +93,9 @@ public sealed class YamlProfileConfigLoader : IProfileConfigLoader
             throw new ProfileValidationException(name, "missing required field 'target'");
         }
 
-        if (!TryGetChild(mapping, "sources", out var sourcesValue) || sourcesValue is not YamlSequenceNode sourcesNode || sourcesNode.Children.Count == 0)
+        if (!TryGetChild(mapping, "sources", out var sourcesValue) ||
+            sourcesValue is not YamlSequenceNode sourcesNode ||
+            sourcesNode.Children.Count == 0)
         {
             throw new ProfileValidationException(name, "must define at least one source under 'sources'");
         }
@@ -127,7 +129,9 @@ public sealed class YamlProfileConfigLoader : IProfileConfigLoader
         var recursiveText = GetOptionalScalar(mapping, "recursive");
         if (recursiveText is not null && !bool.TryParse(recursiveText, out recursive))
         {
-            throw new ProfileValidationException(profileName, $"source '{path}' has an invalid 'recursive' value '{recursiveText}' (expected true/false)");
+            throw new ProfileValidationException(
+                profileName,
+                $"source '{path}' has an invalid 'recursive' value '{recursiveText}' (expected true/false)");
         }
 
         var excludes = GetOptionalStringList(mapping, profileName, path, "exclude");
@@ -209,12 +213,16 @@ public sealed class YamlProfileConfigLoader : IProfileConfigLoader
 
         if (!int.TryParse(text, out var value))
         {
-            throw new ProfileValidationException(profileName, $"retention field '{key}' has an invalid value '{text}' (expected a non-negative whole number)");
+            throw new ProfileValidationException(
+                profileName,
+                $"retention field '{key}' has an invalid value '{text}' (expected a non-negative whole number)");
         }
 
         if (value < 0)
         {
-            throw new ProfileValidationException(profileName, $"retention field '{key}' has an invalid value '{text}' (expected a non-negative whole number)");
+            throw new ProfileValidationException(
+                profileName,
+                $"retention field '{key}' has an invalid value '{text}' (expected a non-negative whole number)");
         }
 
         return value;
@@ -230,7 +238,9 @@ public sealed class YamlProfileConfigLoader : IProfileConfigLoader
 
         if (!int.TryParse(text, out var value) || value <= 0)
         {
-            throw new ProfileValidationException(profileName, $"concurrency field '{key}' has an invalid value '{text}' (expected a positive whole number)");
+            throw new ProfileValidationException(
+                profileName,
+                $"concurrency field '{key}' has an invalid value '{text}' (expected a positive whole number)");
         }
 
         return value;
@@ -245,7 +255,8 @@ public sealed class YamlProfileConfigLoader : IProfileConfigLoader
 
         if (value is not YamlSequenceNode sequence)
         {
-            throw new ProfileValidationException(profileName, $"source '{sourcePath}' field '{key}' must be a list, but found {DescribeNodeKind(value)}");
+            throw new ProfileValidationException(
+                profileName, $"source '{sourcePath}' field '{key}' must be a list, but found {DescribeNodeKind(value)}");
         }
 
         var result = new List<string>(sequence.Children.Count);
@@ -253,7 +264,10 @@ public sealed class YamlProfileConfigLoader : IProfileConfigLoader
         {
             if (entry is not YamlScalarNode scalar)
             {
-                throw new ProfileValidationException(profileName, $"source '{sourcePath}' field '{key}' contains an entry that is {DescribeNodeKind(entry)} instead of a string");
+                throw new ProfileValidationException(
+                    profileName,
+                    $"source '{sourcePath}' field '{key}' contains an entry that is " +
+                    $"{DescribeNodeKind(entry)} instead of a string");
             }
 
             result.Add(scalar.Value ?? string.Empty);

@@ -37,7 +37,8 @@ public class BackupPlannerTests : IDisposable
         return path;
     }
 
-    private static string HashOf(string content) => new FakeHasher().ComputeHash(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(content)));
+    private static string HashOf(string content) =>
+        new FakeHasher().ComputeHash(new MemoryStream(System.Text.Encoding.UTF8.GetBytes(content)));
 
     private static string HashOf(byte[] content) => new FakeHasher().ComputeHash(new MemoryStream(content));
 
@@ -301,7 +302,9 @@ public class BackupPlannerTests : IDisposable
 
         planner.Plan(diff, currentState);
 
-        Assert.True(hasher.MaxObservedConcurrency > 1, $"expected more than one concurrent hash call by default, observed {hasher.MaxObservedConcurrency}");
+        Assert.True(
+            hasher.MaxObservedConcurrency > 1,
+            $"expected more than one concurrent hash call by default, observed {hasher.MaxObservedConcurrency}");
     }
 
     [Fact]
@@ -341,7 +344,10 @@ public class BackupPlannerTests : IDisposable
         Assert.IsType<AddOperation>(Assert.Single(plan.Operations));
     }
 
-    /// <summary>Wraps <see cref="FakeHasher"/>, recording the byte-length hashed on every call - used to prove exactly how much of a stream was actually read.</summary>
+    /// <summary>
+    /// Wraps <see cref="FakeHasher"/>, recording the byte-length hashed on every call -
+    /// used to prove exactly how much of a stream was actually read.
+    /// </summary>
     private sealed class CountingHasher : IHasher
     {
         private readonly FakeHasher _inner = new();

@@ -24,10 +24,12 @@ public static class ProfileDraftPresenter
         }
 
         console.WriteLine(draft.HasRetention
-            ? $"Retention: keep_daily={draft.KeepDaily}, keep_weekly={draft.KeepWeekly}, keep_monthly={draft.KeepMonthly}, keep_yearly={draft.KeepYearly}"
+            ? $"Retention: keep_daily={draft.KeepDaily}, keep_weekly={draft.KeepWeekly}, " +
+                $"keep_monthly={draft.KeepMonthly}, keep_yearly={draft.KeepYearly}"
             : "Retention: not set");
         console.WriteLine(draft.HasConcurrency
-            ? $"Concurrency: scan_concurrency={FormatOptional(draft.ScanConcurrency)}, transfer_concurrency={FormatOptional(draft.TransferConcurrency)}"
+            ? $"Concurrency: scan_concurrency={FormatOptional(draft.ScanConcurrency)}, " +
+                $"transfer_concurrency={FormatOptional(draft.TransferConcurrency)}"
             : "Concurrency: not set");
 
         if (draft.CurrentError is not null)
@@ -58,7 +60,8 @@ public static class ProfileDraftPresenter
     }
 
     public static string FormatSourceSummary(SourceDraft source) =>
-        $"{FormatOptional(source.Path)} (recursive: {source.Recursive}, exclude: {source.Excludes.Count}, include_globs: {source.IncludeGlobs.Count}, exclude_globs: {source.ExcludeGlobs.Count})";
+        $"{FormatOptional(source.Path)} (recursive: {source.Recursive}, exclude: {source.Excludes.Count}, " +
+        $"include_globs: {source.IncludeGlobs.Count}, exclude_globs: {source.ExcludeGlobs.Count})";
 
     public static string FormatList(IReadOnlyList<string> list) => list.Count == 0 ? "(none)" : string.Join(", ", list);
 

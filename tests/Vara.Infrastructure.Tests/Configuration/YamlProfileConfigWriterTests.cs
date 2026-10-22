@@ -27,7 +27,9 @@ public class YamlProfileConfigWriterTests : IDisposable
             "files",
             @"D:\backup",
             [
-                new Source(@"C:\data", recursive: false, excludes: ["subfolder1\\", "subfolder2\\"], includeGlobs: ["*.txt"], excludeGlobs: ["*.tmp"]),
+                new Source(
+                    @"C:\data", recursive: false,
+                    excludes: ["subfolder1\\", "subfolder2\\"], includeGlobs: ["*.txt"], excludeGlobs: ["*.tmp"]),
                 new Source(@"C:\other-data"),
             ],
             new RetentionPolicy(14, 8, 12, 3),

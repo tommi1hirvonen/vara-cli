@@ -33,7 +33,12 @@ internal readonly record struct DirectoryResolution(string Path, bool FellBackTo
 /// </summary>
 internal static class DirectoryArgumentResolver
 {
-    public static DirectoryResolution Resolve(string mirrorRoot, string rawInput, ISnapshotRepository repository, Func<string, bool> isWithinMirror, string? currentDirectory = null) =>
+    public static DirectoryResolution Resolve(
+        string mirrorRoot,
+        string rawInput,
+        ISnapshotRepository repository,
+        Func<string, bool> isWithinMirror,
+        string? currentDirectory = null) =>
         Resolve(mirrorRoot, rawInput, candidate => DirectoryTracked(repository, candidate), isWithinMirror, currentDirectory);
 
     /// <summary>
@@ -43,7 +48,12 @@ internal static class DirectoryArgumentResolver
     /// <c>SnapshotHistoryService.ListDirectory</c>-based check) can reuse this same `.`/blank
     /// handling without going through <see cref="ISnapshotRepository"/>.
     /// </summary>
-    public static DirectoryResolution Resolve(string mirrorRoot, string rawInput, Func<string, bool> isDirectoryTracked, Func<string, bool> isWithinMirror, string? currentDirectory = null)
+    public static DirectoryResolution Resolve(
+        string mirrorRoot,
+        string rawInput,
+        Func<string, bool> isDirectoryTracked,
+        Func<string, bool> isWithinMirror,
+        string? currentDirectory = null)
     {
         var cwd = currentDirectory ?? Directory.GetCurrentDirectory();
 

@@ -23,13 +23,15 @@ public static class BrowseCommand
         };
         var directoryArgument = new Argument<string>("directory")
         {
-            Description = "The directory to list - a mirror-relative path, an absolute source path, or a path relative to the current directory. Defaults to the mirror root.",
+            Description = "The directory to list - a mirror-relative path, an absolute source path, or " +
+                "a path relative to the current directory. Defaults to the mirror root.",
             Arity = ArgumentArity.ZeroOrOne,
             DefaultValueFactory = _ => ".",
         };
         var atOption = new Option<string?>("--at")
         {
-            Description = "List the directory's contents as of this date/time instead of now (for example, '2025-01-15' or '2025-01-15 14:30')."
+            Description = "List the directory's contents as of this date/time instead of now " +
+                "(for example, '2025-01-15' or '2025-01-15 14:30')."
         };
         var deletedOption = new Option<bool>("--deleted")
         {
@@ -68,7 +70,8 @@ public static class BrowseCommand
 
                 if (resolution.FellBackToMirrorRoot)
                 {
-                    OutcomeStyle.WriteLineNeutral(ansiConsole, "The current directory has no recorded history; showing the mirror root instead.");
+                    OutcomeStyle.WriteLineNeutral(
+                        ansiConsole, "The current directory has no recorded history; showing the mirror root instead.");
                 }
             });
         });

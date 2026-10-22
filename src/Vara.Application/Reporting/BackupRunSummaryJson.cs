@@ -27,7 +27,10 @@ public sealed record BackupRunSummaryJson(
     IReadOnlyList<string> FailedPaths,
     long BytesTransferred);
 
-/// <summary>Maps a completed real run's result, or a dry run's plan summary, to the shared <see cref="BackupRunSummaryJson"/> shape.</summary>
+/// <summary>
+/// Maps a completed real run's result, or a dry run's plan summary, to the shared
+/// <see cref="BackupRunSummaryJson"/> shape.
+/// </summary>
 public static class BackupRunSummaryJsonMapper
 {
     public const string ExecutedMode = "executed";

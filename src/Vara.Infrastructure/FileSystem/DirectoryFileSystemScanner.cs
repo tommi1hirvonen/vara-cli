@@ -103,7 +103,9 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
         catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
         {
             failures.Add(new ScanFailure(
-                Path.GetRelativePath(root, directory), ScanFailureReason.UnreadableDirectory, AbsolutePathMirrorMapper.ToMirrorPath(directory)));
+                Path.GetRelativePath(root, directory),
+                ScanFailureReason.UnreadableDirectory,
+                AbsolutePathMirrorMapper.ToMirrorPath(directory)));
             yield break;
         }
 
@@ -117,7 +119,9 @@ public sealed class DirectoryFileSystemScanner : IFileSystemScanner
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 failures.Add(new ScanFailure(
-                    Path.GetRelativePath(root, entryPath), ScanFailureReason.UnreadableEntry, AbsolutePathMirrorMapper.ToMirrorPath(entryPath)));
+                    Path.GetRelativePath(root, entryPath),
+                    ScanFailureReason.UnreadableEntry,
+                    AbsolutePathMirrorMapper.ToMirrorPath(entryPath)));
                 continue;
             }
 

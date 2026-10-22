@@ -233,7 +233,10 @@ public class RetentionEvaluatorTests
     [Fact]
     public void A_failed_snapshot_not_retained_by_any_tier_is_eligible_for_removal()
     {
-        var snapshots = new List<Snapshot> { new(1, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, SnapshotStatus.Failed, SnapshotStats.Empty) };
+        var snapshots = new List<Snapshot>
+        {
+            new(1, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, SnapshotStatus.Failed, SnapshotStats.Empty)
+        };
         var policy = new RetentionPolicy(0, 0, 0, 0);
 
         var eligible = _evaluator.DetermineEligibleForRemoval(snapshots, policy);

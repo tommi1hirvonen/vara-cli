@@ -110,7 +110,8 @@ public class SnapshotPathResolverTests
     }
 
     [Fact]
-    public void When_isWithinMirror_reports_containment_but_the_literal_prefix_cannot_be_stripped_it_falls_through_to_the_source_path_transform()
+    public void
+        When_isWithinMirror_reports_containment_but_the_literal_prefix_cannot_be_stripped_it_falls_through_to_the_source_path_transform()
     {
         // Simulates the reparse-point case: a fake isWithinMirror reports "yes, contained" for
         // an absolute path that does not share MirrorRoot's literal string prefix at all (as a
@@ -174,7 +175,8 @@ public class SnapshotPathResolverTests
     }
 
     [Fact]
-    public void When_the_working_directory_is_inside_the_mirror_and_the_cwd_relative_candidate_does_not_match_the_literal_input_is_still_used_as_a_fallback()
+    public void
+        When_working_directory_in_mirror_and_cwd_candidate_does_not_match_literal_input_is_still_used_as_fallback()
     {
         var tracked = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { @"C\Users\john\file.txt" };
 

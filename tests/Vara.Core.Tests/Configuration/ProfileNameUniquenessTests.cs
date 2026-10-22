@@ -24,7 +24,7 @@ public class ProfileNameUniquenessTests
     }
 
     [Fact]
-    public void Conflict_when_the_candidate_name_equals_a_different_profiles_name_even_if_it_also_equals_the_replaced_profiles_old_name_coincidentally()
+    public void Conflict_when_candidate_name_coincidentally_equals_a_different_profiles_name_and_the_replaced_profiles_old_name()
     {
         // Two entries share the name "files" (a defensive edge case for the helper itself -
         // the loader never allows this to happen in a real saved file). Excluding the

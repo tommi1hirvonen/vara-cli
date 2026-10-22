@@ -60,7 +60,8 @@ public sealed class BackupPlanner(IHasher hasher, int maxDegreeOfParallelism = 0
                 // path was not already tracked as a link), carrying the superseded
                 // content's hash so the executor can remove it from the mirror - a Link
                 // op otherwise performs no mirror I/O.
-                var previousLinkContentHash = currentState.TryGetValue(link.RelativePath, out var previousLinkState) && !previousLinkState.IsLinked
+                var previousLinkContentHash = currentState.TryGetValue(link.RelativePath, out var previousLinkState) &&
+                    !previousLinkState.IsLinked
                     ? previousLinkState.ContentHash
                     : null;
                 operations.Add(new LinkOperation(link.RelativePath, previousLinkContentHash, link.LinkTarget));
@@ -97,13 +98,15 @@ public sealed class BackupPlanner(IHasher hasher, int maxDegreeOfParallelism = 0
             // restore read-only protection on that superseded blob after the overwrite
             // (protect-hardlinked-mirror-files change's design.md). Add has no previous
             // content at all, so this stays null for it.
-            var previousContentHash = change.Kind == PendingChangeKind.Changed && currentState.TryGetValue(file.RelativePath, out var previousState)
+            var previousContentHash = change.Kind == PendingChangeKind.Changed &&
+                currentState.TryGetValue(file.RelativePath, out var previousState)
                 ? previousState.ContentHash
                 : null;
             operations.Add(change.Kind switch
             {
                 PendingChangeKind.Added => new AddOperation(file.RelativePath, file.AbsolutePath, file.Size, file.ModifiedAt),
-                PendingChangeKind.Changed => new ChangeOperation(file.RelativePath, file.AbsolutePath, file.Size, file.ModifiedAt, previousContentHash),
+                PendingChangeKind.Changed => new ChangeOperation(
+                    file.RelativePath, file.AbsolutePath, file.Size, file.ModifiedAt, previousContentHash),
                 PendingChangeKind.Linked => throw new InvalidOperationException("A linked change must contain a scanned link."),
                 _ => throw new ArgumentOutOfRangeException(nameof(change.Kind), change.Kind, "Unsupported pending change kind."),
             });
@@ -138,7 +141,8 @@ public sealed class BackupPlanner(IHasher hasher, int maxDegreeOfParallelism = 0
     {
         var results = new ConcurrentDictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         var sizeMatchedAdds = pending
-            .Where(change => change.Kind == PendingChangeKind.Added && deletedCandidatesBySize.ContainsKey(GetScannedFile(change.Entry).Size))
+            .Where(change => change.Kind == PendingChangeKind.Added &&
+                deletedCandidatesBySize.ContainsKey(GetScannedFile(change.Entry).Size))
             .ToList();
 
         Parallel.ForEach(

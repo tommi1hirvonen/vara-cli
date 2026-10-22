@@ -275,7 +275,12 @@ public class IntegrityCheckServiceTests
         Assert.Single(result.Missing);
     }
 
-    /// <summary>Test seam: an <see cref="IProgress{T}"/> that synchronously cancels <paramref name="cts"/> the first time <paramref name="shouldCancel"/> matches a reported value - unlike <see cref="Progress{T}"/>, which posts to a captured <see cref="SynchronizationContext"/> and would race the loop under test rather than observably cancelling before its next iteration.</summary>
+    /// <summary>
+    /// Test seam: an <see cref="IProgress{T}"/> that synchronously cancels <paramref name="cts"/> the first time
+    /// <paramref name="shouldCancel"/> matches a reported value - unlike <see cref="Progress{T}"/>, which posts to a
+    /// captured <see cref="SynchronizationContext"/> and would race the loop under test rather than observably cancelling
+    /// before its next iteration.
+    /// </summary>
     private sealed class CancelAfterReport<T>(Func<T, bool> shouldCancel, CancellationTokenSource cts) : IProgress<T>
     {
         public void Report(T value)

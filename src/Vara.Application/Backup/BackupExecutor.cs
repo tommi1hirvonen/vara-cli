@@ -247,7 +247,12 @@ public sealed class BackupExecutor(
         var (sourceAbsolutePath, scannedSize, sourceModifiedAt, previousContentHash, changeKind) = operation switch
         {
             AddOperation add => (add.SourceAbsolutePath, add.Size, add.SourceModifiedAt, null, FileChangeKind.Added),
-            ChangeOperation change => (change.SourceAbsolutePath, change.Size, change.SourceModifiedAt, change.PreviousContentHash, FileChangeKind.Changed),
+            ChangeOperation change => (
+                change.SourceAbsolutePath,
+                change.Size,
+                change.SourceModifiedAt,
+                change.PreviousContentHash,
+                FileChangeKind.Changed),
             MoveOperation => throw new InvalidOperationException("A move operation cannot be executed as a content transfer."),
             DeleteOperation => throw new InvalidOperationException("A delete operation cannot be executed as a content transfer."),
             LinkOperation => throw new InvalidOperationException("A link operation cannot be executed as a content transfer."),

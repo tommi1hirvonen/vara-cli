@@ -220,7 +220,9 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
     /// <exception cref="NoMatchingVersionException">No version of the path existed as of that date.</exception>
     /// <exception cref="RestoreLinkedEntryException">The resolved version is a symlink/junction entry with no stored content.</exception>
     /// <exception cref="RestoreDestinationInMirrorException">The destination resolves inside the profile's live mirror.</exception>
-    /// <exception cref="DestinationExistsException">The destination already exists and <paramref name="overwrite"/> is <c>false</c>.</exception>
+    /// <exception cref="DestinationExistsException">
+    /// The destination already exists and <paramref name="overwrite"/> is <c>false</c>.
+    /// </exception>
     public void RestoreAsOf(
         string relativePath,
         DateTimeOffset asOf,
@@ -260,7 +262,9 @@ public sealed class SnapshotHistoryService(ISnapshotRepository repository, ICont
     /// <exception cref="NoMatchingVersionException">No such version id exists for the path.</exception>
     /// <exception cref="RestoreLinkedEntryException">The resolved version is a symlink/junction entry with no stored content.</exception>
     /// <exception cref="RestoreDestinationInMirrorException">The destination resolves inside the profile's live mirror.</exception>
-    /// <exception cref="DestinationExistsException">The destination already exists and <paramref name="overwrite"/> is <c>false</c>.</exception>
+    /// <exception cref="DestinationExistsException">
+    /// The destination already exists and <paramref name="overwrite"/> is <c>false</c>.
+    /// </exception>
     public void RestoreVersion(
         string relativePath,
         long versionId,

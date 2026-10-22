@@ -52,7 +52,8 @@ public class DeletedReportPresenterTests
         console.Profile.Capabilities.ColorSystem = Spectre.Console.ColorSystem.EightBit;
         var deleted = new[]
         {
-            new FileVersionRecord(1, 1, "a.txt", null, "hash", 10, DateTimeOffset.UnixEpoch, FileChangeKind.Deleted, DateTimeOffset.UnixEpoch),
+            new FileVersionRecord(
+                1, 1, "a.txt", null, "hash", 10, DateTimeOffset.UnixEpoch, FileChangeKind.Deleted, DateTimeOffset.UnixEpoch),
         };
 
         DeletedReportPresenter.Render(console, deleted);
