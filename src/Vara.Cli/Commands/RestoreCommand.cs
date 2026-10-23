@@ -264,14 +264,18 @@ public static class RestoreCommand
 
         void RunRestore(bool overwrite)
         {
-            if (OutputMode.IsLiveCapable(console))
-            {
-                RunWithLiveDisplay(fileVersions, path, version, request.At, effectiveOutPath, overwrite, console);
-            }
-            else
-            {
-                RunWithPlainOutput(fileVersions, path, version, request.At, effectiveOutPath, overwrite, console);
-            }
+            RestoreProgressDisplay.Run(
+                console,
+                width => BuildRestoreTaskLabel(path, width),
+                reporter => RunRestoreOnce(
+                    fileVersions,
+                    path,
+                    version,
+                    request.At,
+                    effectiveOutPath,
+                    overwrite,
+                    reporter.OnBytesCopied,
+                    reporter.OnSizeResolved));
 
             OutcomeStyle.WriteLineSuccess(console, $"Restored '{path}' to '{effectiveOutPath}'.");
         }
@@ -300,63 +304,6 @@ public static class RestoreCommand
         }
     }
 
-    // Interactive path: a single task is created as soon as the version's total size is
-    // known (via RestoreProgressReporter.OnSizeResolved, invoked by FileVersionService
-    // right before extraction begins) so the bar starts immediately at 0% against a known
-    // total - no separate scan/indeterminate phase, per design.md's "no scan/indeterminate
-    // phase is needed" decision. RemainingTimeColumn/TransferSpeedColumn compute ETA/throughput
-    // natively from the task's own Value/MaxValue progression, so no BackupProgressCalculator-
-    // style hand-rolled math is needed for this path.
-    private static void RunWithLiveDisplay(
-        FileVersionService fileVersions,
-        string path,
-        long? version,
-        string? at,
-        string outPath,
-        bool overwrite,
-        IAnsiConsole console)
-    {
-        var displayGate = new ProgressDisplayGate();
-        using var terminalProgress = WindowsTerminalProgress.TryCreate(console);
-
-        console.Progress()
-            .Columns(
-                new TaskDescriptionColumn(),
-                new ProgressBarColumn(),
-                new PercentageColumn(),
-                new RemainingTimeColumn(),
-                new TransferSpeedColumn())
-            .Start(ctx =>
-            {
-                ProgressTask? task = null;
-
-                void Render(BackupProgress admitted)
-                {
-                    var percent = admitted.TotalBytes > 0
-                        ? (double)admitted.BytesTransferred / admitted.TotalBytes * 100
-                        : 100;
-                    terminalProgress?.SetProgress(percent);
-                    task ??= ctx.AddTask(
-                        BuildRestoreTaskLabel(path, console.Profile.Width),
-                        autoStart: true,
-                        maxValue: admitted.TotalBytes);
-                    task.Value = admitted.BytesTransferred;
-                    ctx.Refresh();
-                }
-
-                var reporter = new RestoreProgressReporter(displayGate, Render);
-                RunRestoreOnce(
-                    fileVersions,
-                    path,
-                    version,
-                    at,
-                    outPath,
-                    overwrite,
-                    reporter.OnBytesCopied,
-                    reporter.OnSizeResolved);
-            });
-    }
-
     // Builds the single-file restore live display's task label from the restored path,
     // pre-truncated to a fixed character budget (per RestoreProgressLabelBudget, derived from
     // the terminal's reported width) before Markup.Escape ever sees it - so Spectre's
@@ -378,38 +325,6 @@ public static class RestoreCommand
         var pathBudget = Math.Max(1, budget - prefix.Length - suffix.Length);
         var truncatedPath = PathLabelTruncator.Truncate(path, pathBudget);
         return $"{prefix}{Markup.Escape(truncatedPath)}{suffix}";
-    }
-
-    // Non-interactive/redirected path: plain, uncolored, appended lines with no in-place
-    // redraw, per the cli-presentation delta's "Non-interactive or color-incapable output
-    // falls back to plain text" requirement - analogous to BackupCommand.RunWithPlainOutput.
-    private static void RunWithPlainOutput(
-        FileVersionService fileVersions,
-        string path,
-        long? version,
-        string? at,
-        string outPath,
-        bool overwrite,
-        IAnsiConsole console)
-    {
-        var calculator = new BackupProgressCalculator();
-        var displayGate = new ProgressDisplayGate();
-
-        void Render(BackupProgress admitted)
-        {
-            var snapshot = calculator.Calculate(admitted);
-            var eta = snapshot.EstimatedTimeRemaining is { } remaining
-                ? BackupRunSummaryFormatter.FormatDuration(remaining)
-                : "calculating...";
-            console.WriteLine(
-                $"{BackupRunSummaryFormatter.FormatBytes(snapshot.BytesTransferred)} / " +
-                $"{BackupRunSummaryFormatter.FormatBytes(snapshot.TotalBytes)} " +
-                $"({snapshot.PercentComplete:0.0}%) - " +
-                $"{BackupRunSummaryFormatter.FormatBytes((long)snapshot.ThroughputBytesPerSecond)}/s - ETA {eta}");
-        }
-
-        var reporter = new RestoreProgressReporter(displayGate, Render);
-        RunRestoreOnce(fileVersions, path, version, at, outPath, overwrite, reporter.OnBytesCopied, reporter.OnSizeResolved);
     }
 
     private static void RunRestoreOnce(
@@ -486,9 +401,14 @@ public static class RestoreCommand
 
         RestoreOutcome Execute()
         {
-            var stoppedEarly = OutputMode.IsLiveCapable(console)
-                ? RunDirectoryRestoreWithLiveDisplay(directoryRestore, resolvedPath, plan, console, environment.CancellationToken)
-                : RunDirectoryRestoreWithPlainOutput(directoryRestore, plan, console, environment.CancellationToken);
+            var stoppedEarly = RestoreProgressDisplay.Run(
+                console,
+                width => BuildDirectoryRestoreTaskLabel(resolvedPath, width),
+                reporter => directoryRestore.ExecuteDirectoryRestore(
+                    plan,
+                    reporter.OnBytesCopied,
+                    reporter.OnSizeResolved,
+                    environment.CancellationToken));
 
             if (stoppedEarly)
             {
@@ -652,93 +572,10 @@ public static class RestoreCommand
         }
     }
 
-    // Interactive path for a recursive directory restore: one aggregate task spans the whole
-    // operation - onSizeResolved (invoked once, with the plan's total byte count, before any
-    // file is written) sizes it up front, exactly as the single-file path does, per design.md's
-    // "Progress reporting reuses RestoreProgressReporter unmodified" decision.
-    private static bool RunDirectoryRestoreWithLiveDisplay(
-        DirectoryRestoreService directoryRestore,
-        string directoryPath,
-        DirectoryRestorePlan plan,
-        IAnsiConsole console,
-        CancellationToken cancellationToken)
-    {
-        var displayGate = new ProgressDisplayGate();
-        var stoppedEarly = false;
-        using var terminalProgress = WindowsTerminalProgress.TryCreate(console);
-
-        console.Progress()
-            .Columns(
-                new TaskDescriptionColumn(),
-                new ProgressBarColumn(),
-                new PercentageColumn(),
-                new RemainingTimeColumn(),
-                new TransferSpeedColumn())
-            .Start(ctx =>
-            {
-                ProgressTask? task = null;
-
-                void Render(BackupProgress admitted)
-                {
-                    var percent = admitted.TotalBytes > 0
-                        ? (double)admitted.BytesTransferred / admitted.TotalBytes * 100
-                        : 100;
-                    terminalProgress?.SetProgress(percent);
-                    task ??= ctx.AddTask(
-                        BuildDirectoryRestoreTaskLabel(directoryPath, console.Profile.Width),
-                        autoStart: true,
-                        maxValue: admitted.TotalBytes);
-                    task.Value = admitted.BytesTransferred;
-                    ctx.Refresh();
-                }
-
-                var reporter = new RestoreProgressReporter(displayGate, Render);
-                stoppedEarly = directoryRestore.ExecuteDirectoryRestore(
-                    plan,
-                    reporter.OnBytesCopied,
-                    reporter.OnSizeResolved,
-                    cancellationToken);
-            });
-
-        return stoppedEarly;
-    }
-
     // Recursive-restore counterpart to BuildRestoreTaskLabel, sharing the same truncation and
     // budget logic - only the prefix text ("Restoring directory '" vs "Restoring '") differs.
     internal static string BuildDirectoryRestoreTaskLabel(string directoryPath, int terminalWidth) =>
         BuildRestoreTaskLabel("Restoring directory '", directoryPath, terminalWidth);
-
-    // Non-interactive/redirected path for a recursive directory restore - analogous to
-    // RunWithPlainOutput's single-file equivalent.
-    private static bool RunDirectoryRestoreWithPlainOutput(
-        DirectoryRestoreService directoryRestore,
-        DirectoryRestorePlan plan,
-        IAnsiConsole console,
-        CancellationToken cancellationToken)
-    {
-        var calculator = new BackupProgressCalculator();
-        var displayGate = new ProgressDisplayGate();
-
-        void Render(BackupProgress admitted)
-        {
-            var snapshot = calculator.Calculate(admitted);
-            var eta = snapshot.EstimatedTimeRemaining is { } remaining
-                ? BackupRunSummaryFormatter.FormatDuration(remaining)
-                : "calculating...";
-            console.WriteLine(
-                $"{BackupRunSummaryFormatter.FormatBytes(snapshot.BytesTransferred)} / " +
-                $"{BackupRunSummaryFormatter.FormatBytes(snapshot.TotalBytes)} " +
-                $"({snapshot.PercentComplete:0.0}%) - " +
-                $"{BackupRunSummaryFormatter.FormatBytes((long)snapshot.ThroughputBytesPerSecond)}/s - ETA {eta}");
-        }
-
-        var reporter = new RestoreProgressReporter(displayGate, Render);
-        return directoryRestore.ExecuteDirectoryRestore(
-            plan,
-            reporter.OnBytesCopied,
-            reporter.OnSizeResolved,
-            cancellationToken);
-    }
 }
 
 /// <summary>

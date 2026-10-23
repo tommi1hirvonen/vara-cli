@@ -88,7 +88,8 @@ public class ProfilesCommandTests
         File.WriteAllText(configPath, "profiles: []");
         try
         {
-            var loader = new StubLoaderWithOneProfile();
+            var loader = new StubProfileConfigLoader(
+                [new Profile("files", @"D:\backup", [new Source(@"C:\data")], retention: null)]);
 
             var profiles = ProfilesCommand.LoadProfilesOrEmpty(loader, configPath);
 
@@ -98,14 +99,6 @@ public class ProfilesCommandTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
-    }
-
-    private sealed class StubLoaderWithOneProfile : IProfileConfigLoader
-    {
-        public string DefaultConfigPath => @"C:\fake\.vara\profiles.yml";
-
-        public IReadOnlyList<Profile> LoadProfiles(string configPath) =>
-            [new Profile("files", @"D:\backup", [new Source(@"C:\data")], retention: null)];
     }
 
     [Fact]

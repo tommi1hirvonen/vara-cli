@@ -15,6 +15,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Vara.Cli\Vara.Cli.csproj" />
+    <ProjectReference Include="..\Vara.TestSupport\Vara.TestSupport.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Vara.TestSupport" />
   </ItemGroup>
 
 </Project>

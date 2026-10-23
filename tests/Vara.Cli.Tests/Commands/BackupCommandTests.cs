@@ -81,18 +81,6 @@ public class BackupCommandExitCodeTests : IDisposable
         }
     }
 
-    /// <summary>Fake scanner returning a pre-set, test-controlled list of entries (and,
-    /// optionally, scan failures) regardless of the sources argument - copied from the
-    /// equivalent fake in <c>Vara.Application.Tests</c>/<c>Vara.IntegrationTests</c> per this
-    /// project's convention of duplicating small, drift-risk-free test fakes rather than
-    /// referencing another test project.</summary>
-    private sealed class FakeFileSystemScanner(
-        IReadOnlyList<ScanFailure>? failures = null,
-        IReadOnlyList<ScanItem>? entries = null) : IFileSystemScanner
-    {
-        public ScanResult Scan(IReadOnlyList<Source> sources) => new(entries ?? [], failures ?? []);
-    }
-
     private sealed class BlockingFileSystemScanner : IFileSystemScanner, IDisposable
     {
         public ManualResetEventSlim ScanStarted { get; } = new();
@@ -148,7 +136,7 @@ public class BackupCommandExitCodeTests : IDisposable
     public void A_run_with_one_or_more_failed_paths_returns_exit_code_partial_failure()
     {
         var failure = new ScanFailure(@"D:\missing-drive\app-data", ScanFailureReason.SourceUnavailable, "app-data");
-        var command = CreateCommand(new FakeFileSystemScanner([failure]));
+        var command = CreateCommand(new FakeFileSystemScanner(failures: [failure]));
 
         var exitCode = command.Parse(["test-profile"]).Invoke();
 

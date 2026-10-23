@@ -87,13 +87,11 @@ public static class CheckCommand
         IAnsiConsole console,
         CancellationToken cancellationToken)
     {
-        IntegrityCheckResult result = null!;
         var calculator = new IntegrityCheckProgressCalculator();
-        using var terminalProgress = WindowsTerminalProgress.TryCreate(console);
-        terminalProgress?.SetIndeterminate();
-        console.Progress()
-            .Columns(new TaskDescriptionColumn(), new ProgressBarColumn(), new PercentageColumn())
-            .Start(ctx =>
+        return LiveProgress.Run(
+            console,
+            [new TaskDescriptionColumn(), new ProgressBarColumn(), new PercentageColumn()],
+            (ctx, terminalProgress) =>
             {
                 var task = ctx.AddTask("Enumerating...", autoStart: true);
                 task.IsIndeterminate = true;
@@ -109,22 +107,20 @@ public static class CheckCommand
                     var snapshot = calculator.Calculate(p, quick);
                     terminalProgress?.SetProgress(snapshot.PercentComplete);
                     task.Value = snapshot.PercentComplete;
-                    var eta = snapshot.EstimatedTimeRemaining is { } remaining
-                        ? BackupRunSummaryFormatter.FormatDuration(remaining)
-                        : "calculating...";
-                    task.Description = $"Checking blobs {p.BlobsChecked} / {p.TotalBlobs} - ETA {eta}";
+                    task.Description =
+                        $"Checking blobs {p.BlobsChecked} / {p.TotalBlobs} - ETA {BackupRunSummaryFormatter.FormatEta(snapshot.EstimatedTimeRemaining)}";
                 }
 
                 var progress = new InlineProgress<IntegrityCheckProgress>(Render);
-                result = checkService.Check(quick, progress, cancellationToken);
+                var result = checkService.Check(quick, progress, cancellationToken);
 
                 // Ensures the final count is shown immediately rather than waiting for
                 // the next AutoRefresh timer tick, mirroring PruneCommand's own single
                 // explicit Refresh() after its loop completes.
                 ctx.Refresh();
-            });
-
-        return result;
+                return result;
+            },
+            startIndeterminate: true);
     }
 
     // Non-interactive/redirected path: plain, appended lines with no in-place redraw,
@@ -143,9 +139,7 @@ public static class CheckCommand
         {
             var snapshot = calculator.Calculate(p, quick);
             var percent = snapshot.PercentComplete.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
-            var eta = snapshot.EstimatedTimeRemaining is { } remaining
-                ? BackupRunSummaryFormatter.FormatDuration(remaining)
-                : "calculating...";
+            var eta = BackupRunSummaryFormatter.FormatEta(snapshot.EstimatedTimeRemaining);
             console.WriteLine($"Checked {p.BlobsChecked} of {p.TotalBlobs} blobs ({percent}%) - ETA {eta}.");
         });
 

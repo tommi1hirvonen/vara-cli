@@ -1,7 +1,6 @@
 using Vara.Application.History;
 using Vara.Application.Profiles;
 using Vara.Cli.Composition;
-using Vara.Core.Abstractions;
 using Vara.Core.Configuration;
 
 namespace Vara.Cli.Commands;

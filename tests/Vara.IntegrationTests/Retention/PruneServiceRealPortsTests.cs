@@ -5,7 +5,6 @@ using Vara.Core.Snapshots;
 using Vara.Infrastructure.Hashing;
 using Vara.Infrastructure.Snapshots;
 using Vara.Infrastructure.Storage;
-using Vara.IntegrationTests.Backup;
 using Vara.IntegrationTests.TestSupport;
 using Xunit;
 

@@ -2,7 +2,6 @@ using Microsoft.Data.Sqlite;
 using Vara.Application.Profiles;
 using Vara.Cli.Commands;
 using Vara.Cli.Composition;
-using Vara.Core.Abstractions;
 using Vara.Core.Configuration;
 using Vara.Core.Snapshots;
 using Vara.Infrastructure.Hashing;

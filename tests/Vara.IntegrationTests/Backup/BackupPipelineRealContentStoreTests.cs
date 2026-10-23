@@ -14,7 +14,7 @@ namespace Vara.IntegrationTests.Backup;
 /// Runs <see cref="BackupPipeline"/> against the real <see cref="FileSystemContentStore"/>
 /// (not the in-memory <c>FakeContentStore</c>) specifically to exercise its real streamed
 /// copy+hash path end-to-end - see stream-large-file-transfer-progress change's design.md.
-/// <c>FakeContentStore</c>'s simulated chunking (Vara.Application.Tests/Backup/Fakes.cs) is a
+/// <c>FakeContentStore</c>'s simulated chunking (Vara.TestSupport/Fakes.cs) is a
 /// reasonable stand-in for most tests, but this one needs the production
 /// TeeStream/BufferedStream plumbing itself, not a simulation of it.
 /// </summary>

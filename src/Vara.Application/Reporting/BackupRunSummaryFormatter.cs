@@ -55,4 +55,11 @@ public static class BackupRunSummaryFormatter
         { TotalMinutes: >= 1 } => $"{duration.Minutes}m {duration.Seconds}s",
         _ => $"{duration.TotalSeconds:0.#}s"
     };
+
+    /// <summary>
+    /// A remaining-time estimate for progress lines: the formatted duration, or a
+    /// "calculating..." placeholder while no estimate is available yet.
+    /// </summary>
+    public static string FormatEta(TimeSpan? remaining) =>
+        remaining is { } value ? FormatDuration(value) : "calculating...";
 }

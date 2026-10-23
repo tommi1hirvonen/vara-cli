@@ -134,12 +134,10 @@ public static class PruneCommand
         IReadOnlyList<long>? confirmedSnapshotIds,
         CancellationToken cancellationToken)
     {
-        PruneResult result = null!;
-        using var terminalProgress = WindowsTerminalProgress.TryCreate(console);
-        terminalProgress?.SetIndeterminate();
-        console.Progress()
-            .Columns(new TaskDescriptionColumn(), new ProgressBarColumn())
-            .Start(ctx =>
+        return LiveProgress.Run(
+            console,
+            [new TaskDescriptionColumn(), new ProgressBarColumn()],
+            (ctx, terminalProgress) =>
             {
                 var task = ctx.AddTask("Evaluating...", autoStart: true);
                 task.IsIndeterminate = true;
@@ -158,15 +156,15 @@ public static class PruneCommand
                 }
 
                 var progress = new Progress<PruneProgress>(Render);
-                result = pruneService.Prune(profile, progress, confirmedSnapshotIds, cancellationToken);
+                var result = pruneService.Prune(profile, progress, confirmedSnapshotIds, cancellationToken);
 
                 // Ensures the final count is shown immediately rather than waiting for
                 // the next AutoRefresh timer tick, per design.md's "single explicit
                 // Refresh() after the deletion loop completes" decision.
                 ctx.Refresh();
-            });
-
-        return result;
+                return result;
+            },
+            startIndeterminate: true);
     }
 
     // Non-interactive/redirected path: plain, appended lines with no in-place redraw,

@@ -4,8 +4,6 @@ using Vara.Application.Profiles;
 using Vara.Cli.Commands;
 using Vara.Cli.Composition;
 using IAnsiConsole = Spectre.Console.IAnsiConsole;
-using IAnsiConsoleOutput = Spectre.Console.IAnsiConsoleOutput;
-using Vara.Core.Abstractions;
 using Vara.Core.Configuration;
 using Vara.Core.Snapshots;
 using Vara.Infrastructure.Hashing;

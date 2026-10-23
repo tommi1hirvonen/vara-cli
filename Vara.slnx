@@ -9,4 +9,5 @@
   <Project Path="tests/Vara.Cli.Tests/Vara.Cli.Tests.csproj" />
   <Project Path="tests/Vara.Infrastructure.Tests/Vara.Infrastructure.Tests.csproj" />
   <Project Path="tests/Vara.IntegrationTests/Vara.IntegrationTests.csproj" />
+  <Project Path="tests/Vara.TestSupport/Vara.TestSupport.csproj" />
 </Solution>

@@ -59,4 +59,19 @@ public class BackupRunSummaryFormatterTests
     {
         Assert.Equal(expected, BackupRunSummaryFormatter.FormatBytes(bytes));
     }
+
+    [Fact]
+    public void FormatEta_shows_a_placeholder_until_an_estimate_is_available()
+    {
+        Assert.Equal("calculating...", BackupRunSummaryFormatter.FormatEta(null));
+    }
+
+    [Theory]
+    [InlineData(5, "5s")]
+    [InlineData(75, "1m 15s")]
+    [InlineData(3725, "1h 2m 5s")]
+    public void FormatEta_formats_a_known_estimate_as_a_duration(int seconds, string expected)
+    {
+        Assert.Equal(expected, BackupRunSummaryFormatter.FormatEta(TimeSpan.FromSeconds(seconds)));
+    }
 }

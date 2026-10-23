@@ -230,13 +230,11 @@ public static class BackupCommand
         var calculator = new BackupProgressCalculator();
         var displayGate = new ProgressDisplayGate(renderFileCountAdvancesImmediately: false);
         var column = new BackupProgressColumn(calculator);
-        using var terminalProgress = WindowsTerminalProgress.TryCreate(console);
-        terminalProgress?.SetIndeterminate();
 
-        BackupRunResult result = null!;
-        console.Progress()
-            .Columns(column)
-            .Start(ctx =>
+        return LiveProgress.Run(
+            console,
+            [column],
+            (ctx, terminalProgress) =>
             {
                 var scanTask = ctx.AddTask("Scanning", autoStart: true);
                 scanTask.IsIndeterminate = true;
@@ -355,13 +353,14 @@ public static class BackupCommand
                 // thrown before transfer begins (e.g. during scanning/diffing/planning).
                 try
                 {
-                    result = pipeline.Run(profile, progress, activePathRefresh.Request, cancellationToken);
+                    var result = pipeline.Run(profile, progress, activePathRefresh.Request, cancellationToken);
                     DrainCallbacks();
                     activePathRefresh.ThrowIfFaulted();
                     activePathRefresh.Close();
 
                     var outcome = ResolveOutcome(result);
                     CloseDisplay(outcome);
+                    return result;
                 }
                 catch
                 {
@@ -370,21 +369,18 @@ public static class BackupCommand
                     CloseDisplay(BackupProgressOutcome.Error);
                     throw;
                 }
-            });
-
-        return result;
+            },
+            startIndeterminate: true);
     }
 
     private static BackupPlanSummary RunDryRunWithLiveDisplay(Func<BackupPlanSummary> plan, IAnsiConsole console)
     {
         var column = new BackupProgressColumn(new BackupProgressCalculator());
-        using var terminalProgress = WindowsTerminalProgress.TryCreate(console);
-        terminalProgress?.SetIndeterminate();
-        BackupPlanSummary summary = null!;
 
-        console.Progress()
-            .Columns(column)
-            .Start(ctx =>
+        return LiveProgress.Run(
+            console,
+            [column],
+            (ctx, _) =>
             {
                 var scanTask = ctx.AddTask("Scanning", autoStart: true);
                 scanTask.IsIndeterminate = true;
@@ -393,9 +389,10 @@ public static class BackupCommand
 
                 try
                 {
-                    summary = plan();
+                    var summary = plan();
                     BackupProgressColumn.SetOutcome(scanTask, BackupProgressOutcome.Success);
                     ctx.Refresh();
+                    return summary;
                 }
                 catch
                 {
@@ -403,9 +400,8 @@ public static class BackupCommand
                     ctx.Refresh();
                     throw;
                 }
-            });
-
-        return summary;
+            },
+            startIndeterminate: true);
     }
 
     /// <summary>
@@ -437,9 +433,7 @@ public static class BackupCommand
         void Render(BackupProgress admitted)
         {
             var snapshot = calculator.Calculate(admitted);
-            var eta = snapshot.EstimatedTimeRemaining is { } remaining
-                ? BackupRunSummaryFormatter.FormatDuration(remaining)
-                : "calculating...";
+            var eta = BackupRunSummaryFormatter.FormatEta(snapshot.EstimatedTimeRemaining);
             console.WriteLine(
                 $"{BackupRunSummaryFormatter.FormatBytes(snapshot.BytesTransferred)} / " +
                 $"{BackupRunSummaryFormatter.FormatBytes(snapshot.TotalBytes)} " +

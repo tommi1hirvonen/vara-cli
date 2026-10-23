@@ -1,4 +1,3 @@
-using Spectre.Console;
 using Spectre.Console.Testing;
 using Vara.Cli.Presentation;
 using Xunit;

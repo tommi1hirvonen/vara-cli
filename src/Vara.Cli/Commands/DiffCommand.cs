@@ -6,7 +6,6 @@ using Spectre.Console;
 using Vara.Application.History;
 using Vara.Application.Profiles;
 using Vara.Cli.Composition;
-using Vara.Cli.Presentation;
 
 namespace Vara.Cli.Commands;
 

@@ -9,16 +9,10 @@ public class ProfileResolverTests
 {
     private static Profile Files => new("files", @"D:\backup", [new Source(@"C:\data")], null);
 
-    private sealed class StubConfigLoader(IReadOnlyList<Profile> profiles) : IProfileConfigLoader
-    {
-        public string DefaultConfigPath => @"C:\fake\.vara\profiles.yml";
-        public IReadOnlyList<Profile> LoadProfiles(string configPath) => profiles;
-    }
-
     [Fact]
     public void Resolving_a_known_profile_name_returns_it_case_insensitively()
     {
-        var resolver = new ProfileResolver(new StubConfigLoader([Files]));
+        var resolver = new ProfileResolver(new StubProfileConfigLoader([Files]));
 
         var resolved = resolver.Resolve("FILES");
 
@@ -28,7 +22,7 @@ public class ProfileResolverTests
     [Fact]
     public void Resolving_an_unknown_profile_name_throws()
     {
-        var resolver = new ProfileResolver(new StubConfigLoader([Files]));
+        var resolver = new ProfileResolver(new StubProfileConfigLoader([Files]));
 
         var ex = Assert.Throws<UnknownProfileException>(() => resolver.Resolve("missing"));
         Assert.Equal("missing", ex.ProfileName);
@@ -37,7 +31,7 @@ public class ProfileResolverTests
     [Fact]
     public void ResolveForBrowsing_with_an_explicit_name_resolves_via_config_exactly_as_before()
     {
-        var resolver = new ProfileResolver(new StubConfigLoader([Files]));
+        var resolver = new ProfileResolver(new StubProfileConfigLoader([Files]));
 
         var resolved = resolver.ResolveForBrowsing("FILES");
 
@@ -74,7 +68,7 @@ public class ProfileResolverTests
         var tempRoot = Directory.CreateTempSubdirectory("vara-profile-resolver-tests-");
         try
         {
-            var resolver = new ProfileResolver(new StubConfigLoader([Files]));
+            var resolver = new ProfileResolver(new StubProfileConfigLoader([Files]));
 
             Assert.Throws<ProfileNameRequiredException>(
                 () => resolver.ResolveForBrowsing(null, startDirectory: tempRoot.FullName));

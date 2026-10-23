@@ -3,7 +3,6 @@ using Spectre.Console.Testing;
 using Vara.Application.Profiles;
 using Vara.Cli.Commands;
 using Vara.Cli.Composition;
-using Vara.Core.Abstractions;
 using Vara.Core.Configuration;
 using Vara.Core.FileSystem;
 using Vara.Core.Snapshots;
