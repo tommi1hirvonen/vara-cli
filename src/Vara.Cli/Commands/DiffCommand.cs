@@ -12,12 +12,14 @@ namespace Vara.Cli.Commands;
 
 public static class DiffCommand
 {
-    public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory)
+    public static Command Create(
+        ProfileResolver profileResolver,
+        ProfileServiceFactory serviceFactory,
+        IAnsiConsole? console = null,
+        IAnsiConsole? errorConsole = null)
     {
-        var profileOption = new Option<string?>("--profile")
-        {
-            Description = "The profile to query. Optional when the current directory is inside a profile's target root."
-        };
+        var ansiConsole = console ?? AnsiConsole.Console;
+        var profileOption = CommandOptions.Profile("query");
         var pathArgument = new Argument<string>("path")
         {
             Description = "The file whose versions to diff - a mirror-relative path, an absolute source path, " +
@@ -41,10 +43,7 @@ public static class DiffCommand
         {
             Description = "The later side of the diff: this specific version id."
         };
-        var configOption = new Option<string?>("--config")
-        {
-            Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)."
-        };
+        var configOption = CommandOptions.Config();
 
         var command = new Command("diff", "Show a textual diff between two versions of the same file.")
         {
@@ -62,53 +61,25 @@ public static class DiffCommand
             var rightVersion = parseResult.GetValue(rightVersionOption);
             var configPath = parseResult.GetValue(configOption);
 
-            if (leftAt is null && leftVersion is null)
+            if (CommandValidation.ExactlyOne(
+                    leftAt is not null, leftVersion is not null, "--left-at <date>", "--left-version <id>", errorConsole)
+                is { } invalidLeft)
             {
-                OutcomeStyle.WriteLineError(
-                    StandardError.Console,
-                    "Error: specify either --left-at <date> or --left-version <id>.");
-                return 1;
+                return invalidLeft;
             }
 
-            if (leftAt is not null && leftVersion is not null)
+            if (CommandValidation.ExactlyOne(
+                    rightAt is not null, rightVersion is not null, "--right-at <date>", "--right-version <id>", errorConsole)
+                is { } invalidRight)
             {
-                OutcomeStyle.WriteLineError(
-                    StandardError.Console,
-                    "Error: --left-at and --left-version are mutually exclusive.");
-                return 1;
-            }
-
-            if (rightAt is null && rightVersion is null)
-            {
-                OutcomeStyle.WriteLineError(
-                    StandardError.Console,
-                    "Error: specify either --right-at <date> or --right-version <id>.");
-                return 1;
-            }
-
-            if (rightAt is not null && rightVersion is not null)
-            {
-                OutcomeStyle.WriteLineError(
-                    StandardError.Console,
-                    "Error: --right-at and --right-version are mutually exclusive.");
-                return 1;
+                return invalidRight;
             }
 
             var resultExitCode = ExitCodes.Success;
             var errorExitCode = ErrorReporting.Run(() =>
             {
-                var profile = profileResolver.ResolveForBrowsing(profileName, configPath);
-                using var services = serviceFactory.CreateFor(profile, createIfMissing: false);
-                var history = new SnapshotHistoryService(services.Repository, services.ContentStore);
-
-                var resolvedPath = SnapshotPathResolver.TryResolve(
-                    profile.TargetRoot,
-                    path,
-                    candidate => services.Repository.GetFileHistory(candidate).Count > 0,
-                    services.ContentStore.IsWithinMirror,
-                    out var candidatePath)
-                    ? candidatePath
-                    : path;
+                using var session = HistorySession.Open(profileResolver, serviceFactory, profileName, configPath);
+                var resolvedPath = session.ResolveFilePath(path);
 
                 var leftAsOf = leftAt is null
                     ? (DateTimeOffset?)null
@@ -117,13 +88,14 @@ public static class DiffCommand
                     ? (DateTimeOffset?)null
                     : DateTimeOptionParser.Parse("--right-at", rightAt);
 
-                var result = history.OpenVersionsForDiff(resolvedPath, leftVersion, leftAsOf, rightVersion, rightAsOf);
+                var result = session.History.OpenVersionsForDiff(
+                    resolvedPath, leftVersion, leftAsOf, rightVersion, rightAsOf);
                 resultExitCode = result switch
                 {
-                    DiffStreams streams => RenderDiffStreams(streams),
-                    DiffRefusal refusal => ReportRefusal(refusal),
+                    DiffStreams streams => RenderDiffStreams(streams, ansiConsole),
+                    DiffRefusal refusal => ErrorReporting.Usage(refusal.Message, errorConsole),
                 };
-            });
+            }, errorConsole);
 
             return errorExitCode == ExitCodes.Success ? resultExitCode : errorExitCode;
         });
@@ -131,22 +103,16 @@ public static class DiffCommand
         return command;
     }
 
-    private static int RenderDiffStreams(DiffStreams streams)
+    private static int RenderDiffStreams(DiffStreams streams, IAnsiConsole console)
     {
         using (streams)
         using (var leftReader = new StreamReader(streams.Left, leaveOpen: true))
         using (var rightReader = new StreamReader(streams.Right, leaveOpen: true))
         {
-            RenderDiff(AnsiConsole.Console, leftReader.ReadToEnd(), rightReader.ReadToEnd());
+            RenderDiff(console, leftReader.ReadToEnd(), rightReader.ReadToEnd());
         }
 
         return ExitCodes.Success;
-    }
-
-    private static int ReportRefusal(DiffRefusal refusal)
-    {
-        OutcomeStyle.WriteLineError(StandardError.Console, $"Error: {refusal.Message}");
-        return ExitCodes.HardError;
     }
 
     private static void RenderDiff(IAnsiConsole console, string leftText, string rightText)

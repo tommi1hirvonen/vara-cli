@@ -8,6 +8,38 @@ public class SnapshotPathResolverTests
     private const string MirrorRoot = @"D:\Backups\Profile1";
 
     [Fact]
+    public void A_malformed_path_is_still_matched_when_taken_literally()
+    {
+        var tracked = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "odd\0name.txt" };
+
+        var resolved = SnapshotPathResolver.TryResolve(
+            MirrorRoot,
+            "odd\0name.txt",
+            tracked.Contains,
+            IsWithinMirror,
+            out var resolvedPath,
+            currentDirectory: @"C:\Windows");
+
+        Assert.True(resolved);
+        Assert.Equal("odd\0name.txt", resolvedPath);
+    }
+
+    [Fact]
+    public void A_malformed_path_with_no_literal_match_does_not_resolve_or_throw()
+    {
+        var resolved = SnapshotPathResolver.TryResolve(
+            MirrorRoot,
+            "odd\0name.txt",
+            _ => false,
+            IsWithinMirror,
+            out var resolvedPath,
+            currentDirectory: @"C:\Windows");
+
+        Assert.False(resolved);
+        Assert.Equal(string.Empty, resolvedPath);
+    }
+
+    [Fact]
     public void A_literal_mirror_relative_path_resolves_regardless_of_working_directory()
     {
         var tracked = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { @"C\Users\john\file.txt" };

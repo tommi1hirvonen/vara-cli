@@ -26,14 +26,8 @@ public static class SnapshotCommand
             Arity = ArgumentArity.ZeroOrOne,
             DefaultValueFactory = _ => ".",
         };
-        var profileOption = new Option<string?>("--profile")
-        {
-            Description = "The profile to query. Optional when the current directory is inside a profile's target root."
-        };
-        var configOption = new Option<string?>("--config")
-        {
-            Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)."
-        };
+        var profileOption = CommandOptions.Profile("query");
+        var configOption = CommandOptions.Config();
         var filesOption = new Option<bool>("--files")
         {
             Description = "Show changed file paths and change kinds in the directory tree."
@@ -77,15 +71,10 @@ public static class SnapshotCommand
             var unknownSnapshot = false;
             var exitCode = ErrorReporting.Run(() =>
             {
-                var profile = profileResolver.ResolveForBrowsing(profileName, configPath);
-                using var services = serviceFactory.CreateFor(profile, createIfMissing: false);
-                var resolution = DirectoryArgumentResolver.Resolve(
-                    profile.TargetRoot,
-                    directory,
-                    services.Repository,
-                    services.ContentStore.IsWithinMirror);
-                var history = new SnapshotHistoryService(services.Repository, services.ContentStore);
-                var report = history.GetSnapshotChanges(snapshotId, resolution.Path, includeFiles);
+                using var session = HistorySession.Open(profileResolver, serviceFactory, profileName, configPath);
+                var profile = session.Profile;
+                var resolution = session.ResolveDirectory(directory);
+                var report = session.History.GetSnapshotChanges(snapshotId, resolution.Path, includeFiles);
 
                 if (report is null)
                 {

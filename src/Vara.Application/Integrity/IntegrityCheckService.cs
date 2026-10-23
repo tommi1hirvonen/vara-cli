@@ -118,47 +118,18 @@ public sealed class IntegrityCheckService(ISnapshotRepository repository, IConte
 
             var hash = referencedHashes[i];
             var blobSize = Math.Max(0, referencedSizes[hash]);
-            var blobBytesRead = 0L;
 
             if (!storedHashes.Contains(hash))
             {
                 missing.Add(BuildFinding(hash));
             }
-            else if (!quick)
+            else
             {
-                using var content = contentStore.OpenRead(hash);
-                var lastReportedBytes = 0L;
-                var lastReportedAt = Stopwatch.GetTimestamp();
-                var currentHashElapsed = TimeSpan.Zero;
-                var hashTimer = Stopwatch.StartNew();
-                using var countingContent = new CountingReadStream(content, read =>
-                {
-                    blobBytesRead = SaturatingAdd(blobBytesRead, read);
-                    bytesRead = SaturatingAdd(bytesRead, read);
-
-                    var now = Stopwatch.GetTimestamp();
-                    if (blobBytesRead - lastReportedBytes >= ProgressByteInterval ||
-                        Stopwatch.GetElapsedTime(lastReportedAt, now) >= ProgressTimeInterval)
-                    {
-                        lastReportedBytes = blobBytesRead;
-                        lastReportedAt = now;
-                        currentHashElapsed = hashTimer.Elapsed;
-                        ReportProgress(blobSize, blobBytesRead, currentHashElapsed);
-                    }
-                });
-                var actualHash = hasher.ComputeHash(countingContent);
-                hashTimer.Stop();
-                currentHashElapsed = TimeSpan.Zero;
-                hashingElapsed += hashTimer.Elapsed;
-                if (!string.Equals(actualHash, hash, StringComparison.Ordinal))
+                if (!quick && !ContentMatchesManifest(hash, blobSize))
                 {
                     corrupt.Add(BuildFinding(hash));
                 }
 
-                completedPresentBytes = SaturatingAdd(completedPresentBytes, blobSize);
-            }
-            else
-            {
                 completedPresentBytes = SaturatingAdd(completedPresentBytes, blobSize);
             }
 
@@ -170,6 +141,36 @@ public sealed class IntegrityCheckService(ISnapshotRepository repository, IConte
         var orphaned = storedHashes.Except(referencedHashes).ToList();
 
         return new IntegrityCheckResult(blobsChecked, missing, corrupt, orphaned, Cancelled: cancelled);
+
+        // Re-reads the blob and re-hashes it, reporting throttled byte-level progress while doing so.
+        bool ContentMatchesManifest(string hash, long blobSize)
+        {
+            var blobBytesRead = 0L;
+            using var content = contentStore.OpenRead(hash);
+            var lastReportedBytes = 0L;
+            var lastReportedAt = Stopwatch.GetTimestamp();
+            var currentHashElapsed = TimeSpan.Zero;
+            var hashTimer = Stopwatch.StartNew();
+            using var countingContent = new CountingReadStream(content, read =>
+            {
+                blobBytesRead = SaturatingAdd(blobBytesRead, read);
+                bytesRead = SaturatingAdd(bytesRead, read);
+
+                var now = Stopwatch.GetTimestamp();
+                if (blobBytesRead - lastReportedBytes >= ProgressByteInterval ||
+                    Stopwatch.GetElapsedTime(lastReportedAt, now) >= ProgressTimeInterval)
+                {
+                    lastReportedBytes = blobBytesRead;
+                    lastReportedAt = now;
+                    currentHashElapsed = hashTimer.Elapsed;
+                    ReportProgress(blobSize, blobBytesRead, currentHashElapsed);
+                }
+            });
+            var actualHash = hasher.ComputeHash(countingContent);
+            hashTimer.Stop();
+            hashingElapsed += hashTimer.Elapsed;
+            return string.Equals(actualHash, hash, StringComparison.Ordinal);
+        }
 
         void ReportProgress(long hashSize = 0, long currentBlobBytesRead = 0, TimeSpan currentHashElapsed = default)
         {
@@ -254,10 +255,5 @@ public sealed class IntegrityCheckService(ISnapshotRepository repository, IConte
         public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
         public override void SetLength(long value) => throw new NotSupportedException();
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-
-        protected override void Dispose(bool disposing)
-        {
-            base.Dispose(disposing);
-        }
     }
 }

@@ -1,4 +1,5 @@
 using System.CommandLine;
+using Spectre.Console;
 using Vara.Application.History;
 using Vara.Application.Profiles;
 using Vara.Cli.Composition;
@@ -8,12 +9,19 @@ namespace Vara.Cli.Commands;
 
 public static class ShowCommand
 {
-    public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory)
+    /// <param name="output">Where a version's content is streamed; defaults to standard output.</param>
+    /// <param name="isOutputRedirected">
+    /// Whether standard output is redirected (so binary content may be streamed without
+    /// refusing); defaults to <see cref="Console.IsOutputRedirected"/>.
+    /// </param>
+    public static Command Create(
+        ProfileResolver profileResolver,
+        ProfileServiceFactory serviceFactory,
+        Stream? output = null,
+        Func<bool>? isOutputRedirected = null,
+        IAnsiConsole? errorConsole = null)
     {
-        var profileOption = new Option<string?>("--profile")
-        {
-            Description = "The profile to query. Optional when the current directory is inside a profile's target root."
-        };
+        var profileOption = CommandOptions.Profile("query");
         var pathArgument = new Argument<string>("path")
         {
             Description = "The file whose content to show - a mirror-relative path, an absolute source path, " +
@@ -28,10 +36,7 @@ public static class ShowCommand
         {
             Description = "Show this specific version id (see the 'history' command)."
         };
-        var configOption = new Option<string?>("--config")
-        {
-            Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)."
-        };
+        var configOption = CommandOptions.Config();
         var forceBinaryOption = new Option<bool>("--force-binary")
         {
             Description = "Stream binary content to an interactive terminal instead of refusing it."
@@ -53,52 +58,41 @@ public static class ShowCommand
             var configPath = parseResult.GetValue(configOption);
             var forceBinary = parseResult.GetValue(forceBinaryOption);
 
-            if (at is null && version is null)
+            if (CommandValidation.ExactlyOne(at is not null, version is not null, "--at <date>", "--version <id>", errorConsole)
+                is { } invalid)
             {
-                OutcomeStyle.WriteLineError(
-                    StandardError.Console,
-                    "Error: specify either --at <date> or --version <id>.");
-                return 1;
-            }
-
-            if (at is not null && version is not null)
-            {
-                OutcomeStyle.WriteLineError(
-                    StandardError.Console,
-                    "Error: --at and --version are mutually exclusive.");
-                return 1;
+                return invalid;
             }
 
             var resultExitCode = ExitCodes.Success;
             var errorExitCode = ErrorReporting.Run(() =>
             {
-                var profile = profileResolver.ResolveForBrowsing(profileName, configPath);
-                using var services = serviceFactory.CreateFor(profile, createIfMissing: false);
-                var history = new SnapshotHistoryService(services.Repository, services.ContentStore);
-
-                var resolvedPath = SnapshotPathResolver.TryResolve(
-                    profile.TargetRoot,
-                    path,
-                    candidate => services.Repository.GetFileHistory(candidate).Count > 0,
-                    services.ContentStore.IsWithinMirror,
-                    out var candidatePath)
-                    ? candidatePath
-                    : path;
-
+                using var session = HistorySession.Open(profileResolver, serviceFactory, profileName, configPath);
+                var resolvedPath = session.ResolveFilePath(path);
                 var asOf = at is null ? (DateTimeOffset?)null : DateTimeOptionParser.Parse("--at", at);
 
-                using var stdout = Console.OpenStandardOutput();
-                var result = history.ShowVersion(
-                    resolvedPath,
-                    version,
-                    asOf,
-                    forceBinary: Console.IsOutputRedirected || forceBinary);
-                resultExitCode = result switch
+                var destination = output ?? Console.OpenStandardOutput();
+                try
                 {
-                    Stream stream => WriteVersion(stream, stdout),
-                    ShowRefusal refusal => ReportRefusal(refusal),
-                };
-            });
+                    var result = session.History.ShowVersion(
+                        resolvedPath,
+                        version,
+                        asOf,
+                        forceBinary: (isOutputRedirected?.Invoke() ?? Console.IsOutputRedirected) || forceBinary);
+                    resultExitCode = result switch
+                    {
+                        Stream stream => WriteVersion(stream, destination),
+                        ShowRefusal refusal => ReportRefusal(refusal, errorConsole),
+                    };
+                }
+                finally
+                {
+                    if (output is null)
+                    {
+                        destination.Dispose();
+                    }
+                }
+            }, errorConsole);
 
             return errorExitCode == ExitCodes.Success ? resultExitCode : errorExitCode;
         });
@@ -116,9 +110,6 @@ public static class ShowCommand
         return ExitCodes.Success;
     }
 
-    private static int ReportRefusal(ShowRefusal refusal)
-    {
-        OutcomeStyle.WriteLineError(StandardError.Console, $"Error: {refusal.Message}");
-        return ExitCodes.HardError;
-    }
+    private static int ReportRefusal(ShowRefusal refusal, IAnsiConsole? errorConsole) =>
+        ErrorReporting.Usage(refusal.Message, errorConsole);
 }

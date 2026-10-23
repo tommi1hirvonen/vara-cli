@@ -9,7 +9,11 @@ namespace Vara.Cli.Commands;
 
 public static class BrowseCommand
 {
-    public static Command Create(ProfileResolver profileResolver, ProfileServiceFactory serviceFactory, IAnsiConsole? console = null)
+    public static Command Create(
+        ProfileResolver profileResolver,
+        ProfileServiceFactory serviceFactory,
+        IAnsiConsole? console = null,
+        IAnsiConsole? errorConsole = null)
     {
         // Overridable so tests can assert against an in-memory console instead of the
         // process-wide AnsiConsole.Console static (which would otherwise race other tests'
@@ -17,10 +21,7 @@ public static class BrowseCommand
         // testability seam BackupCommand.Create's own console parameter uses.
         var ansiConsole = console ?? AnsiConsole.Console;
 
-        var profileOption = new Option<string?>("--profile")
-        {
-            Description = "The profile to browse. Optional when the current directory is inside a profile's target root."
-        };
+        var profileOption = CommandOptions.Profile("browse");
         var directoryArgument = new Argument<string>("directory")
         {
             Description = "The directory to list - a mirror-relative path, an absolute source path, or " +
@@ -37,11 +38,7 @@ public static class BrowseCommand
         {
             Description = "Include deleted entries, interleaved among live ones and visually marked."
         };
-        var configOption = new Option<string?>("--config")
-        {
-            Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)."
-        };
-
+        var configOption = CommandOptions.Config();
         var command = new Command("browse", "List the immediate (one-level) contents of a directory within a profile's mirror.")
         {
             directoryArgument, profileOption, atOption, deletedOption, configOption,
@@ -57,15 +54,12 @@ public static class BrowseCommand
 
             return ErrorReporting.Run(() =>
             {
-                var profile = profileResolver.ResolveForBrowsing(profileName, configPath);
-                using var services = serviceFactory.CreateFor(profile, createIfMissing: false);
-                var history = new SnapshotHistoryService(services.Repository, services.ContentStore);
+                using var session = HistorySession.Open(profileResolver, serviceFactory, profileName, configPath);
 
-                var resolution = DirectoryArgumentResolver.Resolve(
-                    profile.TargetRoot, directory, services.Repository, services.ContentStore.IsWithinMirror);
+                var resolution = session.ResolveDirectory(directory);
                 var asOf = at is null ? (DateTimeOffset?)null : DateTimeOptionParser.Parse("--at", at);
 
-                var entries = history.ListDirectory(resolution.Path, asOf, includeDeleted);
+                var entries = session.History.ListDirectory(resolution.Path, asOf, includeDeleted);
                 DirectoryListingPresenter.Render(ansiConsole, entries);
 
                 if (resolution.FellBackToMirrorRoot)
@@ -73,7 +67,7 @@ public static class BrowseCommand
                     OutcomeStyle.WriteLineNeutral(
                         ansiConsole, "The current directory has no recorded history; showing the mirror root instead.");
                 }
-            });
+            }, errorConsole);
         });
 
         return command;

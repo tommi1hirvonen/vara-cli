@@ -40,23 +40,6 @@ public class RestoreCommandTests : IDisposable
     // --at/--version mutual exclusion (like --out/--in-place's existing check) is validated
     // by RestoreCommand.Create's parsed-args handler before profile resolution or service
     // construction is ever reached, so a real profile/hasher is unnecessary for those.
-    private sealed class UnusedProfileConfigLoader : IProfileConfigLoader
-    {
-        public IReadOnlyList<Profile> LoadProfiles(string configPath) => throw new NotSupportedException();
-        public string DefaultConfigPath => throw new NotSupportedException();
-    }
-
-    private sealed class UnusedHasher : IHasher
-    {
-        public string ComputeHash(Stream content) => throw new NotSupportedException();
-    }
-
-    private sealed class SingleProfileConfigLoader(Profile profile) : IProfileConfigLoader
-    {
-        public IReadOnlyList<Profile> LoadProfiles(string configPath) => [profile];
-        public string DefaultConfigPath => "unused";
-    }
-
     private static System.CommandLine.Command CreateCommand() =>
         RestoreCommand.Create(new ProfileResolver(new UnusedProfileConfigLoader()), new ProfileServiceFactory(new UnusedHasher()));
 

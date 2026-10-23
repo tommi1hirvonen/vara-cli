@@ -15,6 +15,13 @@ public class BackupDifferTests
             : ScanItem.File(path, $@"C:\src\{path}", size, modifiedAt);
 
     [Fact]
+    public void An_empty_scan_item_is_rejected()
+    {
+        Assert.Throws<InvalidOperationException>(
+            () => BackupDiffer.Diff([default], new Dictionary<string, CurrentFileState>(), NoFailures));
+    }
+
+    [Fact]
     public void A_path_absent_from_current_state_is_classified_as_added()
     {
         var now = DateTimeOffset.UtcNow;

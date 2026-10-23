@@ -405,7 +405,7 @@ public class BackupProgressColumnTests
     public void Scan_is_replaced_by_bar_and_stats_once_transfer_begins()
     {
         var console = new TestConsole { EmitAnsiSequences = true };
-        console.Profile.Out = new FakeTerminalOutput(console.Profile.Out.Writer);
+        console.Profile.Out = new FakeTerminalOutput(console.Profile.Out.Writer, width: 100);
         console.Profile.Width = 100;
         console.Profile.Capabilities.Interactive = true;
         console.Profile.Capabilities.Ansi = true;
@@ -442,17 +442,5 @@ public class BackupProgressColumnTests
         // The scan row's last appearance precedes the final bar/stats frame, i.e. the
         // scan indicator does not coexist with (or reappear after) the transfer rows.
         Assert.True(lastScanIndex < lastEtaIndex);
-    }
-
-    private sealed class FakeTerminalOutput(TextWriter writer) : IAnsiConsoleOutput
-    {
-        public TextWriter Writer { get; } = writer;
-        public bool IsTerminal => true;
-        public int Width => 100;
-        public int Height => 30;
-
-        public void SetEncoding(System.Text.Encoding encoding)
-        {
-        }
     }
 }

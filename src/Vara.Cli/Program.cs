@@ -1,31 +1,10 @@
-using System.CommandLine;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Vara.Application.Profiles;
-using Vara.Cli.Commands;
 using Vara.Cli.Composition;
-using Vara.Core.Abstractions;
-using Vara.Infrastructure.Configuration;
-using Vara.Infrastructure.FileSystem;
-using Vara.Infrastructure.Hashing;
 
 var builder = Host.CreateApplicationBuilder();
-builder.Services.AddSingleton<IProfileConfigLoader, YamlProfileConfigLoader>();
-builder.Services.AddSingleton<IProfileConfigWriter, YamlProfileConfigWriter>();
-builder.Services.AddSingleton<IHasher, XxHash128Hasher>();
-builder.Services.AddSingleton<IFileSystemScanner, DirectoryFileSystemScanner>();
-builder.Services.AddSingleton<ProfileResolver>();
-builder.Services.AddSingleton<ProfileServiceFactory>();
+builder.Services.AddVaraServices();
 
 using var host = builder.Build();
-var services = host.Services;
-
-var profileResolver = services.GetRequiredService<ProfileResolver>();
-var serviceFactory = services.GetRequiredService<ProfileServiceFactory>();
-var scanner = services.GetRequiredService<IFileSystemScanner>();
-var hasher = services.GetRequiredService<IHasher>();
-var configLoader = services.GetRequiredService<IProfileConfigLoader>();
-var configWriter = services.GetRequiredService<IProfileConfigWriter>();
 
 // Backs each command's "Graceful cancellation via Ctrl+C" requirement: a single Ctrl+C is
 // intercepted (Cancel = true suppresses the OS's default immediate-termination
@@ -39,21 +18,7 @@ var configWriter = services.GetRequiredService<IProfileConfigWriter>();
 var gracefulCancellation = new GracefulCancellation(Environment.Exit);
 Console.CancelKeyPress += (_, e) => e.Cancel = gracefulCancellation.RequestCancellation();
 
-var rootCommand = new RootCommand("Vara - versioned, deduplicated backup tool")
-{
-    BackupCommand.Create(profileResolver, serviceFactory, scanner, hasher, cancellationToken: gracefulCancellation.TokenSource.Token),
-    SnapshotsCommand.Create(profileResolver, serviceFactory),
-    SnapshotCommand.Create(profileResolver, serviceFactory),
-    HistoryCommand.Create(profileResolver, serviceFactory),
-    RestoreCommand.Create(profileResolver, serviceFactory, gracefulCancellation.TokenSource.Token),
-    BrowseCommand.Create(profileResolver, serviceFactory),
-    DeletedCommand.Create(profileResolver, serviceFactory),
-    ShowCommand.Create(profileResolver, serviceFactory),
-    DiffCommand.Create(profileResolver, serviceFactory),
-    PruneCommand.Create(profileResolver, serviceFactory, gracefulCancellation.TokenSource.Token),
-    CheckCommand.Create(profileResolver, serviceFactory, hasher, cancellationToken: gracefulCancellation.TokenSource.Token),
-    ProfilesCommand.Create(configLoader, configWriter, gracefulCancellation.TokenSource.Token),
-};
+var rootCommand = CommandLineComposition.CreateRootCommand(host.Services, gracefulCancellation.TokenSource.Token);
 
 var parseResult = rootCommand.Parse(args);
 return parseResult.Invoke();

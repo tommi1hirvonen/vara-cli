@@ -22,10 +22,7 @@ public static class CheckCommand
         {
             Description = "The profile to check."
         };
-        var configOption = new Option<string?>("--config")
-        {
-            Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)."
-        };
+        var configOption = CommandOptions.Config();
         var quickOption = new Option<bool>("--quick")
         {
             Description = "Only check that each referenced blob is physically present in the store, " +

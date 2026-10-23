@@ -81,12 +81,6 @@ public class BackupCommandExitCodeTests : IDisposable
         }
     }
 
-    private sealed class SingleProfileConfigLoader(Vara.Core.Configuration.Profile profile) : IProfileConfigLoader
-    {
-        public IReadOnlyList<Vara.Core.Configuration.Profile> LoadProfiles(string configPath) => [profile];
-        public string DefaultConfigPath => "unused";
-    }
-
     /// <summary>Fake scanner returning a pre-set, test-controlled list of entries (and,
     /// optionally, scan failures) regardless of the sources argument - copied from the
     /// equivalent fake in <c>Vara.Application.Tests</c>/<c>Vara.IntegrationTests</c> per this
@@ -455,17 +449,5 @@ public class BackupCommandExitCodeTests : IDisposable
     private sealed class ThrowingFileSystemScanner : IFileSystemScanner
     {
         public ScanResult Scan(IReadOnlyList<Source> sources) => throw new InvalidOperationException("scan failed");
-    }
-
-    private sealed class FakeTerminalOutput(TextWriter writer) : IAnsiConsoleOutput
-    {
-        public TextWriter Writer { get; } = writer;
-        public bool IsTerminal => true;
-        public int Width => 120;
-        public int Height => 30;
-
-        public void SetEncoding(System.Text.Encoding encoding)
-        {
-        }
     }
 }

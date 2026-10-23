@@ -35,12 +35,6 @@ public class CheckCommandTests : IDisposable
         }
     }
 
-    private sealed class SingleProfileConfigLoader(Profile profile) : IProfileConfigLoader
-    {
-        public IReadOnlyList<Profile> LoadProfiles(string configPath) => [profile];
-        public string DefaultConfigPath => "unused";
-    }
-
     private System.CommandLine.Command CreateCommand(CancellationToken cancellationToken = default, IAnsiConsole? console = null)
     {
         var profile = new Profile("test-profile", _targetRoot, [new Source(_sourceRoot)], null);
@@ -232,25 +226,5 @@ public class CheckCommandTests : IDisposable
         Assert.NotEqual(0, exitCode);
     }
 
-    private sealed class FakeTerminalOutput(TextWriter writer) : IAnsiConsoleOutput
-    {
-        public TextWriter Writer { get; } = writer;
-        public bool IsTerminal => true;
-        public int Width => 120;
-        public int Height => 30;
-
-        public void SetEncoding(System.Text.Encoding encoding)
-        {
-        }
-    }
-
-    private static TestConsole CreateLiveConsole()
-    {
-        var console = new TestConsole { EmitAnsiSequences = true };
-        console.Profile.Out = new FakeTerminalOutput(console.Profile.Out.Writer);
-        console.Profile.Capabilities.Ansi = true;
-        console.Profile.Capabilities.Interactive = true;
-        console.Profile.Width = 120;
-        return console;
-    }
+    private static TestConsole CreateLiveConsole() => TestConsoles.CreateLive();
 }

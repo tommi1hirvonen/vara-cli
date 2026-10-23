@@ -13,14 +13,11 @@ namespace Vara.Cli.Tests.Commands;
 
 /// <summary>
 /// Exercises <see cref="PruneCommand"/>'s wiring against a real profile-scoped repository
-/// (via the real <see cref="ProfileServiceFactory"/>), covering the paths reachable without
-/// an interactive console: the confirmation prompt itself (<c>StandardError.Console.Confirm</c>)
-/// is not injectable, and this test host's <c>Console.IsInputRedirected</c> is always
-/// <see langword="true"/> (as in CI), so the interactive-confirm branch can't be driven from
-/// an in-process test here - that scenario (the confirmed snapshot id list being honored, even
-/// as the live-eligible set changes concurrently) is instead covered directly at the
-/// <c>PruneService</c> level (see <c>PruneServiceTests</c>'s <c>Prune_with_confirmed_ids_*</c>
-/// cases), and manually per this change's tasks.md.
+/// (via the real <see cref="ProfileServiceFactory"/>), covering the paths reachable with the
+/// real, redirected process streams: this test host's <c>Console.IsInputRedirected</c> is
+/// always <see langword="true"/> (as in CI). The interactive paths - the confirmation prompt,
+/// live progress display - are driven through the command's injectable consoles and input flag
+/// in <c>PruneCommandInteractiveTests</c>.
 /// </summary>
 public class PruneCommandTests : IDisposable
 {
@@ -34,12 +31,6 @@ public class PruneCommandTests : IDisposable
         {
             Directory.Delete(_targetRoot, recursive: true);
         }
-    }
-
-    private sealed class SingleProfileConfigLoader(Profile profile) : IProfileConfigLoader
-    {
-        public IReadOnlyList<Profile> LoadProfiles(string configPath) => [profile];
-        public string DefaultConfigPath => "unused";
     }
 
     private System.CommandLine.Command CreateCommand(RetentionPolicy? retention, CancellationToken cancellationToken = default)

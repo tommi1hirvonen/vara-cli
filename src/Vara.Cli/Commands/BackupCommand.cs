@@ -55,10 +55,7 @@ public static class BackupCommand
         {
             Description = "The profile to back up."
         };
-        var configOption = new Option<string?>("--config")
-        {
-            Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)."
-        };
+        var configOption = CommandOptions.Config();
         var dryRunOption = new Option<bool>("--dry-run")
         {
             Description = "Preview the planned added/changed/moved/deleted changes " +

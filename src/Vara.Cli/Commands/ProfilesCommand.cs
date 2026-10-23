@@ -20,12 +20,15 @@ public static class ProfilesCommand
     public static Command Create(
         IProfileConfigLoader configLoader,
         IProfileConfigWriter configWriter,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IAnsiConsole? console = null,
+        IAnsiConsole? errorConsole = null,
+        Func<bool>? isInputRedirected = null)
     {
-        var configOption = new Option<string?>("--config")
-        {
-            Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)."
-        };
+        var ansiConsole = console ?? AnsiConsole.Console;
+        var errorAnsiConsole = errorConsole ?? StandardError.Console;
+        var inputRedirected = isInputRedirected ?? (() => Console.IsInputRedirected);
+        var configOption = CommandOptions.Config();
         var command = new Command("profiles", "Interactively create, edit, and delete backup profiles.")
         {
             configOption
@@ -42,15 +45,12 @@ public static class ProfilesCommand
             // out of) - see design.md's "Command/presentation shape" decision. Checked
             // before any prompt is shown, so a redirected session fails cleanly with no
             // half-rendered prompt and no file change.
-            if (Console.IsInputRedirected || !OutputMode.IsLiveCapable(AnsiConsole.Console))
+            if (inputRedirected() || !OutputMode.IsLiveCapable(ansiConsole))
             {
-                OutcomeStyle.WriteLineError(
-                    StandardError.Console,
-                    "Error: 'profiles' requires an interactive terminal.");
-                return 1;
+                return ErrorReporting.Usage("'profiles' requires an interactive terminal.", errorAnsiConsole);
             }
 
-            var console = AnsiConsole.Console;
+            var terminal = ansiConsole;
 
             // A single Ctrl+C exits this command promptly. The cleanup callback ensures
             // that the alternate screen buffer is exited and cursor restored before process
@@ -58,21 +58,21 @@ public static class ProfilesCommand
             using var cancellationRegistration = RegisterCancellationExit(
                 cancellationToken,
                 Environment.Exit,
-                () => RestorePrimaryScreenBuffer(console));
+                () => RestorePrimaryScreenBuffer(terminal));
 
             string? lastSavedProfile = null;
 
             var exitCode = ErrorReporting.Run(() =>
             {
-                console.AlternateScreen(() =>
+                terminal.AlternateScreen(() =>
                 {
-                    lastSavedProfile = RunMenu(console, configLoader, configWriter, configPath);
+                    lastSavedProfile = RunMenu(terminal, configLoader, configWriter, configPath);
                 });
-            });
+            }, errorAnsiConsole);
 
             if (exitCode == ExitCodes.Success && lastSavedProfile is not null)
             {
-                OutcomeStyle.WriteLineSuccess(console, $"Saved profile '{lastSavedProfile}'.");
+                OutcomeStyle.WriteLineSuccess(terminal, $"Saved profile '{lastSavedProfile}'.");
             }
 
             return exitCode;
@@ -540,7 +540,11 @@ public static class ProfilesCommand
 
     // ---- Source sub-editor ----
 
-    private sealed record SourceRow(int Index, string Label);
+    private closed record SourcesMenuItem(string Label);
+
+    private sealed record ExistingSourceItem(SourceDraft Source, string Label) : SourcesMenuItem(Label);
+    private sealed record AddSourceItem() : SourcesMenuItem("Add source");
+    private sealed record BackItem() : SourcesMenuItem("Back");
 
     private static void RunSourcesScreen(IAnsiConsole console, ProfileDraft draft, List<Profile> profiles)
     {
@@ -548,35 +552,35 @@ public static class ProfilesCommand
         {
             console.Clear();
 
-            var rows = new List<SourceRow>();
+            var rows = new List<SourcesMenuItem>();
             for (var i = 0; i < draft.Sources.Count; i++)
             {
-                rows.Add(new SourceRow(
-                    i,
+                rows.Add(new ExistingSourceItem(
+                    draft.Sources[i],
                     $"{i + 1}. {Markup.Escape(ProfileDraftPresenter.FormatSourceSummary(draft.Sources[i]))}"));
             }
 
-            rows.Add(new SourceRow(-1, "Add source"));
-            rows.Add(new SourceRow(-2, "Back"));
+            rows.Add(new AddSourceItem());
+            rows.Add(new BackItem());
 
-            var selected = console.Prompt(new SelectionPrompt<SourceRow>()
+            var selected = console.Prompt(new SelectionPrompt<SourcesMenuItem>()
                 .Title("Sources:")
                 .PageSize(15)
                 .UseConverter(r => r.Label)
                 .AddChoices(rows));
 
-            switch (selected.Index)
+            switch (selected)
             {
-                case -2:
+                case BackItem:
                     return;
-                case -1:
+                case AddSourceItem:
                     var newSource = new SourceDraft();
                     draft.Sources.Add(newSource);
                     draft.Revalidate(profiles);
                     EditSource(console, draft, newSource, profiles);
                     break;
-                default:
-                    EditSource(console, draft, draft.Sources[selected.Index], profiles);
+                case ExistingSourceItem existing:
+                    EditSource(console, draft, existing.Source, profiles);
                     break;
             }
         }
@@ -691,7 +695,7 @@ public static class ProfilesCommand
                         break;
                     }
 
-                    var indexedRows = list.Select((value, i) => $"{i + 1}. {value}").ToList();
+                    var indexedRows = list.Select((value, i) => $"{i + 1}. {Markup.Escape(value)}").ToList();
                     var toRemove = console.Prompt(
                         new SelectionPrompt<string>()
                             .Title("Remove which entry?")

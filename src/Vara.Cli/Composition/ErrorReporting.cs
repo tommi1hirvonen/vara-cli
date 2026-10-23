@@ -11,6 +11,16 @@ namespace Vara.Cli.Composition;
 /// </summary>
 public static class ErrorReporting
 {
+    /// <summary>
+    /// Reports a command-line usage error (an invalid option combination detected before any
+    /// work starts) in the hard-error style and returns <see cref="ExitCodes.HardError"/>.
+    /// </summary>
+    public static int Usage(string message, IAnsiConsole? errorConsole = null)
+    {
+        OutcomeStyle.WriteLineError(errorConsole ?? StandardError.Console, $"Error: {message}");
+        return ExitCodes.HardError;
+    }
+
     /// <param name="errorConsole">
     /// The console an error message is written to; defaults to <see cref="StandardError.Console"/>
     /// (real standard error). Overridable so tests can assert against a

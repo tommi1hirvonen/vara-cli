@@ -13,13 +13,17 @@ public static class PruneCommand
     public static Command Create(
         ProfileResolver profileResolver,
         ProfileServiceFactory serviceFactory,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IAnsiConsole? console = null,
+        IAnsiConsole? errorConsole = null,
+        Func<bool>? isInputRedirected = null)
     {
+        var ansiConsole = console ?? AnsiConsole.Console;
+        var errorAnsiConsole = errorConsole ?? StandardError.Console;
+        var inputRedirected = isInputRedirected ?? (() => Console.IsInputRedirected);
+
         var profileArgument = new Argument<string>("profile") { Description = "The profile to prune." };
-        var configOption = new Option<string?>("--config")
-        {
-            Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)."
-        };
+        var configOption = CommandOptions.Config();
         var yesOption = new Option<bool>("--yes", "-y")
         {
             Description = "Confirm the run without prompting, even if snapshots are eligible for removal."
@@ -48,11 +52,10 @@ public static class PruneCommand
 
                 void RunPrune(IReadOnlyList<long>? confirmedSnapshotIds)
                 {
-                    var console = AnsiConsole.Console;
-                    var result = OutputMode.IsLiveCapable(console)
-                        ? RunWithLiveDisplay(pruneService, profile, console, confirmedSnapshotIds, cancellationToken)
-                        : RunWithPlainOutput(pruneService, profile, console, confirmedSnapshotIds, cancellationToken);
-                    PruneOutcomeReporter.Report(console, result);
+                    var result = OutputMode.IsLiveCapable(ansiConsole)
+                        ? RunWithLiveDisplay(pruneService, profile, ansiConsole, confirmedSnapshotIds, cancellationToken)
+                        : RunWithPlainOutput(pruneService, profile, ansiConsole, confirmedSnapshotIds, cancellationToken);
+                    PruneOutcomeReporter.Report(ansiConsole, result);
                     gracefullyCancelled = result.Cancelled;
                 }
 
@@ -66,7 +69,7 @@ public static class PruneCommand
                     return;
                 }
 
-                if (Console.IsInputRedirected)
+                if (inputRedirected())
                 {
                     // Non-interactive session, no --yes: refuse rather than silently
                     // deleting data or silently doing nothing. Reported as a normal
@@ -76,7 +79,7 @@ public static class PruneCommand
 
                 // Interactive session, no --yes: ask before pruning. The prompt goes to
                 // stderr so it's still visible even if stdout is redirected.
-                var confirmed = StandardError.Console.Confirm(
+                var confirmed = errorAnsiConsole.Confirm(
                     $"This will permanently remove {eligibleIds.Count} snapshot(s) and any content no longer " +
                     "referenced. Continue?",
                     defaultValue: false);
@@ -91,12 +94,12 @@ public static class PruneCommand
                 {
                     cancelled = true;
                 }
-            });
+            }, errorAnsiConsole);
 
             if (cancelled)
             {
-                OutcomeStyle.WriteLineNeutral(AnsiConsole.Console, "Prune cancelled: no snapshots removed.");
-                return 0;
+                OutcomeStyle.WriteLineNeutral(ansiConsole, "Prune cancelled: no snapshots removed.");
+                return ExitCodes.Success;
             }
 
             // A gracefully cancelled run (via Ctrl+C, mid-run) reuses the same partial-failure

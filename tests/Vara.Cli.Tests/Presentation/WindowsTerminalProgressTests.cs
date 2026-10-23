@@ -67,16 +67,4 @@ public class WindowsTerminalProgressTests
         console.Profile.Out = new FakeTerminalOutput(console.Profile.Out.Writer);
         return console;
     }
-
-    private sealed class FakeTerminalOutput(TextWriter writer) : IAnsiConsoleOutput
-    {
-        public TextWriter Writer { get; } = writer;
-        public bool IsTerminal => true;
-        public int Width => 120;
-        public int Height => 30;
-
-        public void SetEncoding(System.Text.Encoding encoding)
-        {
-        }
-    }
 }

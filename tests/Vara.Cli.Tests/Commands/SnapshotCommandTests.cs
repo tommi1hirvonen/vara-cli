@@ -28,12 +28,6 @@ public class SnapshotCommandTests : IDisposable
         }
     }
 
-    private sealed class SingleProfileConfigLoader(Profile profile) : IProfileConfigLoader
-    {
-        public IReadOnlyList<Profile> LoadProfiles(string configPath) => [profile];
-        public string DefaultConfigPath => "unused";
-    }
-
     private (System.CommandLine.Command Command, TestConsole Console) CreateCommand()
     {
         var profile = new Profile("test-profile", _targetRoot, [new Source(_sourceRoot)], null);

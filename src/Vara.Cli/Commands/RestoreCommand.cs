@@ -13,23 +13,32 @@ namespace Vara.Cli.Commands;
 
 public static class RestoreCommand
 {
+    /// <param name="console">Where results and progress are written; defaults to the ambient console.</param>
+    /// <param name="errorConsole">
+    /// Where errors and interactive prompts are written; defaults to standard error, so they
+    /// stay visible when standard output is redirected.
+    /// </param>
+    /// <param name="isInputRedirected">
+    /// Whether standard input is redirected (so no prompt can be answered); defaults to
+    /// <see cref="Console.IsInputRedirected"/>.
+    /// </param>
     public static Command Create(
         ProfileResolver profileResolver,
         ProfileServiceFactory serviceFactory,
         CancellationToken cancellationToken = default,
-        IAnsiConsole? console = null)
+        IAnsiConsole? console = null,
+        IAnsiConsole? errorConsole = null,
+        Func<bool>? isInputRedirected = null)
     {
         // Overridable so tests can assert against an in-memory console instead of the
         // process-wide AnsiConsole.Console static (which would otherwise race other tests'
         // console output under the test suite's default parallelization) - the same
         // testability seam BackupCommand.Create's own console parameter uses.
         var ansiConsole = console ?? AnsiConsole.Console;
+        var errorAnsiConsole = errorConsole ?? StandardError.Console;
+        var inputRedirected = isInputRedirected ?? (() => Console.IsInputRedirected);
 
-        var profileOption = new Option<string?>("--profile")
-        {
-            Description = "The profile to restore from. Optional when the current directory is inside a " +
-                "profile's target root."
-        };
+        var profileOption = CommandOptions.Profile("restore from");
         var pathArgument = new Argument<string>("path")
         {
             Description = "The file (or, with --recursive, directory) to restore - a mirror-relative path, " +
@@ -58,10 +67,7 @@ public static class RestoreCommand
                 "is given in an interactive session, a version picker is shown instead. Mutually exclusive with " +
                 "--recursive."
         };
-        var configOption = new Option<string?>("--config")
-        {
-            Description = "Path to the profiles configuration file (default: ~/.vara/profiles.yml)."
-        };
+        var configOption = CommandOptions.Config();
         var forceOption = new Option<bool>("--force")
         {
             Description = "Skip the overwrite confirmation (single-file restore) or the single directory-restore " +
@@ -100,48 +106,26 @@ public static class RestoreCommand
             var recursive = parseResult.GetValue(recursiveOption);
             var snapshotId = parseResult.GetValue(snapshotOption);
 
-            if (outPath is not null && inPlace)
+            if (CommandValidation.ExactlyOne(outPath is not null, inPlace, "--out <path>", "--in-place", errorAnsiConsole)
+                    is { } outTargetInvalid)
             {
-                OutcomeStyle.WriteLineError(
-                    StandardError.Console,
-                    "Error: --out and --in-place are mutually exclusive.");
-                return 1;
+                return outTargetInvalid;
             }
 
-            if (outPath is null && !inPlace)
+            var optionConflict =
+                CommandValidation.MutuallyExclusive(recursive, version is not null, "--recursive", "--version", errorAnsiConsole)
+                ?? CommandValidation.MutuallyExclusive(at is not null, version is not null, "--at", "--version", errorAnsiConsole)
+                ?? CommandValidation.MutuallyExclusive(snapshotId is not null, at is not null, "--snapshot", "--at", errorAnsiConsole);
+            if (optionConflict is { } conflict)
             {
-                OutcomeStyle.WriteLineError(StandardError.Console, "Error: specify either --out <path> or --in-place.");
-                return 1;
-            }
-
-            if (recursive && version is not null)
-            {
-                OutcomeStyle.WriteLineError(
-                    StandardError.Console,
-                    "Error: --recursive and --version are mutually exclusive.");
-                return 1;
-            }
-
-            if (at is not null && version is not null)
-            {
-                OutcomeStyle.WriteLineError(StandardError.Console, "Error: --at and --version are mutually exclusive.");
-                return 1;
-            }
-
-            if (snapshotId is not null && at is not null)
-            {
-                OutcomeStyle.WriteLineError(
-                    StandardError.Console,
-                    "Error: --snapshot and --at are mutually exclusive.");
-                return 1;
+                return conflict;
             }
 
             if (snapshotId is not null && !recursive)
             {
-                OutcomeStyle.WriteLineError(
-                    StandardError.Console,
-                    "Error: --snapshot only applies to a recursive directory restore (--recursive).");
-                return 1;
+                return ErrorReporting.Usage(
+                    "--snapshot only applies to a recursive directory restore (--recursive).",
+                    errorAnsiConsole);
             }
 
             // Whether an interactive picker can be shown when neither --at nor --version (for
@@ -154,152 +138,37 @@ public static class RestoreCommand
             // a "current tracked state" entry instead, since a directory has no single
             // per-file version history to pick from.
             var console = ansiConsole;
-            var canPromptForVersion = !Console.IsInputRedirected && OutputMode.IsLiveCapable(console);
+            var canPromptForVersion = !inputRedirected() && OutputMode.IsLiveCapable(console);
 
             if (!recursive && at is null && version is null && !canPromptForVersion)
             {
-                OutcomeStyle.WriteLineError(
-                    StandardError.Console,
-                    "Error: specify either --at <date> or --version <id>.");
-                return 1;
+                return ErrorReporting.Usage("specify either --at <date> or --version <id>.", errorAnsiConsole);
             }
 
-            var cancelled = false;
-            var gracefullyCancelled = false;
+            var request = new RestoreRequest(path, at, version, snapshotId, outPath, inPlace, force);
+            var environment = new RestoreEnvironment(
+                console, errorAnsiConsole, inputRedirected, canPromptForVersion, cancellationToken);
+            var outcome = RestoreOutcome.Completed;
 
             var exitCode = ErrorReporting.Run(() =>
             {
-                var profile = profileResolver.ResolveForBrowsing(profileName, configPath);
-                using var services = serviceFactory.CreateFor(profile, createIfMissing: false);
-                var history = new SnapshotHistoryService(services.Repository, services.ContentStore);
+                using var session = HistorySession.Open(profileResolver, serviceFactory, profileName, configPath);
+                outcome = recursive
+                    ? RunRecursiveRestore(session, request, environment)
+                    : RunSingleFileRestore(session, request, environment);
+            }, errorAnsiConsole);
 
-                if (recursive)
-                {
-                    RunRecursiveRestore(
-                        history,
-                        profile.TargetRoot,
-                        path,
-                        at,
-                        snapshotId,
-                        outPath,
-                        inPlace,
-                        force,
-                        console,
-                        services.ContentStore.IsWithinMirror,
-                        canPromptForVersion,
-                        cancellationToken,
-                        ref cancelled,
-                        ref gracefullyCancelled);
-                    return;
-                }
-
-                var fileResolved = SnapshotPathResolver.TryResolve(
-                    profile.TargetRoot,
-                    path,
-                    candidate => services.Repository.GetFileHistory(candidate).Count > 0,
-                    services.ContentStore.IsWithinMirror,
-                    out var resolvedPath);
-                path = fileResolved ? resolvedPath : path;
-
-                // No candidate matched a tracked file - before falling through to the
-                // file-history lookups below (which would raise the generic
-                // NoHistoryForPathException), re-run the same flexible-path resolution order
-                // with a "is this a tracked directory" predicate instead, so a directory that
-                // just needs --recursive gets its own actionable error instead of being
-                // conflated with "never tracked at all".
-                if (!fileResolved && SnapshotPathResolver.TryResolve(
-                        profile.TargetRoot,
-                        path,
-                        candidate => IsDirectoryTracked(history, candidate),
-                        services.ContentStore.IsWithinMirror,
-                        out var resolvedDirectoryPath))
-                {
-                    throw new RestoreTargetIsDirectoryException(resolvedDirectoryPath);
-                }
-
-                if (at is null && version is null)
-                {
-                    // Neither given, but canPromptForVersion is true (checked above) -
-                                    // present the path's recorded versions as a selectable list per the
-                                    // snapshot-history delta's "Interactive version selection when
-                                    // restoring" requirement, reusing HistoryTablePresenter's per-row
-                                    // formatting for the prompt's choice labels. A Linked version has no
-                                    // stored content to restore, so it's excluded alongside Deleted.
-                    var selectable = SelectableVersionsForInteractivePicker(history.GetFileHistory(path));
-
-                    if (selectable.Count == 0)
-                    {
-                        throw new NoHistoryForPathException(path);
-                    }
-
-                    var selected = StandardError.Console.Prompt(
-                        new SelectionPrompt<FileVersionRecord>()
-                            .Title("Select a version to restore:")
-                            .PageSize(10)
-                            .UseConverter(v =>
-                                $"#{v.Id} - {v.RecordedAt:yyyy-MM-dd HH:mm:ss zzz} - {v.ChangeKind} - " +
-                                $"{BackupRunSummaryFormatter.FormatBytes(v.Size)}")
-                            .AddChoices(selectable));
-                    version = selected.Id;
-                }
-
-                var effectiveOutPath = inPlace
-                    ? AbsolutePathMirrorMapper.FromMirrorPath(path)
-                    : outPath!;
-
-                void RunRestore(bool overwrite)
-                {
-                    if (OutputMode.IsLiveCapable(console))
-                    {
-                        RunWithLiveDisplay(history, path, version, at, effectiveOutPath, overwrite, console);
-                    }
-                    else
-                    {
-                        RunWithPlainOutput(history, path, version, at, effectiveOutPath, overwrite, console);
-                    }
-                }
-
-                try
-                {
-                    RunRestore(force);
-                    OutcomeStyle.WriteLineSuccess(
-                        AnsiConsole.Console,
-                        $"Restored '{path}' to '{effectiveOutPath}'.");
-                }
-                catch (DestinationExistsException) when (!force && !Console.IsInputRedirected)
-                {
-                    // Interactive session, no --force: ask before overwriting. The prompt goes to
-                    // stderr so it's still visible even if stdout is redirected. Non-interactive
-                    // sessions (stdin redirected) fall through and let the exception propagate to
-                    // ErrorReporting, which reports it as a normal error (exit 1) directing the
-                    // user to --force.
-                    var overwrite = StandardError.Console.Confirm(
-                        $"File '{Markup.Escape(effectiveOutPath)}' already exists. Overwrite?", defaultValue: false);
-                    if (overwrite)
-                    {
-                        RunRestore(overwrite: true);
-                        OutcomeStyle.WriteLineSuccess(
-                            AnsiConsole.Console,
-                            $"Restored '{path}' to '{effectiveOutPath}'.");
-                    }
-                    else
-                    {
-                        cancelled = true;
-                    }
-                }
-            });
-
-            if (cancelled)
+            if (outcome == RestoreOutcome.Declined)
             {
-                OutcomeStyle.WriteLineNeutral(AnsiConsole.Console, "Restore cancelled: destination not overwritten.");
-                return 0;
+                OutcomeStyle.WriteLineNeutral(console, "Restore cancelled: destination not overwritten.");
+                return ExitCodes.Success;
             }
 
             // A gracefully cancelled recursive restore (via Ctrl+C, mid-run) reuses the same
             // partial-failure exit code as backup's own graceful cancellation - it did not
             // necessarily write/remove every planned path - distinct from success, and distinct
             // from a hard error, since whatever was already applied is not corrupted or lost.
-            if (exitCode == ExitCodes.Success && gracefullyCancelled)
+            if (exitCode == ExitCodes.Success && outcome == RestoreOutcome.StoppedEarly)
             {
                 exitCode = ExitCodes.PartialFailure;
             }
@@ -308,6 +177,126 @@ public static class RestoreCommand
         });
 
         return command;
+    }
+
+    private enum RestoreOutcome
+    {
+        Completed,
+        /// <summary>A graceful Ctrl+C stopped a recursive restore part-way.</summary>
+        StoppedEarly,
+        /// <summary>The user declined the overwrite / directory-restore confirmation.</summary>
+        Declined,
+    }
+
+    private sealed record RestoreRequest(
+        string Path,
+        string? At,
+        long? Version,
+        long? SnapshotId,
+        string? OutPath,
+        bool InPlace,
+        bool Force);
+
+    private sealed record RestoreEnvironment(
+        IAnsiConsole Console,
+        IAnsiConsole ErrorConsole,
+        Func<bool> IsInputRedirected,
+        bool CanPromptForVersion,
+        CancellationToken CancellationToken);
+
+    private static RestoreOutcome RunSingleFileRestore(
+        HistorySession session,
+        RestoreRequest request,
+        RestoreEnvironment environment)
+    {
+        var history = session.History;
+        var version = request.Version;
+        var fileResolved = session.TryResolveFilePath(request.Path, out var resolvedPath);
+        var path = fileResolved ? resolvedPath : request.Path;
+
+        // No candidate matched a tracked file - before falling through to the
+        // file-history lookups below (which would raise the generic
+        // NoHistoryForPathException), re-run the same flexible-path resolution order
+        // with a "is this a tracked directory" predicate instead, so a directory that
+        // just needs --recursive gets its own actionable error instead of being
+        // conflated with "never tracked at all".
+        if (!fileResolved && SnapshotPathResolver.TryResolve(
+                session.Profile.TargetRoot,
+                path,
+                candidate => IsDirectoryTracked(history, candidate),
+                session.IsWithinMirror,
+                out var resolvedDirectoryPath))
+        {
+            throw new RestoreTargetIsDirectoryException(resolvedDirectoryPath);
+        }
+
+        if (request.At is null && version is null)
+        {
+            // Neither given, but CanPromptForVersion is true (checked by the caller) -
+            // present the path's recorded versions as a selectable list per the
+            // snapshot-history delta's "Interactive version selection when
+            // restoring" requirement, reusing HistoryTablePresenter's per-row
+            // formatting for the prompt's choice labels. A Linked version has no
+            // stored content to restore, so it's excluded alongside Deleted.
+            var selectable = SelectableVersionsForInteractivePicker(history.GetFileHistory(path));
+
+            if (selectable.Count == 0)
+            {
+                throw new NoHistoryForPathException(path);
+            }
+
+            var selected = environment.ErrorConsole.Prompt(
+                new SelectionPrompt<FileVersionRecord>()
+                    .Title("Select a version to restore:")
+                    .PageSize(10)
+                    .UseConverter(v =>
+                        $"#{v.Id} - {v.RecordedAt:yyyy-MM-dd HH:mm:ss zzz} - {v.ChangeKind} - " +
+                        $"{BackupRunSummaryFormatter.FormatBytes(v.Size)}")
+                    .AddChoices(selectable));
+            version = selected.Id;
+        }
+
+        var effectiveOutPath = request.InPlace
+            ? AbsolutePathMirrorMapper.FromMirrorPath(path)
+            : request.OutPath!;
+        var console = environment.Console;
+
+        void RunRestore(bool overwrite)
+        {
+            if (OutputMode.IsLiveCapable(console))
+            {
+                RunWithLiveDisplay(history, path, version, request.At, effectiveOutPath, overwrite, console);
+            }
+            else
+            {
+                RunWithPlainOutput(history, path, version, request.At, effectiveOutPath, overwrite, console);
+            }
+
+            OutcomeStyle.WriteLineSuccess(console, $"Restored '{path}' to '{effectiveOutPath}'.");
+        }
+
+        try
+        {
+            RunRestore(request.Force);
+            return RestoreOutcome.Completed;
+        }
+        catch (DestinationExistsException) when (!request.Force && !environment.IsInputRedirected())
+        {
+            // Interactive session, no --force: ask before overwriting. The prompt goes to
+            // stderr so it's still visible even if stdout is redirected. Non-interactive
+            // sessions (stdin redirected) fall through and let the exception propagate to
+            // ErrorReporting, which reports it as a normal error (exit 1) directing the
+            // user to --force.
+            var overwrite = environment.ErrorConsole.Confirm(
+                $"File '{Markup.Escape(effectiveOutPath)}' already exists. Overwrite?", defaultValue: false);
+            if (!overwrite)
+            {
+                return RestoreOutcome.Declined;
+            }
+
+            RunRestore(overwrite: true);
+            return RestoreOutcome.Completed;
+        }
     }
 
     // Interactive path: a single task is created as soon as the version's total size is
@@ -448,27 +437,18 @@ public static class RestoreCommand
     // when --force is given), and only then executes - mirroring PruneCommand's
     // count-then-confirm-then-run shape for its own single confirmation, per design.md's
     // "single confirmation replaces per-file overwrite guarding" decision.
-    private static void RunRecursiveRestore(
-        SnapshotHistoryService history,
-        string mirrorRoot,
-        string path,
-        string? at,
-        long? snapshotId,
-        string? outPath,
-        bool inPlace,
-        bool force,
-        IAnsiConsole console,
-        Func<string, bool> isWithinMirror,
-        bool canPromptForVersion,
-        CancellationToken cancellationToken,
-        ref bool cancelled,
-        ref bool gracefullyCancelled)
+    private static RestoreOutcome RunRecursiveRestore(
+        HistorySession session,
+        RestoreRequest request,
+        RestoreEnvironment environment)
     {
+        var history = session.History;
+        var console = environment.Console;
         var resolution = DirectoryArgumentResolver.Resolve(
-            mirrorRoot,
-            path,
+            session.Profile.TargetRoot,
+            request.Path,
             candidate => IsDirectoryTracked(history, candidate),
-            isWithinMirror);
+            session.IsWithinMirror);
         var resolvedPath = resolution.Path;
 
         if (resolution.FellBackToMirrorRoot)
@@ -483,31 +463,30 @@ public static class RestoreCommand
         // the picker (task 3.3) decides asOf; when neither is given and the session is not
         // interactive, today's default is preserved: silently restore the current state.
         DateTimeOffset? asOf;
-        if (snapshotId is not null)
+        if (request.SnapshotId is not null)
         {
-            asOf = history.ResolveDirectorySnapshot(resolvedPath, snapshotId.Value);
+            asOf = history.ResolveDirectorySnapshot(resolvedPath, request.SnapshotId.Value);
         }
-        else if (at is not null)
+        else if (request.At is not null)
         {
-            asOf = DateTimeOptionParser.Parse("--at", at);
+            asOf = DateTimeOptionParser.Parse("--at", request.At);
         }
-        else if (canPromptForVersion)
+        else if (environment.CanPromptForVersion)
         {
-            asOf = PromptForDirectorySnapshot(history, resolvedPath);
+            asOf = PromptForDirectorySnapshot(history, resolvedPath, environment.ErrorConsole);
         }
         else
         {
             asOf = null;
         }
 
-        var plan = history.PlanDirectoryRestore(resolvedPath, asOf, outPath, inPlace);
-        var stoppedEarlyByCtrlC = false;
+        var plan = history.PlanDirectoryRestore(resolvedPath, asOf, request.OutPath, request.InPlace);
 
-        void Execute()
+        RestoreOutcome Execute()
         {
             var stoppedEarly = OutputMode.IsLiveCapable(console)
-                ? RunDirectoryRestoreWithLiveDisplay(history, resolvedPath, plan, console, cancellationToken)
-                : RunDirectoryRestoreWithPlainOutput(history, plan, console, cancellationToken);
+                ? RunDirectoryRestoreWithLiveDisplay(history, resolvedPath, plan, console, environment.CancellationToken)
+                : RunDirectoryRestoreWithPlainOutput(history, plan, console, environment.CancellationToken);
 
             if (stoppedEarly)
             {
@@ -515,31 +494,29 @@ public static class RestoreCommand
                 // ExecuteDirectoryRestore's own cancellation checks) - reported distinctly from
                 // a completed restore, in the same warning style BackupOutcomeReporter/
                 // PruneOutcomeReporter already use for their own graceful cancellations.
-                stoppedEarlyByCtrlC = true;
-                    OutcomeStyle.WriteLinePartialFailure(
-                    AnsiConsole.Console,
-                        $"Restore of directory '{resolvedPath}' cancelled: stopped early, some planned files may not " +
-                        "have been written/removed.");
-                return;
+                OutcomeStyle.WriteLinePartialFailure(
+                    console,
+                    $"Restore of directory '{resolvedPath}' cancelled: stopped early, some planned files may not " +
+                    "have been written/removed.");
+                return RestoreOutcome.StoppedEarly;
             }
 
             var skippedClause = plan.Skipped.Count > 0
                 ? $", {plan.Skipped.Count} link(s) skipped"
                 : string.Empty;
             OutcomeStyle.WriteLineSuccess(
-                AnsiConsole.Console,
+                console,
                 $"Restored directory '{resolvedPath}': {plan.ToWrite.Count} file(s) written, " +
                 $"{plan.ToRemove.Count} file(s) removed{skippedClause}.");
+            return RestoreOutcome.Completed;
         }
 
-        if (force)
+        if (request.Force)
         {
-            Execute();
-            gracefullyCancelled = stoppedEarlyByCtrlC;
-            return;
+            return Execute();
         }
 
-        if (Console.IsInputRedirected)
+        if (environment.IsInputRedirected())
         {
             // Non-interactive session, no --force: refuse rather than silently writing and
             // removing potentially many files without explicit authorization. Reported as a
@@ -557,20 +534,12 @@ public static class RestoreCommand
         var removalClause = plan.ToRemove.Count > 0
             ? $" and remove {plan.ToRemove.Count} file(s)"
             : string.Empty;
-        var confirmed = StandardError.Console.Confirm(
+        var confirmed = environment.ErrorConsole.Confirm(
             $"This will write {plan.ToWrite.Count} file(s){removalClause} under '{Markup.Escape(resolvedPath)}'. " +
             "Continue?",
             defaultValue: false);
 
-        if (confirmed)
-        {
-            Execute();
-            gracefullyCancelled = stoppedEarlyByCtrlC;
-        }
-        else
-        {
-            cancelled = true;
-        }
+        return confirmed ? Execute() : RestoreOutcome.Declined;
     }
 
     /// <summary>
@@ -585,7 +554,8 @@ public static class RestoreCommand
     /// </summary>
     private static DateTimeOffset? PromptForDirectorySnapshot(
         SnapshotHistoryService history,
-        string directoryPath)
+        string directoryPath,
+        IAnsiConsole promptConsole)
     {
         var candidates = history.ListDirectorySnapshotCandidates(directoryPath);
 
@@ -600,7 +570,7 @@ public static class RestoreCommand
             .AddChoices(choices);
         prompt.DefaultValue = current;
 
-        var selected = StandardError.Console.Prompt(prompt);
+        var selected = promptConsole.Prompt(prompt);
         return selected.Candidate?.Snapshot.StartedAt;
     }
 

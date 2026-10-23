@@ -374,70 +374,42 @@ public sealed class SqliteSnapshotRepository : ISnapshotRepository
         command.ExecuteNonQuery();
     }
 
-    public IReadOnlyDictionary<string, CurrentFileState> GetCurrentState()
+    public IReadOnlyDictionary<string, CurrentFileState> GetCurrentState() => ReadCurrentState(asOf: null);
+
+    public IReadOnlyDictionary<string, CurrentFileState> GetStateAsOf(DateTimeOffset asOf) => ReadCurrentState(asOf);
+
+    /// <summary>
+    /// The latest non-deleted version of every path, optionally restricted to versions
+    /// recorded at or before <paramref name="asOf"/>.
+    /// </summary>
+    private Dictionary<string, CurrentFileState> ReadCurrentState(DateTimeOffset? asOf)
     {
+        var result = new Dictionary<string, CurrentFileState>(StringComparer.OrdinalIgnoreCase);
         if (_connection is null)
         {
-            return new Dictionary<string, CurrentFileState>(StringComparer.OrdinalIgnoreCase);
+            return result;
         }
 
         using var command = _connection.CreateCommand();
-        command.CommandText = """
+        command.CommandText = $"""
             SELECT fv.relative_path, fv.content_hash, fv.size, fv.source_modified_at,
                    fv.quick_hash, fv.quick_hash_scheme, fv.change_kind, fv.link_target
             FROM file_versions fv
             INNER JOIN (
                 SELECT relative_path, MAX(id) AS max_id
                 FROM file_versions
+                {(asOf is null ? string.Empty : "WHERE recorded_at <= $asOf")}
                 GROUP BY relative_path
             ) latest ON fv.relative_path = latest.relative_path AND fv.id = latest.max_id
             WHERE fv.change_kind != $deleted
             """;
-        command.Parameters.AddWithValue("$deleted", nameof(FileChangeKind.Deleted));
-
-        var result = new Dictionary<string, CurrentFileState>(StringComparer.OrdinalIgnoreCase);
-        using var reader = command.ExecuteReader();
-        while (reader.Read())
+        if (asOf is { } cutoff)
         {
-            var relativePath = reader.GetString(0);
-            result[relativePath] = new CurrentFileState(
-                relativePath,
-                reader.IsDBNull(1) ? null : reader.GetString(1),
-                reader.GetInt64(2),
-                ParseIso(reader.GetString(3)),
-                reader.IsDBNull(4) ? null : reader.GetString(4),
-                reader.IsDBNull(5) ? null : reader.GetInt32(5),
-                reader.GetString(6) == nameof(FileChangeKind.Linked),
-                reader.IsDBNull(7) ? null : reader.GetString(7));
+            command.Parameters.AddWithValue("$asOf", ToIso(cutoff.ToUniversalTime()));
         }
 
-        return result;
-    }
-
-    public IReadOnlyDictionary<string, CurrentFileState> GetStateAsOf(DateTimeOffset asOf)
-    {
-        if (_connection is null)
-        {
-            return new Dictionary<string, CurrentFileState>(StringComparer.OrdinalIgnoreCase);
-        }
-
-        using var command = _connection.CreateCommand();
-        command.CommandText = """
-            SELECT fv.relative_path, fv.content_hash, fv.size, fv.source_modified_at,
-                   fv.quick_hash, fv.quick_hash_scheme, fv.change_kind, fv.link_target
-            FROM file_versions fv
-            INNER JOIN (
-                SELECT relative_path, MAX(id) AS max_id
-                FROM file_versions
-                WHERE recorded_at <= $asOf
-                GROUP BY relative_path
-            ) latest ON fv.relative_path = latest.relative_path AND fv.id = latest.max_id
-            WHERE fv.change_kind != $deleted
-            """;
-        command.Parameters.AddWithValue("$asOf", ToIso(asOf.ToUniversalTime()));
         command.Parameters.AddWithValue("$deleted", nameof(FileChangeKind.Deleted));
 
-        var result = new Dictionary<string, CurrentFileState>(StringComparer.OrdinalIgnoreCase);
         using var reader = command.ExecuteReader();
         while (reader.Read())
         {

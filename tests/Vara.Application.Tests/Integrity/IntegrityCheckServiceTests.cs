@@ -275,6 +275,52 @@ public class IntegrityCheckServiceTests
         Assert.Single(result.Missing);
     }
 
+    [Fact]
+    public void Bytes_read_through_any_stream_member_a_hasher_uses_are_counted()
+    {
+        var contentStore = new FakeContentStore();
+        var (hash, _) = contentStore.StoreFromStream(new MemoryStream("hello"u8.ToArray()));
+        var repository = new FakeSnapshotRepository();
+        var now = DateTimeOffset.UtcNow;
+        var snapshot = repository.BeginSnapshot(now);
+        repository.RecordFileVersion(snapshot, "a.txt", null, hash, 5, now, FileChangeKind.Added, now);
+        repository.CompleteSnapshot(snapshot, now, SnapshotStats.Empty);
+        var reports = new List<IntegrityCheckProgress>();
+        var service = new IntegrityCheckService(repository, contentStore, new StreamMemberExercisingHasher(hash));
+
+        var result = service.Check(quick: false, new InlineProgress<IntegrityCheckProgress>(reports.Add));
+
+        Assert.Empty(result.Corrupt);
+        // 1 byte via ReadByte, then the whole 5 bytes again via Read(byte[]) after seeking back.
+        Assert.Equal(6, reports[^1].BytesRead);
+    }
+
+    /// <summary>Reads the stream through <c>ReadByte</c>, then seeks back and re-reads it with the array overload.</summary>
+    private sealed class StreamMemberExercisingHasher(string hashToReturn) : Vara.Core.Abstractions.IHasher
+    {
+        public string ComputeHash(Stream content)
+        {
+            Assert.True(content.CanRead);
+            Assert.False(content.CanWrite);
+            Assert.True(content.CanSeek);
+            Assert.Equal(5, content.Length);
+
+            Assert.Equal('h', content.ReadByte());
+            Assert.Equal(1, content.Position);
+            content.Seek(0, SeekOrigin.Begin);
+            Assert.Equal(0, content.Position);
+            content.Position = 0;
+            var buffer = new byte[16];
+            Assert.Equal(5, content.Read(buffer, 0, buffer.Length));
+            Assert.Equal(-1, content.ReadByte());
+
+            Assert.Throws<NotSupportedException>(() => content.Flush());
+            Assert.Throws<NotSupportedException>(() => content.SetLength(0));
+            Assert.Throws<NotSupportedException>(() => content.Write(buffer, 0, 1));
+            return hashToReturn;
+        }
+    }
+
     /// <summary>
     /// Test seam: an <see cref="IProgress{T}"/> that synchronously cancels <paramref name="cts"/> the first time
     /// <paramref name="shouldCancel"/> matches a reported value - unlike <see cref="Progress{T}"/>, which posts to a
