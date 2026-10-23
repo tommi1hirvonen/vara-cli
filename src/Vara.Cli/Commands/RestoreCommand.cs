@@ -210,6 +210,7 @@ public static class RestoreCommand
         RestoreEnvironment environment)
     {
         var history = session.History;
+        var fileVersions = session.FileVersions;
         var version = request.Version;
         var fileResolved = session.TryResolveFilePath(request.Path, out var resolvedPath);
         var path = fileResolved ? resolvedPath : request.Path;
@@ -265,11 +266,11 @@ public static class RestoreCommand
         {
             if (OutputMode.IsLiveCapable(console))
             {
-                RunWithLiveDisplay(history, path, version, request.At, effectiveOutPath, overwrite, console);
+                RunWithLiveDisplay(fileVersions, path, version, request.At, effectiveOutPath, overwrite, console);
             }
             else
             {
-                RunWithPlainOutput(history, path, version, request.At, effectiveOutPath, overwrite, console);
+                RunWithPlainOutput(fileVersions, path, version, request.At, effectiveOutPath, overwrite, console);
             }
 
             OutcomeStyle.WriteLineSuccess(console, $"Restored '{path}' to '{effectiveOutPath}'.");
@@ -300,14 +301,14 @@ public static class RestoreCommand
     }
 
     // Interactive path: a single task is created as soon as the version's total size is
-    // known (via RestoreProgressReporter.OnSizeResolved, invoked by SnapshotHistoryService
+    // known (via RestoreProgressReporter.OnSizeResolved, invoked by FileVersionService
     // right before extraction begins) so the bar starts immediately at 0% against a known
     // total - no separate scan/indeterminate phase, per design.md's "no scan/indeterminate
     // phase is needed" decision. RemainingTimeColumn/TransferSpeedColumn compute ETA/throughput
     // natively from the task's own Value/MaxValue progression, so no BackupProgressCalculator-
     // style hand-rolled math is needed for this path.
     private static void RunWithLiveDisplay(
-        SnapshotHistoryService history,
+        FileVersionService fileVersions,
         string path,
         long? version,
         string? at,
@@ -345,7 +346,7 @@ public static class RestoreCommand
 
                 var reporter = new RestoreProgressReporter(displayGate, Render);
                 RunRestoreOnce(
-                    history,
+                    fileVersions,
                     path,
                     version,
                     at,
@@ -383,7 +384,7 @@ public static class RestoreCommand
     // redraw, per the cli-presentation delta's "Non-interactive or color-incapable output
     // falls back to plain text" requirement - analogous to BackupCommand.RunWithPlainOutput.
     private static void RunWithPlainOutput(
-        SnapshotHistoryService history,
+        FileVersionService fileVersions,
         string path,
         long? version,
         string? at,
@@ -408,11 +409,11 @@ public static class RestoreCommand
         }
 
         var reporter = new RestoreProgressReporter(displayGate, Render);
-        RunRestoreOnce(history, path, version, at, outPath, overwrite, reporter.OnBytesCopied, reporter.OnSizeResolved);
+        RunRestoreOnce(fileVersions, path, version, at, outPath, overwrite, reporter.OnBytesCopied, reporter.OnSizeResolved);
     }
 
     private static void RunRestoreOnce(
-        SnapshotHistoryService history,
+        FileVersionService fileVersions,
         string path,
         long? version,
         string? at,
@@ -423,12 +424,12 @@ public static class RestoreCommand
     {
         if (version is not null)
         {
-            history.RestoreVersion(path, version.Value, outPath, overwrite, onBytesCopied, onSizeResolved);
+            fileVersions.RestoreVersion(path, version.Value, outPath, overwrite, onBytesCopied, onSizeResolved);
         }
         else
         {
             var asOf = DateTimeOptionParser.Parse("--at", at!);
-            history.RestoreAsOf(path, asOf, outPath, overwrite, onBytesCopied, onSizeResolved);
+            fileVersions.RestoreAsOf(path, asOf, outPath, overwrite, onBytesCopied, onSizeResolved);
         }
     }
 
@@ -443,6 +444,7 @@ public static class RestoreCommand
         RestoreEnvironment environment)
     {
         var history = session.History;
+        var directoryRestore = session.DirectoryRestore;
         var console = environment.Console;
         var resolution = DirectoryArgumentResolver.Resolve(
             session.Profile.TargetRoot,
@@ -465,7 +467,7 @@ public static class RestoreCommand
         DateTimeOffset? asOf;
         if (request.SnapshotId is not null)
         {
-            asOf = history.ResolveDirectorySnapshot(resolvedPath, request.SnapshotId.Value);
+            asOf = directoryRestore.ResolveDirectorySnapshot(resolvedPath, request.SnapshotId.Value);
         }
         else if (request.At is not null)
         {
@@ -473,20 +475,20 @@ public static class RestoreCommand
         }
         else if (environment.CanPromptForVersion)
         {
-            asOf = PromptForDirectorySnapshot(history, resolvedPath, environment.ErrorConsole);
+            asOf = PromptForDirectorySnapshot(directoryRestore, resolvedPath, environment.ErrorConsole);
         }
         else
         {
             asOf = null;
         }
 
-        var plan = history.PlanDirectoryRestore(resolvedPath, asOf, request.OutPath, request.InPlace);
+        var plan = directoryRestore.PlanDirectoryRestore(resolvedPath, asOf, request.OutPath, request.InPlace);
 
         RestoreOutcome Execute()
         {
             var stoppedEarly = OutputMode.IsLiveCapable(console)
-                ? RunDirectoryRestoreWithLiveDisplay(history, resolvedPath, plan, console, environment.CancellationToken)
-                : RunDirectoryRestoreWithPlainOutput(history, plan, console, environment.CancellationToken);
+                ? RunDirectoryRestoreWithLiveDisplay(directoryRestore, resolvedPath, plan, console, environment.CancellationToken)
+                : RunDirectoryRestoreWithPlainOutput(directoryRestore, plan, console, environment.CancellationToken);
 
             if (stoppedEarly)
             {
@@ -553,11 +555,11 @@ public static class RestoreCommand
     /// entry, or the selected candidate's <see cref="Snapshots.Snapshot.StartedAt"/> otherwise.
     /// </summary>
     private static DateTimeOffset? PromptForDirectorySnapshot(
-        SnapshotHistoryService history,
+        DirectoryRestoreService directoryRestore,
         string directoryPath,
         IAnsiConsole promptConsole)
     {
-        var candidates = history.ListDirectorySnapshotCandidates(directoryPath);
+        var candidates = directoryRestore.ListDirectorySnapshotCandidates(directoryPath);
 
         var current = new DirectorySnapshotChoice(null, "Current tracked state");
         var choices = new List<DirectorySnapshotChoice> { current };
@@ -655,7 +657,7 @@ public static class RestoreCommand
     // file is written) sizes it up front, exactly as the single-file path does, per design.md's
     // "Progress reporting reuses RestoreProgressReporter unmodified" decision.
     private static bool RunDirectoryRestoreWithLiveDisplay(
-        SnapshotHistoryService history,
+        DirectoryRestoreService directoryRestore,
         string directoryPath,
         DirectoryRestorePlan plan,
         IAnsiConsole console,
@@ -691,7 +693,7 @@ public static class RestoreCommand
                 }
 
                 var reporter = new RestoreProgressReporter(displayGate, Render);
-                stoppedEarly = history.ExecuteDirectoryRestore(
+                stoppedEarly = directoryRestore.ExecuteDirectoryRestore(
                     plan,
                     reporter.OnBytesCopied,
                     reporter.OnSizeResolved,
@@ -709,7 +711,7 @@ public static class RestoreCommand
     // Non-interactive/redirected path for a recursive directory restore - analogous to
     // RunWithPlainOutput's single-file equivalent.
     private static bool RunDirectoryRestoreWithPlainOutput(
-        SnapshotHistoryService history,
+        DirectoryRestoreService directoryRestore,
         DirectoryRestorePlan plan,
         IAnsiConsole console,
         CancellationToken cancellationToken)
@@ -731,7 +733,7 @@ public static class RestoreCommand
         }
 
         var reporter = new RestoreProgressReporter(displayGate, Render);
-        return history.ExecuteDirectoryRestore(
+        return directoryRestore.ExecuteDirectoryRestore(
             plan,
             reporter.OnBytesCopied,
             reporter.OnSizeResolved,
@@ -741,7 +743,7 @@ public static class RestoreCommand
 
 /// <summary>
 /// Wires a restore's raw <c>onBytesCopied</c> chunk callback and the <c>onSizeResolved</c>
-/// callback (which <see cref="SnapshotHistoryService"/> invokes once, right before extraction
+/// callback (which <see cref="FileVersionService"/> and <see cref="DirectoryRestoreService"/> invoke once, right before extraction
 /// begins) into a single rate-limited progress render, reusing <see cref="Backup.BackupProgress"/>
 /// + <see cref="ProgressDisplayGate"/> exactly as <see cref="BackupCommand"/> does, per
 /// design.md's "Rate-limiting reuses ProgressDisplayGate" decision. Stateful per restore

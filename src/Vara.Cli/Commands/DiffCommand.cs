@@ -88,7 +88,7 @@ public static class DiffCommand
                     ? (DateTimeOffset?)null
                     : DateTimeOptionParser.Parse("--right-at", rightAt);
 
-                var result = session.History.OpenVersionsForDiff(
+                var result = session.FileVersions.OpenVersionsForDiff(
                     resolvedPath, leftVersion, leftAsOf, rightVersion, rightAsOf);
                 resultExitCode = result switch
                 {

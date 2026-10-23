@@ -115,7 +115,7 @@ public class SymlinkLifecycleRealPortsTests : IDisposable
         // restore --recursive of the whole profile: the regular file restores normally, and
         // both links are skipped (not written, not treated as a failure) rather than causing
         // a partial restore.
-        var history = new SnapshotHistoryService(Repository, ContentStore);
+        var history = new DirectoryRestoreService(Repository, ContentStore);
         var outRoot = Path.Combine(Path.GetTempPath(), $"vara-inttest-restore-{Guid.NewGuid():N}");
 
         try

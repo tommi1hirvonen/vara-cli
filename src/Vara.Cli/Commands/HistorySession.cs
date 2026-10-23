@@ -10,7 +10,8 @@ namespace Vara.Cli.Commands;
 /// The read-only view of one profile that the history-browsing commands (<c>browse</c>,
 /// <c>history</c>, <c>show</c>, <c>diff</c>, <c>deleted</c>, <c>snapshot(s)</c>) all open:
 /// the resolved profile, its backing services - created without side effects for a profile
-/// that has never completed a backup - and a <see cref="SnapshotHistoryService"/> over them.
+/// that has never completed a backup - and the history services (<see cref="SnapshotHistoryService"/>, <see cref="FileVersionService"/>,
+/// <see cref="DirectoryRestoreService"/>) over them.
 /// </summary>
 internal sealed class HistorySession : IDisposable
 {
@@ -20,12 +21,18 @@ internal sealed class HistorySession : IDisposable
     {
         Profile = profile;
         _services = services;
-        History = new SnapshotHistoryService(services.Repository, services.ContentStore);
+        History = new SnapshotHistoryService(services.Repository);
+        FileVersions = new FileVersionService(services.Repository, services.ContentStore);
+        DirectoryRestore = new DirectoryRestoreService(services.Repository, services.ContentStore);
     }
 
     public Profile Profile { get; }
 
     public SnapshotHistoryService History { get; }
+
+    public FileVersionService FileVersions { get; }
+
+    public DirectoryRestoreService DirectoryRestore { get; }
 
     public Func<string, bool> IsWithinMirror => _services.ContentStore.IsWithinMirror;
 

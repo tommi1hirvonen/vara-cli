@@ -10,7 +10,8 @@ using Xunit;
 namespace Vara.IntegrationTests.History;
 
 /// <summary>
-/// Runs <see cref="SnapshotHistoryService"/> against the real <see cref="SqliteSnapshotRepository"/>
+/// Runs <see cref="SnapshotHistoryService"/>, <see cref="FileVersionService"/> and
+/// <see cref="DirectoryRestoreService"/> against the real <see cref="SqliteSnapshotRepository"/>
 /// AND the real <see cref="FileSystemContentStore"/>, per design.md's decision: restore's
 /// mirror-containment guard (<c>IsWithinMirror</c>) and overwrite check (<c>TargetExists</c>)
 /// rely on the content store's real path-resolution logic, which the fake re-implements
@@ -66,7 +67,7 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
         var t0 = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
         var s1 = Repository.BeginSnapshot(t0);
         Repository.RecordFileVersion(s1, "a.txt", null, hash, 11, t0, FileChangeKind.Added, t0);
-        var service = new SnapshotHistoryService(Repository, ContentStore);
+        var service = new FileVersionService(Repository, ContentStore);
         var destination = Path.Combine(Path.GetTempPath(), $"vara-inttest-restore-{Guid.NewGuid():N}.txt");
 
         try
@@ -88,7 +89,7 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
         var t0 = DateTimeOffset.UtcNow;
         var s1 = Repository.BeginSnapshot(t0);
         Repository.RecordFileVersion(s1, "a.txt", null, hash, 7, t0, FileChangeKind.Added, t0);
-        var service = new SnapshotHistoryService(Repository, ContentStore);
+        var service = new FileVersionService(Repository, ContentStore);
 
         // The real FileSystemContentStore resolves mirror containment from the target
         // root passed to its constructor - no seeding required, unlike the fake's
@@ -107,7 +108,7 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
         var t0 = DateTimeOffset.UtcNow;
         var s1 = Repository.BeginSnapshot(t0);
         Repository.RecordFileVersion(s1, "a.txt", null, hash, 7, t0, FileChangeKind.Added, t0);
-        var service = new SnapshotHistoryService(Repository, ContentStore);
+        var service = new FileVersionService(Repository, ContentStore);
         var destination = Path.Combine(Path.GetTempPath(), $"vara-inttest-restore-{Guid.NewGuid():N}.txt");
         File.WriteAllText(destination, "already here");
 
@@ -129,7 +130,7 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
         var t0 = DateTimeOffset.UtcNow;
         var s1 = Repository.BeginSnapshot(t0);
         Repository.RecordFileVersion(s1, "a.txt", null, hash, 11, t0, FileChangeKind.Added, t0);
-        var service = new SnapshotHistoryService(Repository, ContentStore);
+        var service = new FileVersionService(Repository, ContentStore);
         var destination = Path.Combine(Path.GetTempPath(), $"vara-inttest-restore-{Guid.NewGuid():N}.txt");
         File.WriteAllText(destination, "stale content");
 
@@ -157,7 +158,7 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
         var t1 = t0.AddDays(1);
         var s2 = Repository.BeginSnapshot(t1);
         Repository.RecordFileVersion(s2, @"src\old.txt", null, hashV2, 4, t1, FileChangeKind.Deleted, t1);
-        var service = new SnapshotHistoryService(Repository, ContentStore);
+        var service = new SnapshotHistoryService(Repository);
 
         var liveOnly = service.ListDirectory("src", asOf: null, includeDeleted: false);
         Assert.Single(liveOnly);
@@ -177,7 +178,7 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
         var t1 = t0.AddDays(1);
         var s2 = Repository.BeginSnapshot(t1);
         Repository.RecordFileVersion(s2, @"src\old.txt", null, hash, 4, t1, FileChangeKind.Deleted, t1);
-        var service = new SnapshotHistoryService(Repository, ContentStore);
+        var service = new SnapshotHistoryService(Repository);
 
         var deleted = service.ListDeleted(directoryPath: null, since: null);
 
@@ -193,7 +194,7 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
         var s1 = Repository.BeginSnapshot(t0);
         Repository.RecordFileVersion(s1, "a.txt", null, hash, 5, t0, FileChangeKind.Added, t0);
         var versionId = Repository.GetFileHistory("a.txt").Single().Id;
-        var service = new SnapshotHistoryService(Repository, ContentStore);
+        var service = new FileVersionService(Repository, ContentStore);
         using var destination = new MemoryStream();
         using var shown = GetShowStream(service.ShowVersion("a.txt", versionId, asOf: null));
         shown.CopyTo(destination);
@@ -213,7 +214,7 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
         var s2 = Repository.BeginSnapshot(t1);
         Repository.RecordFileVersion(s2, "a.txt", null, hashV2, 11, t1, FileChangeKind.Changed, t1);
         var versionIds = Repository.GetFileHistory("a.txt").OrderBy(r => r.Id).Select(r => r.Id).ToList();
-        var service = new SnapshotHistoryService(Repository, ContentStore);
+        var service = new FileVersionService(Repository, ContentStore);
 
         using var streams = GetDiffStreams(service.OpenVersionsForDiff("a.txt", versionIds[0], null, versionIds[1], null));
         var (left, right) = (streams.Left, streams.Right);
@@ -238,7 +239,7 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
         var s2 = Repository.BeginSnapshot(t1);
         Repository.RecordFileVersion(s2, "big.log", null, hashV2, sizeV2, t1, FileChangeKind.Changed, t1);
         var versionIds = Repository.GetFileHistory("big.log").OrderBy(r => r.Id).Select(r => r.Id).ToList();
-        var service = new SnapshotHistoryService(Repository, ContentStore);
+        var service = new FileVersionService(Repository, ContentStore);
 
         var ex = Assert.IsType<OversizedDiffRefusal>(
             GetDiffRefusal(service.OpenVersionsForDiff("big.log", versionIds[0], null, versionIds[1], null)));
@@ -262,7 +263,7 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
         var s2 = Repository.BeginSnapshot(t1);
         Repository.RecordFileVersion(s2, "image.png", null, hashV2, sizeV2, t1, FileChangeKind.Changed, t1);
         var versionIds = Repository.GetFileHistory("image.png").OrderBy(r => r.Id).Select(r => r.Id).ToList();
-        var service = new SnapshotHistoryService(Repository, ContentStore);
+        var service = new FileVersionService(Repository, ContentStore);
 
         var ex = Assert.IsType<BinaryDiffRefusal>(
             GetDiffRefusal(service.OpenVersionsForDiff("image.png", versionIds[0], null, versionIds[1], null)));
@@ -290,7 +291,7 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
             var t1 = t0.AddDays(1);
             var s2 = Repository.BeginSnapshot(t1);
             Repository.RecordFileVersion(s2, mirrorRelativePath, null, hash, 9, t1, FileChangeKind.Deleted, t1);
-            var service = new SnapshotHistoryService(Repository, ContentStore);
+            var service = new FileVersionService(Repository, ContentStore);
 
             var originalSourcePath = Vara.Core.FileSystem.AbsolutePathMirrorMapper.FromMirrorPath(mirrorRelativePath);
             service.RestoreAsOf(mirrorRelativePath, t1.AddDays(-1), originalSourcePath);
@@ -345,7 +346,7 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
         var s2 = Repository.BeginSnapshot(t1);
         Repository.RecordFileVersion(s2, @"src\old.txt", null, hashDeletedLater, 13, t1, FileChangeKind.Deleted, t1);
         Repository.RecordFileVersion(s2, @"src\new.txt", null, hashAddedLater, 11, t1, FileChangeKind.Added, t1);
-        var service = new SnapshotHistoryService(Repository, ContentStore);
+        var service = new DirectoryRestoreService(Repository, ContentStore);
         var outRoot = Path.Combine(Path.GetTempPath(), $"vara-inttest-dirrestore-{Guid.NewGuid():N}");
 
         try
@@ -387,7 +388,7 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
             // pathB is only added after t0 - not part of the requested-date state, but it is
             // currently live, so a directory restore as of t0 should remove it in place.
             Repository.RecordFileVersion(s2, pathB, null, hashB, 13, t1, FileChangeKind.Added, t1);
-            var service = new SnapshotHistoryService(Repository, ContentStore);
+            var service = new DirectoryRestoreService(Repository, ContentStore);
 
             // pathB currently "lives" on disk (as ContentStore.TargetExists has no real
             // filesystem backing for arbitrary destinations, seed the real file directly so
@@ -441,7 +442,7 @@ public class SnapshotHistoryServiceRealPortsTests : IDisposable
         Repository.RecordFileVersion(snapshot, @"src\nested\moved.txt", @"old\moved.txt", "hash-m", 30, now, FileChangeKind.Moved, now);
         Repository.RecordFileVersion(snapshot, @"other\deleted.txt", null, null, 0, now, FileChangeKind.Deleted, now);
         Repository.CompleteSnapshot(snapshot, now, SnapshotStats.Empty);
-        var service = new SnapshotHistoryService(Repository, ContentStore);
+        var service = new SnapshotHistoryService(Repository);
 
         var allChanges = service.GetSnapshotChanges(snapshot, ".", includeFiles: true)!;
         var scopedChanges = service.GetSnapshotChanges(snapshot, @"src\nested", includeFiles: true)!;

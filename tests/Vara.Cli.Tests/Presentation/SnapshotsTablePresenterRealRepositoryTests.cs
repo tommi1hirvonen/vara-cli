@@ -47,7 +47,7 @@ public class SnapshotsTablePresenterRealRepositoryTests : IDisposable
         }
 
         using var reopened = new SqliteSnapshotRepository(_dbPath);
-        var history = new SnapshotHistoryService(reopened, contentStore: null!);
+        var history = new SnapshotHistoryService(reopened);
         var snapshots = history.ListSnapshots();
 
         var console = new TestConsole { EmitAnsiSequences = true };

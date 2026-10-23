@@ -18,8 +18,8 @@ namespace Vara.Cli.Tests.Commands;
 /// is not given) can't be driven from an in-process test: this test host's
 /// <c>Console.IsOutputRedirected</c> is always <see langword="true"/> (as in CI), so the
 /// command always takes the "redirected, stream regardless" branch - that refusal path is
-/// instead covered directly at the <c>SnapshotHistoryService.ShowVersion</c> level (see
-/// <c>SnapshotHistoryServiceTests</c>'s <c>ShowVersion_with_binary_content_and_forceBinary_false_*</c>
+/// instead covered directly at the <c>FileVersionService.ShowVersion</c> level (see
+/// <c>FileVersionServiceTests</c>'s <c>ShowVersion_with_binary_content_and_forceBinary_false_*</c>
 /// case), and manually per this change's tasks.md.
 /// </summary>
 public class ShowCommandTests : IDisposable

@@ -74,7 +74,7 @@ public static class ShowCommand
                 var destination = output ?? Console.OpenStandardOutput();
                 try
                 {
-                    var result = session.History.ShowVersion(
+                    var result = session.FileVersions.ShowVersion(
                         resolvedPath,
                         version,
                         asOf,

@@ -52,7 +52,7 @@ public class ProfileServiceFactoryTests : IDisposable
         var profile = CreateFreshProfile();
 
         using var services = _factory.CreateFor(profile, createIfMissing: false);
-        var history = new SnapshotHistoryService(services.Repository, services.ContentStore);
+        var history = new SnapshotHistoryService(services.Repository);
 
         var snapshots = history.ListSnapshots();
 
@@ -66,7 +66,7 @@ public class ProfileServiceFactoryTests : IDisposable
         var profile = CreateFreshProfile();
 
         using var services = _factory.CreateFor(profile, createIfMissing: false);
-        var history = new SnapshotHistoryService(services.Repository, services.ContentStore);
+        var history = new SnapshotHistoryService(services.Repository);
 
         Assert.Throws<NoSuchDirectoryException>(() => history.ListDirectory(".", asOf: null, includeDeleted: false));
         Assert.False(Directory.Exists(Path.Combine(_targetRoot, ".vara")));
@@ -88,7 +88,7 @@ public class ProfileServiceFactoryTests : IDisposable
         var profile = CreateFreshProfile();
 
         using var services = _factory.CreateFor(profile, createIfMissing: false);
-        var history = new SnapshotHistoryService(services.Repository, services.ContentStore);
+        var history = new SnapshotHistoryService(services.Repository);
 
         var deleted = history.ListDeleted(directoryPath: null, since: null);
 
@@ -102,7 +102,7 @@ public class ProfileServiceFactoryTests : IDisposable
         var profile = CreateFreshProfile();
 
         using var services = _factory.CreateFor(profile, createIfMissing: false);
-        var history = new SnapshotHistoryService(services.Repository, services.ContentStore);
+        var history = new SnapshotHistoryService(services.Repository);
 
         Assert.Throws<NoHistoryForPathException>(() => history.GetFileHistory("a.txt"));
         Assert.False(Directory.Exists(Path.Combine(_targetRoot, ".vara")));
@@ -114,7 +114,7 @@ public class ProfileServiceFactoryTests : IDisposable
         var profile = CreateFreshProfile();
 
         using var services = _factory.CreateFor(profile, createIfMissing: false);
-        var history = new SnapshotHistoryService(services.Repository, services.ContentStore);
+        var history = new FileVersionService(services.Repository, services.ContentStore);
         Assert.Throws<NoHistoryForPathException>(() => history.ShowVersion("a.txt", versionId: 1, asOf: null));
         Assert.False(Directory.Exists(Path.Combine(_targetRoot, ".vara")));
     }
@@ -125,7 +125,7 @@ public class ProfileServiceFactoryTests : IDisposable
         var profile = CreateFreshProfile();
 
         using var services = _factory.CreateFor(profile, createIfMissing: false);
-        var history = new SnapshotHistoryService(services.Repository, services.ContentStore);
+        var history = new FileVersionService(services.Repository, services.ContentStore);
 
         Assert.Throws<NoHistoryForPathException>(() => history.OpenVersionsForDiff("a.txt", 1, null, 2, null));
         Assert.False(Directory.Exists(Path.Combine(_targetRoot, ".vara")));
@@ -138,7 +138,7 @@ public class ProfileServiceFactoryTests : IDisposable
         var destination = Path.Combine(Path.GetTempPath(), $"vara-clitest-restore-{Guid.NewGuid():N}.txt");
 
         using var services = _factory.CreateFor(profile, createIfMissing: false);
-        var history = new SnapshotHistoryService(services.Repository, services.ContentStore);
+        var history = new FileVersionService(services.Repository, services.ContentStore);
 
         Assert.Throws<NoHistoryForPathException>(() => history.RestoreVersion("a.txt", 1, destination));
         Assert.False(Directory.Exists(Path.Combine(_targetRoot, ".vara")));
