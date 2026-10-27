@@ -12,7 +12,7 @@ namespace Vara.Cli.Composition;
 /// <summary>
 /// The composition root's two testable halves: which services the CLI registers, and how
 /// the command tree is assembled from them. <c>Program.cs</c> only adds process-level concerns
-/// (the host, Ctrl+C handling, and invoking the parsed command).
+/// (building the service provider, Ctrl+C handling, and invoking the parsed command).
 /// </summary>
 public static class CommandLineComposition
 {

@@ -1,10 +1,13 @@
-using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.DependencyInjection;
 using Vara.Cli.Composition;
 
-var builder = Host.CreateApplicationBuilder();
-builder.Services.AddVaraServices();
-
-using var host = builder.Build();
+// A plain service provider rather than the generic host: the host's service-oriented
+// defaults (appsettings.json from the working directory, DOTNET_* environment variables,
+// stdout console logging) are not appropriate for a CLI. Add configuration or logging
+// explicitly here when needed.
+using var services = new ServiceCollection()
+    .AddVaraServices()
+    .BuildServiceProvider();
 
 // Backs each command's "Graceful cancellation via Ctrl+C" requirement: a single Ctrl+C is
 // intercepted (Cancel = true suppresses the OS's default immediate-termination
@@ -18,7 +21,7 @@ using var host = builder.Build();
 var gracefulCancellation = new GracefulCancellation(Environment.Exit);
 Console.CancelKeyPress += (_, e) => e.Cancel = gracefulCancellation.RequestCancellation();
 
-var rootCommand = CommandLineComposition.CreateRootCommand(host.Services, gracefulCancellation.TokenSource.Token);
+var rootCommand = CommandLineComposition.CreateRootCommand(services, gracefulCancellation.TokenSource.Token);
 
 var parseResult = rootCommand.Parse(args);
 return parseResult.Invoke();
