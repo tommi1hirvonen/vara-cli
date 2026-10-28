@@ -9,7 +9,7 @@ internal sealed class WindowsTerminalProgress : IDisposable
     private const string ClearSequence = "\x1b]9;4;0;0\x07";
 
     private readonly TextWriter _writer;
-    private readonly object _sync = new();
+    private readonly Lock _sync = new();
     private bool _closed;
 
     private WindowsTerminalProgress(TextWriter writer) => _writer = writer;

@@ -242,7 +242,7 @@ public static class BackupCommand
 
                 ProgressTask? barTask = null;
                 ProgressTask? statsTask = null;
-                var displaySync = new object();
+                var displaySync = new Lock();
                 var displayOpen = true;
                 IReadOnlyList<string> activePaths = Array.Empty<string>();
                 BackupProgressState? displayedState = null;

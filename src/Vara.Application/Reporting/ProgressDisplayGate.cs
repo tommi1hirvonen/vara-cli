@@ -19,7 +19,7 @@ public sealed class ProgressDisplayGate(
     private static readonly TimeSpan MinRenderInterval = TimeSpan.FromMilliseconds(100);
 
     private readonly Func<DateTimeOffset> _now = nowProvider ?? (() => DateTimeOffset.UtcNow);
-    private readonly object _sync = new();
+    private readonly Lock _sync = new();
     private long _maxBytesRendered = -1;
     private int _maxFilesRendered = -1;
     private DateTimeOffset? _lastRenderedAt;
