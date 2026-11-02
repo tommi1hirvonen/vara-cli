@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
@@ -43,6 +44,7 @@ internal static partial class Kernel32
     private const uint OpenExisting = 3;
     private const uint FileFlagBackupSemantics = 0x0200_0000; // required to open a directory handle
     private const uint FileNameNormalized = 0x0;
+    private const int StackBufferSize = 512;
 
     [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     private static partial SafeFileHandle CreateFileW(
@@ -91,7 +93,34 @@ internal static partial class Kernel32
             throw new IOException($"Failed to resolve the real path of '{path}' (Win32 error {error}).", error);
         }
 
-        var buffer = new char[requiredSize];
+        if (requiredSize > int.MaxValue)
+        {
+            throw new IOException($"The resolved path of '{path}' is too long to represent.");
+        }
+
+        if (requiredSize <= StackBufferSize)
+        {
+            Span<char> buffer = stackalloc char[StackBufferSize];
+            return ReadFinalPathName(handle, path, buffer, requiredSize);
+        }
+
+        var rentedBuffer = ArrayPool<char>.Shared.Rent((int)requiredSize);
+        try
+        {
+            return ReadFinalPathName(handle, path, rentedBuffer, requiredSize);
+        }
+        finally
+        {
+            ArrayPool<char>.Shared.Return(rentedBuffer, clearArray: false);
+        }
+    }
+
+    private static unsafe string ReadFinalPathName(
+        SafeFileHandle handle,
+        string path,
+        Span<char> buffer,
+        uint requiredSize)
+    {
         fixed (char* bufferPtr = buffer)
         {
             var writtenSize = GetFinalPathNameByHandleW(handle, bufferPtr, requiredSize, FileNameNormalized);
@@ -101,7 +130,7 @@ internal static partial class Kernel32
                 throw new IOException($"Failed to resolve the real path of '{path}' (Win32 error {error}).", error);
             }
 
-            return new string(buffer, 0, (int)writtenSize);
+            return new string(buffer[..(int)writtenSize]);
         }
     }
 
