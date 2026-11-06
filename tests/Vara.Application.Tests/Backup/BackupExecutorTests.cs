@@ -1043,4 +1043,126 @@ public class BackupExecutorTests : IDisposable
         Assert.Null(_contentStore.LastOnBytesCopiedPassedToPlace);
         Assert.Equal(size, reports.Sum());
     }
+
+    private List<PlannedOperation> WriteAddOperations(int count, string prefix = "file")
+    {
+        var operations = new List<PlannedOperation>();
+        for (var i = 0; i < count; i++)
+        {
+            var path = WriteFile($"{prefix}-{i}.txt", $"content of {prefix} {i}");
+            operations.Add(new AddOperation(
+                $"{prefix}-{i}.txt", path, new FileInfo(path).Length, ScanTimeModifiedAt(path)));
+        }
+
+        return operations;
+    }
+
+    [Fact]
+    public void An_unexpected_worker_exception_still_records_results_already_produced_then_propagates()
+    {
+        var operations = WriteAddOperations(3, "ok");
+        var badPath = WriteFile("bad.txt", "this placement blows up");
+        operations.Add(new AddOperation("bad.txt", badPath, new FileInfo(badPath).Length, ScanTimeModifiedAt(badPath)));
+        _contentStore.ThrowOnPlace = new InvalidOperationException("unexpected");
+        _contentStore.ThrowOnPlaceForPath = "bad.txt";
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        var exception = Assert.Throws<AggregateException>(
+            () => executor.Execute(snapshotId, DateTimeOffset.UtcNow, new BackupPlan(operations, 0)));
+
+        Assert.IsType<InvalidOperationException>(Assert.Single(exception.InnerExceptions));
+        for (var i = 0; i < 3; i++)
+        {
+            Assert.Single(_repository.GetFileHistory($"ok-{i}.txt"));
+        }
+
+        Assert.Empty(_repository.GetFileHistory("bad.txt"));
+    }
+
+    [Fact]
+    public void A_recorder_failure_stops_the_workers_and_is_rethrown_after_they_have_finished()
+    {
+        const int fileCount = 30;
+        var plan = new BackupPlan(WriteAddOperations(fileCount), 0);
+        _repository.OnRecordFileVersion = () => throw new InvalidOperationException("recorder failed");
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+        var started = 0;
+        var finished = 0;
+
+        var exception = Assert.Throws<InvalidOperationException>(() => executor.Execute(
+            snapshotId,
+            DateTimeOffset.UtcNow,
+            plan,
+            onFileStarted: _ =>
+            {
+                Interlocked.Increment(ref started);
+                Thread.Sleep(20);
+            },
+            onFileFinished: _ => Interlocked.Increment(ref finished)));
+
+        Assert.Equal("recorder failed", exception.Message);
+
+        // No worker is still running when Execute returns, and none starts afterwards.
+        var startedAtReturn = Volatile.Read(ref started);
+        Assert.Equal(startedAtReturn, Volatile.Read(ref finished));
+        Assert.True(startedAtReturn < fileCount, $"expected workers to stop early, but all {fileCount} transfers started");
+        Thread.Sleep(100);
+        Assert.Equal(startedAtReturn, Volatile.Read(ref started));
+    }
+
+    [Fact]
+    public void Graceful_cancellation_with_concurrent_transfers_records_every_started_transfer_and_starts_no_more()
+    {
+        const int fileCount = 40;
+        var plan = new BackupPlan(WriteAddOperations(fileCount), 0);
+        var executor = new BackupExecutor(_contentStore, _repository, _hasher, maxDegreeOfParallelism: 4);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+        using var cts = new CancellationTokenSource();
+        var started = 0;
+        var transferred = 0;
+
+        var outcome = executor.Execute(
+            snapshotId,
+            DateTimeOffset.UtcNow,
+            plan,
+            onFileTransferred: () => transferred++,
+            onFileStarted: _ =>
+            {
+                if (Interlocked.Increment(ref started) == 3)
+                {
+                    cts.Cancel();
+                }
+
+                Thread.Sleep(10);
+            },
+            cancellationToken: cts.Token);
+
+        Assert.InRange(started, 3, fileCount - 1);
+        Assert.Equal(started, outcome.FilesAdded);
+        Assert.Equal(started, transferred);
+        Assert.Empty(outcome.FailedPaths);
+        Assert.Equal(started, _repository.GetCurrentState().Count);
+    }
+
+    [Fact]
+    public void All_repository_and_manifest_batch_calls_happen_on_the_calling_thread_with_concurrent_transfers()
+    {
+        var plan = new BackupPlan(WriteAddOperations(20), 0);
+        var callingThread = Environment.CurrentManagedThreadId;
+        var threads = new System.Collections.Concurrent.ConcurrentBag<int>();
+        _repository.OnRecordFileVersion = () => threads.Add(Environment.CurrentManagedThreadId);
+        _repository.OnCommit = () => threads.Add(Environment.CurrentManagedThreadId);
+        var executor = new BackupExecutor(
+            _contentStore, _repository, _hasher, maxDegreeOfParallelism: 4, checkpointInterval: TimeSpan.Zero);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        using var batch = _repository.BeginManifestBatch();
+        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, manifestBatch: batch);
+
+        Assert.Equal(20, outcome.FilesAdded);
+        Assert.True(threads.Count >= 40, $"expected record and commit calls, observed {threads.Count}");
+        Assert.All(threads, thread => Assert.Equal(callingThread, thread));
+    }
 }

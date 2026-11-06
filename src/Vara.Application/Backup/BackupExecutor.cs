@@ -1,3 +1,4 @@
+using System.Threading.Channels;
 using Vara.Core.Abstractions;
 using Vara.Core.Hashing;
 using Vara.Core.Snapshots;
@@ -12,9 +13,11 @@ namespace Vara.Application.Backup;
 /// Add/Change reads from the source. Add/Change operations - the only ones that
 /// perform real source-disk I/O - run with bounded parallelism suited to NVMe
 /// queue depth (design.md); Move/Delete operations are cheap metadata-only changes
-/// and run sequentially beforehand. Manifest writes and progress/counter updates
-/// are serialized under a lock, since a single SQLite connection is not safe for
-/// concurrent use from multiple threads. When <paramref name="manifestBatch"/> (see
+/// and run sequentially beforehand. Add/Change workers never touch the repository: each
+/// publishes an immutable per-file result to a channel, and the thread that called
+/// <see cref="Execute"/> is the single recorder that drains it and owns the manifest
+/// writes, counters, failed paths and checkpoint clock, since a single SQLite connection
+/// is not safe for concurrent use from multiple threads. When <paramref name="manifestBatch"/> (see
 /// <see cref="Execute"/>) is supplied, this executor also checkpoints it - commits it
 /// and reopens - roughly every <see cref="DefaultCheckpointInterval"/> of elapsed
 /// time, so an interruption only discards work performed since the most recent
@@ -64,7 +67,6 @@ public sealed class BackupExecutor(
     {
         var counts = new Counts { LastCheckpointUtc = DateTime.UtcNow };
         var failedPaths = new List<string>();
-        var reportLock = new Lock();
 
         foreach (var operation in plan.Operations.Where(operation => operation switch
                  {
@@ -86,7 +88,7 @@ public sealed class BackupExecutor(
 
             ExecuteMetadataOnlyOperation(
                 operation, snapshotId, recordedAt,
-                counts, failedPaths, reportLock, manifestBatch);
+                counts, failedPaths, manifestBatch);
         }
 
         // Fired exactly once here, unconditionally - even when there are no Move/Delete
@@ -105,23 +107,81 @@ public sealed class BackupExecutor(
             LinkOperation => false,
         }).ToList();
 
-        Parallel.ForEach(
-            transferOperations,
-            new ParallelOptions { MaxDegreeOfParallelism = _maxDegreeOfParallelism },
-            operation =>
-            {
-                // Same cooperative cancellation as above: a worker that dequeues an item
-                // after cancellation was requested skips it entirely rather than starting
-                // it, instead of aborting a transfer already in progress on another thread.
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    return;
-                }
+        // Workers run off-thread and only publish immutable results; this (the calling)
+        // thread is the single recorder that owns the repository, manifest batch, counters,
+        // failed paths and checkpoint clock, so no lock is needed. The channel is unbounded
+        // so a worker's TryWrite never blocks on the recorder.
+        var results = Channel.CreateUnbounded<TransferResult>(
+            new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
 
-                ExecuteTransfer(
-                    operation, snapshotId, recordedAt, counts, failedPaths, reportLock,
-                    onBytesTransferred, manifestBatch, onFileTransferred, onFileStarted, onFileFinished);
-            });
+        // Distinct from the graceful Ctrl+C token: cancelling this one only happens when the
+        // recorder itself fails, to stop workers from starting any further transfers.
+        using var abort = new CancellationTokenSource();
+
+        var transferTask = Task.Run(() =>
+        {
+            try
+            {
+                Parallel.ForEach(
+                    transferOperations,
+                    new ParallelOptions
+                    {
+                        MaxDegreeOfParallelism = _maxDegreeOfParallelism,
+                        CancellationToken = abort.Token,
+                    },
+                    operation =>
+                    {
+                        // Same cooperative cancellation as above: a worker that dequeues an item
+                        // after cancellation was requested skips it entirely rather than starting
+                        // it, instead of aborting a transfer already in progress on another thread.
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            return;
+                        }
+
+                        ExecuteTransfer(
+                            operation, results.Writer, onBytesTransferred, onFileStarted, onFileFinished);
+                    });
+            }
+            finally
+            {
+                results.Writer.Complete();
+            }
+        }, CancellationToken.None);
+
+        try
+        {
+            // Blocking here is acceptable: this is the pipeline's own thread, not a thread-pool
+            // thread, and a console app has no SynchronizationContext to deadlock on.
+            while (results.Reader.WaitToReadAsync(CancellationToken.None).AsTask().GetAwaiter().GetResult())
+            {
+                while (results.Reader.TryRead(out var result))
+                {
+                    RecordTransferResult(
+                        result, snapshotId, recordedAt, counts, failedPaths, manifestBatch, onFileTransferred);
+                }
+            }
+        }
+        catch
+        {
+            // Stop workers and wait for them, so none is still writing to the content store
+            // when the caller records the failure; then surface the recorder's own exception.
+            abort.Cancel();
+            try
+            {
+                transferTask.Wait(CancellationToken.None);
+            }
+            catch (AggregateException)
+            {
+            }
+
+            throw;
+        }
+
+        // Rethrows an unexpected worker exception (every result produced before it has
+        // already been recorded above), with the same shape Parallel.ForEach produced
+        // when it ran on the calling thread.
+        transferTask.GetAwaiter().GetResult();
 
         return new ExecutionOutcome(
             counts.BytesTransferred,
@@ -136,9 +196,8 @@ public sealed class BackupExecutor(
     /// <summary>
     /// Checkpoints <paramref name="manifestBatch"/> - committing it and reopening a fresh
     /// transaction - if it is supplied and <see cref="_checkpointInterval"/> has elapsed
-    /// since the last checkpoint. Must be called while holding <paramref name="counts"/>'s
-    /// owning <c>reportLock</c>, since <see cref="Counts.LastCheckpointUtc"/> is otherwise
-    /// unsynchronized shared state.
+    /// since the last checkpoint. Must only be called from the recorder (the thread that
+    /// called <see cref="Execute"/>), which owns <paramref name="counts"/>.
     /// </summary>
     private void CheckpointIfDue(Counts counts, IManifestBatch? manifestBatch)
     {
@@ -157,13 +216,43 @@ public sealed class BackupExecutor(
         counts.LastCheckpointUtc = now;
     }
 
+    private void RecordTransferResult(
+        TransferResult result,
+        long snapshotId,
+        DateTimeOffset recordedAt,
+        Counts counts,
+        List<string> failedPaths,
+        IManifestBatch? manifestBatch,
+        Action? onFileTransferred)
+    {
+        switch (result)
+        {
+            case Transferred transferred:
+                repository.RecordFileVersion(
+                    snapshotId, transferred.RelativePath, null, transferred.Hash, transferred.Size,
+                    transferred.SourceModifiedAt, transferred.ChangeKind, recordedAt,
+                    transferred.QuickHash, QuickHashPolicy.CurrentScheme);
+
+                counts.BytesTransferred += transferred.Size;
+                if (transferred.ChangeKind == FileChangeKind.Added) counts.Added++; else counts.Changed++;
+                CheckpointIfDue(counts, manifestBatch);
+                onFileTransferred?.Invoke();
+                break;
+
+            case Failed failed:
+                counts.Failed++;
+                failedPaths.Add(failed.RelativePath);
+                CheckpointIfDue(counts, manifestBatch);
+                break;
+        }
+    }
+
     private void ExecuteMetadataOnlyOperation(
         PlannedOperation operation,
         long snapshotId,
         DateTimeOffset recordedAt,
         Counts counts,
         List<string> failedPaths,
-        Lock reportLock,
         IManifestBatch? manifestBatch)
     {
         try
@@ -215,32 +304,20 @@ public sealed class BackupExecutor(
                     throw new InvalidOperationException("A transfer operation cannot be executed as metadata-only.");
             }
 
-            lock (reportLock)
-            {
-                CheckpointIfDue(counts, manifestBatch);
-            }
+            CheckpointIfDue(counts, manifestBatch);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            lock (reportLock)
-            {
-                counts.Failed++;
-                failedPaths.Add(operation.RelativePath);
-                CheckpointIfDue(counts, manifestBatch);
-            }
+            counts.Failed++;
+            failedPaths.Add(operation.RelativePath);
+            CheckpointIfDue(counts, manifestBatch);
         }
     }
 
     private void ExecuteTransfer(
         PlannedOperation operation,
-        long snapshotId,
-        DateTimeOffset recordedAt,
-        Counts counts,
-        List<string> failedPaths,
-        Lock reportLock,
+        ChannelWriter<TransferResult> results,
         Action<long>? onBytesTransferred,
-        IManifestBatch? manifestBatch,
-        Action? onFileTransferred,
         Action<string>? onFileStarted,
         Action<string>? onFileFinished)
     {
@@ -257,7 +334,7 @@ public sealed class BackupExecutor(
             DeleteOperation => throw new InvalidOperationException("A delete operation cannot be executed as a content transfer."),
             LinkOperation => throw new InvalidOperationException("A link operation cannot be executed as a content transfer."),
         };
-        var transferredSuccessfully = false;
+        TransferResult? result = null;
         try
         {
             onFileStarted?.Invoke(sourceAbsolutePath);
@@ -267,8 +344,8 @@ public sealed class BackupExecutor(
             string quickHash;
 
             // The actual disk I/O - reading the source and streaming it into the
-            // content store - happens outside the lock so it can run concurrently
-            // across threads. The quick hash is computed from the same bytes already
+            // content store - happens on the worker threads, concurrently with the
+            // recorder's manifest writes. The quick hash is computed from the same bytes already
             // being read here (see StreamingContentSignature), so recording it costs no
             // extra I/O and lets a future run's move detection pre-filter against this
             // file without a full-content read.
@@ -341,13 +418,7 @@ public sealed class BackupExecutor(
             var postTransferInfo = new FileInfo(sourceAbsolutePath);
             if (postTransferInfo.Length != scannedSize || postTransferInfo.LastWriteTimeUtc != sourceModifiedAt)
             {
-                lock (reportLock)
-                {
-                    counts.Failed++;
-                    failedPaths.Add(operation.RelativePath);
-                    CheckpointIfDue(counts, manifestBatch);
-                }
-
+                result = new Failed(operation.RelativePath);
                 return;
             }
 
@@ -362,37 +433,37 @@ public sealed class BackupExecutor(
                 }
             }
 
-            lock (reportLock)
-            {
-                repository.RecordFileVersion(
-                    snapshotId, operation.RelativePath, null, hash, size, sourceModifiedAt, changeKind, recordedAt,
-                    quickHash, QuickHashPolicy.CurrentScheme);
-
-                counts.BytesTransferred += size;
-                if (changeKind == FileChangeKind.Added) counts.Added++; else counts.Changed++;
-                CheckpointIfDue(counts, manifestBatch);
-                transferredSuccessfully = true;
-            }
+            result = new Transferred(
+                operation.RelativePath, hash, size, sourceModifiedAt, changeKind, quickHash);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            lock (reportLock)
-            {
-                counts.Failed++;
-                failedPaths.Add(operation.RelativePath);
-                CheckpointIfDue(counts, manifestBatch);
-            }
+            result = new Failed(operation.RelativePath);
         }
         finally
         {
+            // Finished fires before the result is published: the file leaves the active
+            // transfer list once its I/O is done, not once its manifest row is written.
+            // No result is published when an unexpected exception is propagating.
             onFileFinished?.Invoke(sourceAbsolutePath);
-        }
-
-        if (transferredSuccessfully)
-        {
-            onFileTransferred?.Invoke();
+            if (result is not null)
+            {
+                results.TryWrite(result);
+            }
         }
     }
+
+    private closed record TransferResult(string RelativePath);
+
+    private sealed record Transferred(
+        string RelativePath,
+        string Hash,
+        long Size,
+        DateTimeOffset SourceModifiedAt,
+        FileChangeKind ChangeKind,
+        string QuickHash) : TransferResult(RelativePath);
+
+    private sealed record Failed(string RelativePath) : TransferResult(RelativePath);
 
     private sealed class Counts
     {

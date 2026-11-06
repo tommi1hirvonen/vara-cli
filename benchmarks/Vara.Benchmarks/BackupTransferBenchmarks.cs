@@ -66,6 +66,9 @@ public class BackupExecutorBenchmarks : BackupBenchmarkBase
     private long _snapshotId;
     private DateTimeOffset _recordedAt;
 
+    [Params(1, 4)]
+    public int TransferConcurrency { get; set; }
+
     [GlobalSetup]
     public void Setup() => CreateSourceFixture();
 
@@ -80,7 +83,7 @@ public class BackupExecutorBenchmarks : BackupBenchmarkBase
         _recordedAt = DateTimeOffset.UtcNow;
         _snapshotId = _repository.BeginSnapshot(_recordedAt);
         _manifestBatch = _repository.BeginManifestBatch();
-        _executor = new BackupExecutor(_contentStore, _repository, Hasher, maxDegreeOfParallelism: 1);
+        _executor = new BackupExecutor(_contentStore, _repository, Hasher, maxDegreeOfParallelism: TransferConcurrency);
 
         var operations = new List<PlannedOperation>(FileCount);
         long totalBytes = 0;

@@ -80,6 +80,10 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
     /// partway through a sequential (Move/Delete/Link) run.</summary>
     public Action? OnRecordFileVersion { get; set; }
 
+    /// <summary>When set, invoked at the start of every successful manifest-batch
+    /// <see cref="IManifestBatch.Commit"/> - used by tests to observe which thread commits.</summary>
+    public Action? OnCommit { get; set; }
+
     public void Dispose() { }
 
     public void ReconcileIncompleteSnapshots()
@@ -162,6 +166,8 @@ internal sealed class FakeSnapshotRepository : ISnapshotRepository
 
     private void CommitBatch()
     {
+        OnCommit?.Invoke();
+
         if (_pendingFileVersions is not null)
         {
             _fileVersions.AddRange(_pendingFileVersions);
