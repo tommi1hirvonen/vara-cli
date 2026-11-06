@@ -270,6 +270,11 @@ public class BackupCommandExitCodeTests : IDisposable
         Assert.Contains("%", console.Output);
         Assert.Contains("/s", console.Output);
         Assert.Contains("ETA", console.Output);
+
+        // The loop is drained before the run summary prints, so no progress line follows it.
+        Assert.True(
+            console.Output.LastIndexOf("ETA", StringComparison.Ordinal) < console.Output.IndexOf("Snapshot #", StringComparison.Ordinal),
+            "expected every progress line to precede the run summary");
     }
 
     [Fact]
