@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <Compile Include="HostTests.fs" />
+    <Compile Include="BackupCommandTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

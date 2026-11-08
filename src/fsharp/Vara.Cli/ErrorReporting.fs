@@ -9,6 +9,11 @@ let usage (console: IAnsiConsole) (message: string) : Outcome =
     Terminal.writeLine console Terminal.errorStyle $"Error: {message}"
     Outcome.HardError
 
+/// A problem the user can fix, reported as a hard error: a refused run, or a configuration that cannot be used.
+let report (console: IAnsiConsole) (message: string) : Outcome =
+    Terminal.writeLine console Terminal.errorStyle $"Error: {message}"
+    Outcome.HardError
+
 /// Formatted by hand: AnsiConsole.WriteException is not supported under Native AOT.
 let unhandled (console: IAnsiConsole) (error: exn) : Outcome =
     Terminal.writeLine console Terminal.errorStyle $"Unhandled exception: {error.GetType().Name}: {error.Message}"

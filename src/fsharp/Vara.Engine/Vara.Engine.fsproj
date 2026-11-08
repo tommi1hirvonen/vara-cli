@@ -7,6 +7,16 @@
 
   <ItemGroup>
     <Compile Include="Flow.fs" />
+    <Compile Include="Kernel32.fs" />
+    <Compile Include="Streams.fs" />
+    <Compile Include="Hashing.fs" />
+    <Compile Include="ContentStore.fs" />
+    <Compile Include="SqliteManifest.fs" />
+    <Compile Include="Scanner.fs" />
+    <Compile Include="Signatures.fs" />
+    <Compile Include="Execution.fs" />
+    <Compile Include="RunLock.fs" />
+    <Compile Include="BackupRun.fs" />
     <Compile Include="YamlConfig.fs" />
     <Compile Include="ConfigFile.fs" />
     <Compile Include="ProfileResolution.fs" />
@@ -14,6 +24,10 @@
 
   <ItemGroup>
     <PackageReference Include="YamlDotNet" />
+    <PackageReference Include="Microsoft.Data.Sqlite.Core" />
+    <PackageReference Include="SQLitePCLRaw.bundle_winsqlite3" />
+    <PackageReference Include="System.IO.Hashing" />
+    <PackageReference Include="Microsoft.Extensions.FileSystemGlobbing" />
   </ItemGroup>
 
   <ItemGroup>

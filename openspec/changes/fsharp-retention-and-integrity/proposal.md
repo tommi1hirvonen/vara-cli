@@ -34,6 +34,16 @@ This change is idiomatic F#, not a translation of the C# code. C# type and metho
 - **No catch-all modules.** No `Helper`, `Manager`, `Service`, `Util` or `I`-prefixed names. One module per concept, with files in dependency order.
 - **Review.** The change's tasks include a convention review, and its last task keeps this section in the proposals that follow, extended with what the change learned.
 
+**Established by `fsharp-backup-engine`** (apply these in addition to the rules above)
+- **Failures have three levels.** A refusal to start is a `Result` error. A per-operation I/O failure is a value (`Completion.Failed`) that the run records and continues past. Anything else is an exception: record it, then rethrow it with its original stack through `ExceptionDispatchInfo` (there is no `reraise()` in `task {}`).
+- **Effects are functions or small records of functions** (`Links`, `ExecutionEnv`, `BackupEnv`, `Observers`), built once in the composition root. A test passes a function that raises in place of a test hook. The C# build is reached from tests by reflection and decorators, never by editing its source.
+- **Decision functions in `Vara.Domain` are folds** over immutable values, with struct accumulators where per-entry allocation matters. `let mutable` appears only in reader loops, stream state and interop, each with a measured reason in the commit message; a closure that needs a cell uses a `ref` (a `let mutable` cannot be captured).
+- **Per-entry values are struct unions and `voption`.** Compare structs with `.Equals`.
+- **Tests are named after the spec.** A module is named after the requirement and a test after the scenario; `+` is not valid in a module name and is ignored when names are compared. The spec-coverage test fails when a scenario has no test.
+- **`--reflectionfree` costs:** `ToString` on a `Result` prints only its type name, so comparing tests need their own `show`.
+- **Cleanup in tests:** every SQLite user clears the connection pool when it closes, and the shared temp-directory helper clears all pools before deleting, so that one engine's pooled connection cannot lock another's database.
+- **Benchmarks:** a change that touches a hot path reruns `LanguageComparisonBenchmarks` and records the allocation ratios against C# (5% budget) in its commit message.
+
 **Specific to this change**
 - Retention evaluation is a pure function from the snapshot list, the policy and the current time to a keep set and a prune set. Each tier (daily, weekly, monthly, yearly) is a small bucketing function, and the policy is their composition. The result does not depend on input order.
 - Pruning is a plan and then an execution: a pure plan of rows to remove and content to release, computed as set differences, then performed by the shell under the run lock. The same plan serves any preview.

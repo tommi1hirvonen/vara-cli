@@ -10,7 +10,7 @@ After `fsharp-backup-engine`, `vara backup` runs the F# engine but prints only a
 
 After this change, F# `vara backup` is complete. That makes it the place for the series' second decision point, **Gate B**: the AOT-compiled F# backup measured against the C# one on a quiet machine.
 
-Design and tasks for this change are written by `fsharp-backup-engine`'s final task, using its findings.
+Design and tasks for this change were written by `fsharp-backup-engine`'s final task, using its findings.
 
 ## What Changes
 
@@ -49,10 +49,20 @@ This change is idiomatic F#, not a translation of the C# code. C# type and metho
 - **No catch-all modules.** No `Helper`, `Manager`, `Service`, `Util` or `I`-prefixed names. One module per concept, with files in dependency order.
 - **Review.** The change's tasks include a convention review, and its last task keeps this section in the proposals that follow, extended with what the change learned.
 
+**Established by `fsharp-backup-engine`** (apply these in addition to the rules above)
+- **Failures have three levels.** A refusal to start is a `Result` error. A per-operation I/O failure is a value (`Completion.Failed`) that the run records and continues past. Anything else is an exception: record it, then rethrow it with its original stack through `ExceptionDispatchInfo` (there is no `reraise()` in `task {}`).
+- **Effects are functions or small records of functions** (`Links`, `ExecutionEnv`, `BackupEnv`, `Observers`), built once in the composition root. A test passes a function that raises in place of a test hook. The C# build is reached from tests by reflection and decorators, never by editing its source.
+- **Decision functions in `Vara.Domain` are folds** over immutable values, with struct accumulators where per-entry allocation matters. `let mutable` appears only in reader loops, stream state and interop, each with a measured reason in the commit message; a closure that needs a cell uses a `ref` (a `let mutable` cannot be captured).
+- **Per-entry values are struct unions and `voption`.** Compare structs with `.Equals`.
+- **Tests are named after the spec.** A module is named after the requirement and a test after the scenario; `+` is not valid in a module name and is ignored when names are compared. The spec-coverage test fails when a scenario has no test.
+- **`--reflectionfree` costs:** `ToString` on a `Result` prints only its type name, so comparing tests need their own `show`.
+- **Cleanup in tests:** every SQLite user clears the connection pool when it closes, and the shared temp-directory helper clears all pools before deleting, so that one engine's pooled connection cannot lock another's database.
+- **Benchmarks:** a change that touches a hot path reruns `LanguageComparisonBenchmarks` and records the allocation ratios against C# (5% budget) in its commit message.
+
 **Specific to this change**
 - Presentation is a pure view over state: `view : RunState -> Display`, where `Display` is plain data (lines, fields, styles, widths). Throughput, ETA, rate limiting and the never-regressing rule are pure functions of the state and a clock value passed in. None of this references Spectre.Console.
 - Spectre.Console is touched in one place only, a thin renderer at the edge that interprets `Display`, and a plain-text renderer interprets the same value. Tests assert on `Display` values first, and on rendered output only for the renderers.
-- No renderer or progress-reporter classes. The engine receives a plain `Progress -> unit` function. Outcome styling and exit codes are a total function from `Outcome`.
+- No renderer or progress-reporter classes. The engine reports through its `Observers` record of plain functions, which the composition root assembles from the tracker. Outcome styling and exit codes are a total function from `Outcome`.
 - Sleep prevention is a bracket function, `withSleepPrevention : (unit -> Task<'a>) -> Task<'a>`, not a service. A failure to create or clear the request is a value that the bracket ignores.
 - JSON output is built from the same run result as the display, by a pure function to a document, written once.
 
@@ -77,7 +87,7 @@ None. This is a behavior-preserving reimplementation (`skip_specs: true`).
 - **Tests:** presentation tests use `Spectre.Console.Testing`. A parity check compares the C# and F# JSON output of the same run.
 - **Gate B:** both `vara.exe` builds are published with Native AOT and measured on a quiet machine:
   - wall-clock time for a first backup, a "nothing changed" incremental backup and a large tree (100k+ files) must be within ±5% of C#;
-  - peak memory and executable size are recorded and must be within a margin agreed when the design is written;
+  - peak memory and executable size are recorded and must be within the margins the design fixes (D8);
   - there must be zero AOT warnings.
 
   If Gate B fails, the series stops as described in `fsharp-backup-engine`'s migration roadmap.

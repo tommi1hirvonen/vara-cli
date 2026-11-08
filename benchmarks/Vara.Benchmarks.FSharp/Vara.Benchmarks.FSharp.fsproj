@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Adapter for the language-comparison benchmarks: builds the F# engine's fixtures and exposes plain calls, so the
+       C# benchmark classes can measure it next to the C# engine without handling F# records and unions. -->
+  <ItemGroup>
+    <Compile Include="FSharpSide.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\fsharp\Vara.Engine\Vara.Engine.fsproj" />
+  </ItemGroup>
+
+</Project>

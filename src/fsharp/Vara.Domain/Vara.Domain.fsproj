@@ -13,6 +13,16 @@
     <Compile Include="ConfigNode.fs" />
     <Compile Include="ConfigError.fs" />
     <Compile Include="ProfileValidation.fs" />
+    <Compile Include="ContentSignature.fs" />
+    <Compile Include="MirrorPath.fs" />
+    <Compile Include="ScanRules.fs" />
+    <Compile Include="Scan.fs" />
+    <Compile Include="Manifest.fs" />
+    <Compile Include="Plan.fs" />
+    <Compile Include="Diff.fs" />
+    <Compile Include="Planning.fs" />
+    <Compile Include="Run.fs" />
+    <Compile Include="Refusal.fs" />
   </ItemGroup>
 
 </Project>

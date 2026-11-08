@@ -6,6 +6,11 @@
     <Compile Include="ConfigErrorTests.fs" />
     <Compile Include="ProfileValidationTests.fs" />
     <Compile Include="ProfilePropertyTests.fs" />
+    <Compile Include="Fixtures.fs" />
+    <Compile Include="ScanRulesTests.fs" />
+    <Compile Include="DiffTests.fs" />
+    <Compile Include="PlanningTests.fs" />
+    <Compile Include="RunTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

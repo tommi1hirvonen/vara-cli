@@ -13,6 +13,7 @@
         <ProjectReference Include="..\..\src\Vara.Application\Vara.Application.csproj" />
         <ProjectReference Include="..\..\src\Vara.Core\Vara.Core.csproj" />
         <ProjectReference Include="..\..\src\Vara.Infrastructure\Vara.Infrastructure.csproj" />
+        <ProjectReference Include="..\Vara.Benchmarks.FSharp\Vara.Benchmarks.FSharp.fsproj" />
     </ItemGroup>
 
 </Project>

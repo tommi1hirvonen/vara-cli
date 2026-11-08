@@ -7,6 +7,11 @@ open System.Reflection
 
 type ScenarioId = { Requirement: string; Scenario: string }
 
+/// F# cannot spell some characters in a module name (a `+`, as in "Ctrl+C"), so names are compared without them.
+let private comparable (id: ScenarioId) : ScenarioId =
+    { Requirement = id.Requirement.Replace("+", "")
+      Scenario = id.Scenario.Replace("+", "") }
+
 let private requirementPrefix = "### Requirement:"
 let private scenarioPrefix = "#### Scenario:"
 
@@ -40,7 +45,7 @@ let private isTestAttribute (attribute: Attribute) : bool =
 let private testsOf (declaringType: Type) : ScenarioId list =
     declaringType.GetMethods(BindingFlags.Public ||| BindingFlags.Static ||| BindingFlags.DeclaredOnly)
     |> Seq.filter (fun method -> method.GetCustomAttributes(true) |> Seq.cast<Attribute> |> Seq.exists isTestAttribute)
-    |> Seq.map (fun method -> { Requirement = declaringType.Name; Scenario = method.Name })
+    |> Seq.map (fun method -> comparable { Requirement = declaringType.Name; Scenario = method.Name })
     |> List.ofSeq
 
 /// The requirement and scenario names that the assemblies' test methods spell out.
@@ -52,7 +57,8 @@ let missingTests (excluded: ScenarioId list) (assemblies: Assembly list) (specTe
     let tested = testedScenarios assemblies
 
     parseSpec specText
-    |> List.filter (fun scenario -> not (List.contains scenario excluded) && not (Set.contains scenario tested))
+    |> List.filter (fun scenario ->
+        not (List.contains scenario excluded) && not (Set.contains (comparable scenario) tested))
 
 let describe (scenario: ScenarioId) : string =
     $"{scenario.Requirement} / {scenario.Scenario}"
