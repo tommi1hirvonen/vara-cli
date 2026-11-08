@@ -31,6 +31,27 @@ The value of F# is therefore in a ground-up functional design, not in a port. Th
 
 The shipped `vara.exe` is still the C# build, so nothing changes for users: no CLI, output, on-disk format or configuration changes.
 
+## Functional steering
+
+This change is idiomatic F#, not a translation of the C# code. C# type and method names are not a guide: design from the spec. Each change in the series is applied in a separate session, so every proposal carries these rules.
+
+**Series-wide rules**
+- **Modules and data, not classes.** Behavior is functions in modules; data is records and unions. No interfaces, inheritance, service classes or dependency injection. A class is allowed only where .NET requires one: handle wrappers, `IDisposable` resources, and types that a host library demands.
+- **Dependencies are parameters.** A function takes the functions it needs, not an object that holds them. Effects that travel together may be grouped as a record of functions, only when three or more are used together. Everything is assembled once, by partial application in the composition root (`Vara.Cli`).
+- **Compose, don't sequence.** Build behavior from small functions joined with `|>`, `Result`, `Option` and `Seq` combinators, and a computation expression where a flow reads in order. Put the data argument last so that partial application works.
+- **Types carry the rules.** Unions for alternatives, `[<RequireQualifiedAccess>]` on them, records with named fields, single-case unions or units of measure for values that could be confused. Matches are exhaustive with no wildcard on the code's own unions; no `null`; invalid states are unrepresentable.
+- **Expected outcomes are values.** Use `Result` or `option` for them. Exceptions are for the unexpected, and are handled at the host boundary.
+- **Pure core, effect shell.** Decisions never touch the file system, the clock, randomness or the console. The shell passes in values and performs the effects.
+- **Mutation stays inside one function.** It is allowed in a hot loop, a pooled buffer or interop, when a benchmark or the API requires it. It never lives in a field and is never shared between functions. Allocation rules (struct unions, `voption`) change a value's representation, not the architecture.
+- **No catch-all modules.** No `Helper`, `Manager`, `Service`, `Util` or `I`-prefixed names. One module per concept, with files in dependency order.
+- **Review.** The change's tasks include a convention review, and its last task keeps this section in the proposals that follow, extended with what the change learned.
+
+**Specific to this change**
+- The backup is a pipeline of functions: scan, classify, resolve moves, plan, then execute as a fold of `step : RunState -> Completion -> RunState * Decisions` over the completed operations. Each stage takes the previous stage's output; the shell only feeds and drains the stream.
+- The shell is a set of functions composed in `Vara.Cli`'s composition root. There is no `BackupExecutor`, `ContentStore` or `ManifestRepository` class: a store is a record of functions or a handful of functions over an explicit connection value.
+- The hot loops are where mutation is allowed. Every `mutable` is local to one function and justified by the allocation budget (design D6); the pure fold is the default until the benchmark says otherwise.
+- Do not port the C# executor's counters, callbacks or planner-reads-files structure, and do not reuse the spike's code.
+
 ## Capabilities
 
 ### New Capabilities

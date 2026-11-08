@@ -26,6 +26,26 @@ The C# implementation (`YamlProfileConfigLoader`, `ProfileResolver`, `Profile`/`
 
 There are no user-visible changes. No command uses the new code yet: `vara backup` arrives in `fsharp-backup-engine`.
 
+## Functional steering
+
+This change is idiomatic F#, not a translation of the C# code. C# type and method names are not a guide: design from the spec. Each change in the series is applied in a separate session, so every proposal carries these rules.
+
+**Series-wide rules**
+- **Modules and data, not classes.** Behavior is functions in modules; data is records and unions. No interfaces, inheritance, service classes or dependency injection. A class is allowed only where .NET requires one: handle wrappers, `IDisposable` resources, and types that a host library demands.
+- **Dependencies are parameters.** A function takes the functions it needs, not an object that holds them. Effects that travel together may be grouped as a record of functions, only when three or more are used together. Everything is assembled once, by partial application in the composition root (`Vara.Cli`).
+- **Compose, don't sequence.** Build behavior from small functions joined with `|>`, `Result`, `Option` and `Seq` combinators, and a computation expression where a flow reads in order. Put the data argument last so that partial application works.
+- **Types carry the rules.** Unions for alternatives, `[<RequireQualifiedAccess>]` on them, records with named fields, single-case unions or units of measure for values that could be confused. Matches are exhaustive with no wildcard on the code's own unions; no `null`; invalid states are unrepresentable.
+- **Expected outcomes are values.** Use `Result` or `option` for them. Exceptions are for the unexpected, and are handled at the host boundary.
+- **Pure core, effect shell.** Decisions never touch the file system, the clock, randomness or the console. The shell passes in values and performs the effects.
+- **Mutation stays inside one function.** It is allowed in a hot loop, a pooled buffer or interop, when a benchmark or the API requires it. It never lives in a field and is never shared between functions. Allocation rules (struct unions, `voption`) change a value's representation, not the architecture.
+- **No catch-all modules.** No `Helper`, `Manager`, `Service`, `Util` or `I`-prefixed names. One module per concept, with files in dependency order.
+- **Review.** The change's tasks include a convention review, and its last task keeps this section in the proposals that follow, extended with what the change learned.
+
+**Specific to this change**
+- The loader and the resolver are modules, not classes. Loading is a pipeline: locate, read, parse to the neutral tree, validate, resolve.
+- Validation is built from small field validators of the form `node -> Result<'a, ConfigError>`, combined in `result { }`. There is no validator class hierarchy, no rule registry and no parameter-name-based error translation.
+- This change sets the series' first conventions in code (the `result` builder, the path and profile types, the coverage check). Later changes copy their style, so keep it small and plain.
+
 ## Capabilities
 
 ### New Capabilities

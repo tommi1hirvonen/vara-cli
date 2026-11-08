@@ -48,11 +48,16 @@
 
 - [ ] 6.1 Publish `src/fsharp/Vara.Cli` with Native AOT (`dotnet publish -c Release -r win-x64 -o artifacts/fs-cli`). Verify that there are no IL2xxx/IL3xxx warnings, and that the published `vara.exe` completes a first and an incremental `backup` of a scratch profile with exit code 0, producing a target that the C# `vara.exe` then continues without re-transfers.
 - [ ] 6.2 Add `LanguageComparisonBenchmarks` to `benchmarks/Vara.Benchmarks`. It has scan, executor and pipeline classes, with the same fixtures and parameters as the existing C# benchmarks, C# as the baseline, and `Vara.Engine` as the comparison. Run it with `--job short --exporters fulljson`. Verify that every case allocates at most 5% more than C# (design D6), and record the allocation ratios in the commit message.
-- [ ] 6.3 Final verification:
+- [ ] 6.3 Convention review against the proposal's "Functional steering". Verify that:
+  - `git grep -nE "\binterface\b|\binherit\b|\babstract\b|\bmember\b|\bnew\s*\(|\b(Helper|Manager|Service|Util)\b|\bI[A-Z][a-z]" -- src/fsharp/Vara.Domain` returns nothing;
+  - the same search in `src/fsharp/Vara.Engine` and `src/fsharp/Vara.Cli` has only hits that the commit message justifies (interop handles, `IDisposable`, host callbacks);
+  - `git grep -nw mutable -- src/fsharp` lists only locals inside one function, each with its measured reason in the commit message, and none in `Vara.Domain`'s decision functions;
+  - the backup run reads as a pipeline from scan to outcome, with its effects assembled in the composition root, and no type holds the engine's dependencies as fields.
+- [ ] 6.4 Final verification:
   - `dotnet build Vara.slnx` reports no FS or CS warnings (NU1903 for the preview ILCompiler is out of scope);
   - `dotnet test Vara.slnx` passes for both the C# and F# suites;
   - the commit message records non-comment line counts and `mutable`/`<-` counts for the engine, compared with the C# backup path.
 
 ## 7. Update the following changes
 
-- [ ] 7.1 Using the `openspec-update-change` workflow, write the design and tasks of `fsharp-backup-presentation` from this change's findings. Its tasks end with the same "update the following changes" step. Settle the Gate B measurement method and the memory and executable-size margins in its design. Revise the proposals of the later changes only if their scope, dependencies or gates have shifted, and confirm that every scenario in `openspec/specs` is still owned by exactly one change in the series. Verify that `openspec validate` passes for every changed change.
+- [ ] 7.1 Using the `openspec-update-change` workflow, write the design and tasks of `fsharp-backup-presentation` from this change's findings. Its tasks end with the same "update the following changes" step. Settle the Gate B measurement method and the memory and executable-size margins in its design. Keep the "Functional steering" section in each later proposal, extended with the conventions this change established, and make sure that every later change's tasks contain a convention review task, like 6.3. Revise the proposals of the later changes only if their scope, dependencies or gates have shifted, and confirm that every scenario in `openspec/specs` is still owned by exactly one change in the series. Verify that `openspec validate` passes for every changed change.

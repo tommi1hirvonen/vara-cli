@@ -82,7 +82,7 @@ Alternatives considered:
 
 ### D4. Effects are passed in as records of functions
 
-Effects that tests need to vary (hard-link creation, the clock, the checkpoint interval, the transfer concurrency) are passed as plain records, for example `Links = { Create: string -> string -> unit }`. This replaces the C# test hooks (`ForceNextHardlinkFailureForTesting`, `ForceHardlinkSupportForTesting`). Interfaces and dependency injection were rejected because nothing here needs more than a function.
+Effects that tests need to vary (hard-link creation, the clock, the checkpoint interval, the transfer concurrency) are passed in as functions. A step that needs one effect takes that function as a parameter, not a record. Effects that always travel together (three or more) are grouped into a record of functions, for example `Links = { Create: string -> string -> unit }`. The composition root assembles them once, by partial application. This replaces the C# test hooks (`ForceNextHardlinkFailureForTesting`, `ForceHardlinkSupportForTesting`). Interfaces, classes with injected dependencies and containers were rejected because nothing here needs more than a function.
 
 ### D5. Expected outcomes are values; unexpected failures are exceptions
 
@@ -106,6 +106,8 @@ Coding rules:
 - Compare structs with `.Equals`, never with `=`, which boxes.
 - Avoid closures that capture locals in per-entry or per-chunk paths.
 - Use interpolated strings only; no `printf` family functions.
+- Mutation is allowed only as a local inside one function (a loop counter, a pooled buffer, interop), and only where the allocation budget or the API needs it. It never lives in a field and never crosses a function boundary. The pure fold is the default, and a local `mutable` needs a measured reason that is recorded in the commit message.
+- These rules change a value's representation, not the architecture. They never justify classes, shared state or an object that holds the engine's dependencies.
 
 Budget: every `LanguageComparisonBenchmarks` case may allocate at most 5% more than C#. Time is advisory on this machine; an AOT time comparison on a quiet machine is part of `fsharp-backup-presentation` (Gate B).
 
@@ -177,7 +179,7 @@ The skeleton (projects, build settings, `Outcome`, `Flow`, the command template,
 
 | # | Change | Capabilities | Exit criteria |
 |---|---|---|---|
-| 1 | `fsharp-profile-config` | profile-config | Every scenario tested. **Gate A:** the rule-heavy code is clearly simpler than the C# version, in the reviewer's judgment, backed by line and invariant counts |
+| 1 | `fsharp-profile-config` | profile-config | Every scenario tested. **Gate A:** the rule-heavy code is clearly simpler than the C# version, and idiomatic F# rather than a port, in the reviewer's judgment, backed by line and invariant counts and the convention review |
 | 2 | `fsharp-backup-engine` (this) | backup-execution (engine and `vara backup`) | D8 layers 1–4 green; allocation budget held |
 | 3 | `fsharp-backup-presentation` | cli-presentation and progress-reporting (backup and dry run); the rest of backup-execution | **Gate B:** on a quiet machine, AOT wall-clock time within ±5% of C#; peak memory and executable size recorded and within the agreed margin; zero AOT warnings |
 | 4 | `fsharp-snapshot-history` | snapshot-history, backup-browsing, restore progress | Every scenario tested |

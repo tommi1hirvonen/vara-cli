@@ -118,8 +118,9 @@ At the end of this change, the commit message records:
 1. **Code lines** (excluding comments and brace-only lines) of the F# configuration code, against the 321 lines in C#. The target is at most 75%.
 2. **Runtime validation outcomes and bypasses** in each language: exceptions thrown for validation and caught again, flags that bypass a rule, and consumers that re-check an invariant. The target is none in F#.
 3. **Parity and coverage:** the parity suite is green and every owned scenario is covered.
+4. **Idiom:** the convention review from the proposal's "Functional steering" passes. There are no classes, interfaces or `mutable` in `Vara.Domain`, no dependency passed as an object, and no module named after a role (`Loader`, `Resolver` as classes, `Helper`, `Service`). A change that is fewer lines but still shaped like the C# code does not pass.
 
-The reviewer then reads both implementations side by side and decides whether F# is clearly simpler.
+The reviewer then reads both implementations side by side and decides whether F# is clearly simpler and idiomatic.
 
 - **If it passes:** the series continues with `fsharp-backup-engine`.
 - **If it fails:** the series stops as described in the migration roadmap, and the findings are recorded in `fsharp-backup-engine` before that change is abandoned.

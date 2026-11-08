@@ -22,13 +22,19 @@
 - [ ] 4.1 Write the parity suite (design D6): load the shared YAML corpus with the C# `YamlProfileConfigLoader` and with the F# loader, and require equal profiles or equal error messages. Verify that `dotnet test tests/fsharp/Vara.Engine.Tests` passes.
 - [ ] 4.2 Add the coverage test for `openspec/specs/profile-config/spec.md`, excluding "Profile without a retention policy" (owned by `fsharp-retention-and-integrity`). Verify that it passes, and that it fails when one scenario test is temporarily renamed.
 - [ ] 4.3 Final verification: `dotnet build Vara.slnx` reports no FS or CS warnings; `dotnet test Vara.slnx` passes for both the C# and F# suites; and `dotnet publish src/fsharp/Vara.Cli -c Release -r win-x64` still reports no IL2xxx/IL3xxx warnings.
-- [ ] 4.4 Record the Gate A measurements from design D7 in the commit message: code lines against C#'s 321, runtime validation outcomes and bypasses in each language, and parity and coverage results. Ask the reviewer for the Gate A decision, and record it.
+- [ ] 4.4 Convention review against the proposal's "Functional steering". Verify that:
+  - `git grep -nE "\binterface\b|\binherit\b|\babstract\b|\bmember\b|\bnew\s*\(|\bmutable\b|\b(Helper|Manager|Service|Util)\b|\bI[A-Z][a-z]" -- src/fsharp/Vara.Domain` returns nothing;
+  - the same search in `src/fsharp/Vara.Engine` has only hits that the commit message justifies (for example YamlDotNet types);
+  - the loader and the resolver are modules whose functions take their inputs as parameters, and loading reads as one pipeline;
+  - each field validator is a function that returns `Result`, and the `result { }` builder is the only control-flow abstraction.
+- [ ] 4.5 Record the Gate A measurements from design D7 in the commit message: code lines against C#'s 321, runtime validation outcomes and bypasses in each language, parity and coverage results, and the convention review. Ask the reviewer for the Gate A decision, and record it.
 
 ## 5. Update the following changes
 
 - [ ] 5.1 Update `fsharp-backup-engine` with this change's findings, using the `openspec-update-change` workflow:
   - it uses this change's profile model and resolution, and its own spec-coverage check comes from `Vara.Testing`;
   - its task that adds C# project references to `Vara.Engine.Tests` only needs to add `Vara.Application`;
-  - any new F# lessons go into its D5 and D6.
+  - any new F# lessons go into its D5 and D6;
+  - its proposal keeps the "Functional steering" section, extended with the conventions this change established in code (the `result` builder, the types, and the module layout).
 
   If Gate A failed, record the decision there instead and stop the series. Revise the proposals of the later changes only if their scope, dependencies or gates have shifted, and confirm that every scenario in `openspec/specs` is still owned by exactly one change in the series. Verify that `openspec validate` passes for every changed change.
