@@ -198,31 +198,32 @@ public static class ProfilesCommand
                         lastSavedProfile = editSaved.Name;
                     }
                     break;
-                case DeleteProfile:
-                case CancelAction:
-                    throw new InvalidOperationException($"Unexpected menu action: {action.GetType().Name}.");
             }
         }
     }
 
     // ---- Main menu ----
 
-    private closed record MenuAction(string Label);
+    private closed record MainMenuAction(string Label);
 
-    private sealed record EditProfile(Profile Profile, string Label) : MenuAction(Label);
-    private sealed record AddNewProfile() : MenuAction("Add new profile");
-    private sealed record StartDeleteProfile() : MenuAction("Delete a profile");
-    private sealed record DeleteProfile(Profile Profile, string Label) : MenuAction(Label);
-    private sealed record QuitAction() : MenuAction("Quit");
-    private sealed record CancelAction() : MenuAction("Cancel");
+    private sealed record EditProfile(Profile Profile, string Label) : MainMenuAction(Label);
+    private sealed record AddNewProfile() : MainMenuAction("Add new profile");
+    private sealed record StartDeleteProfile() : MainMenuAction("Delete a profile");
+    private sealed record QuitAction() : MainMenuAction("Quit");
 
-    private static SelectionPrompt<MenuAction> BuildMainMenuPrompt(List<Profile> profiles)
+    private closed record DeleteMenuAction(string Label);
+
+    private sealed record DeleteProfile(Profile Profile, string Label) : DeleteMenuAction(Label);
+    private sealed record CancelAction() : DeleteMenuAction("Cancel");
+
+    private static SelectionPrompt<MainMenuAction> BuildMainMenuPrompt(List<Profile> profiles)
     {
-        var prompt = new SelectionPrompt<MenuAction>()
+        var prompt = new SelectionPrompt<MainMenuAction>()
             .Title("Vara profiles - select a profile to edit, or an action:")
             .PageSize(15)
             // Every prompt over a non-primitive type must set an explicit Converter - see
-            // design.md's "Command/presentation shape" decision: MenuAction has no
+            // design.md's "Command/presentation shape" decision: the menu action types
+            // (MainMenuAction, DeleteMenuAction) have no
             // TypeConverter, so the default conversion path would throw
             // InvalidOperationException the first time this prompt is shown.
             .UseConverter(menuAction => menuAction.Label);
@@ -256,7 +257,7 @@ public static class ProfilesCommand
         errorMessage = null;
         console.Clear();
 
-        var prompt = new SelectionPrompt<MenuAction>()
+        var prompt = new SelectionPrompt<DeleteMenuAction>()
             .Title("Select a profile to delete:")
             .PageSize(15)
             .UseConverter(menuAction => menuAction.Label);
@@ -273,8 +274,6 @@ public static class ProfilesCommand
         {
             DeleteProfile deleteProfile => deleteProfile.Profile,
             CancelAction => null,
-            EditProfile or AddNewProfile or StartDeleteProfile or QuitAction =>
-                throw new InvalidOperationException($"Unexpected delete-menu action: {selected.GetType().Name}."),
         };
         if (target is null)
         {

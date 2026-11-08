@@ -24,50 +24,15 @@ public static class BackupDiffer
 
         foreach (var item in scanned)
         {
-            if (!item.HasValue)
+            var change = item switch
             {
-                throw new InvalidOperationException("A scanned item must contain a file or link.");
-            }
+                ScannedLink link => ClassifyLink(link, currentState, scannedPaths),
+                ScannedFile file => ClassifyFile(file, currentState, scannedPaths),
+            };
 
-            if (item.TryGetValue(out ScannedLink link))
+            if (change is not null)
             {
-                scannedPaths.Add(link.RelativePath);
-                // Symlinks/junctions are never diffed as content - the backup-execution
-                // spec requires their target is never followed. A link already tracked
-                // as linked needs no new pending change; it's simply "seen" this run
-                // (scannedPaths, above), so it's never misclassified as added, deleted,
-                // or changed on a later run (spec: "Symlink present across multiple
-                // runs"). A link that's new, or replacing a previously tracked regular
-                // file, still needs a pending change so its existence (and target path)
-                // is actually recorded (spec: "Previously tracked file replaced by a
-                // symlink").
-                var alreadyLinked = currentState.TryGetValue(link.RelativePath, out var linkState) && linkState.IsLinked;
-                if (!alreadyLinked)
-                {
-                    pending.Add(new PendingChange(item, PendingChangeKind.Linked));
-                }
-
-                continue;
-            }
-
-            if (!item.TryGetValue(out ScannedFile file))
-            {
-                throw new InvalidOperationException("A scanned item contained no recognized variant.");
-            }
-
-            scannedPaths.Add(file.RelativePath);
-            if (currentState.TryGetValue(file.RelativePath, out var current))
-            {
-                if (current.Size == file.Size && current.SourceModifiedAt == file.ModifiedAt)
-                {
-                    continue; // unchanged - no manifest row needed
-                }
-
-                pending.Add(new PendingChange(item, PendingChangeKind.Changed));
-            }
-            else
-            {
-                pending.Add(new PendingChange(item, PendingChangeKind.Added));
+                pending.Add(change);
             }
         }
 
@@ -83,6 +48,42 @@ public static class BackupDiffer
             .ToList();
 
         return new DiffResult(pending, deleted);
+    }
+
+    private static PendingChange? ClassifyLink(
+        ScannedLink link,
+        IReadOnlyDictionary<string, CurrentFileState> currentState,
+        HashSet<string> scannedPaths)
+    {
+        scannedPaths.Add(link.RelativePath);
+        // Symlinks/junctions are never diffed as content - the backup-execution
+        // spec requires their target is never followed. A link already tracked
+        // as linked needs no new pending change; it's simply "seen" this run
+        // (scannedPaths, above), so it's never misclassified as added, deleted,
+        // or changed on a later run (spec: "Symlink present across multiple
+        // runs"). A link that's new, or replacing a previously tracked regular
+        // file, still needs a pending change so its existence (and target path)
+        // is actually recorded (spec: "Previously tracked file replaced by a
+        // symlink").
+        var alreadyLinked = currentState.TryGetValue(link.RelativePath, out var linkState) && linkState.IsLinked;
+        return alreadyLinked ? null : new LinkedEntry(link);
+    }
+
+    private static PendingChange? ClassifyFile(
+        ScannedFile file,
+        IReadOnlyDictionary<string, CurrentFileState> currentState,
+        HashSet<string> scannedPaths)
+    {
+        scannedPaths.Add(file.RelativePath);
+        if (!currentState.TryGetValue(file.RelativePath, out var current))
+        {
+            return new AddedFile(file);
+        }
+
+        // Unchanged - no manifest row needed.
+        return current.Size == file.Size && current.SourceModifiedAt == file.ModifiedAt
+            ? null
+            : new ChangedFile(file);
     }
 
     /// <summary>

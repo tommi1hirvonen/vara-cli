@@ -244,23 +244,18 @@ public sealed class BackupPipeline(
             var deleted = 0;
             foreach (var operation in plan.Operations)
             {
-                switch (operation)
+                var (addedDelta, changedDelta, movedDelta, deletedDelta) = operation switch
                 {
-                    case AddOperation:
-                        added++;
-                        break;
-                    case ChangeOperation:
-                        changed++;
-                        break;
-                    case MoveOperation:
-                        moved++;
-                        break;
-                    case DeleteOperation:
-                        deleted++;
-                        break;
-                    case LinkOperation:
-                        break;
-                }
+                    AddOperation => (1, 0, 0, 0),
+                    ChangeOperation => (0, 1, 0, 0),
+                    MoveOperation => (0, 0, 1, 0),
+                    DeleteOperation => (0, 0, 0, 1),
+                    LinkOperation => (0, 0, 0, 0),
+                };
+                added += addedDelta;
+                changed += changedDelta;
+                moved += movedDelta;
+                deleted += deletedDelta;
             }
             var failedPaths = scanResult.Failures.Select(f => f.RelativePath).ToList();
 

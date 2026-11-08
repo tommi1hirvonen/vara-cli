@@ -3,21 +3,20 @@ using Vara.Core.Snapshots;
 
 namespace Vara.Application.Backup;
 
-/// <summary>Pre-move-detection classification of a scanned entry against the manifest.</summary>
-public enum PendingChangeKind
-{
-    Added,
-    Changed,
-
-    /// <summary>
-    /// A symlink/junction newly observed at this path, or replacing a previously
-    /// tracked regular file - never a move candidate (see <see cref="BackupPlanner"/>).
-    /// </summary>
-    Linked
-}
-
 /// <summary>A scanned entry whose content differs from (or is absent from) the current manifest state.</summary>
-public sealed record PendingChange(ScanItem Entry, PendingChangeKind Kind);
+public closed record PendingChange;
+
+/// <summary>A file with no prior manifest row - a plausible move target.</summary>
+public sealed record AddedFile(ScannedFile File) : PendingChange;
+
+/// <summary>A file whose size or modified time differs from its manifest row.</summary>
+public sealed record ChangedFile(ScannedFile File) : PendingChange;
+
+/// <summary>
+/// A symlink/junction newly observed at this path, or replacing a previously
+/// tracked regular file - never a move candidate (see <see cref="BackupPlanner"/>).
+/// </summary>
+public sealed record LinkedEntry(ScannedLink Link) : PendingChange;
 
 /// <summary>
 /// The result of the diff stage: candidate changes needing content resolution,
@@ -33,8 +32,8 @@ public sealed record DiffResult(IReadOnlyList<PendingChange> Pending, IReadOnlyL
 /// </summary>
 public sealed record BackupPlan(IReadOnlyList<PlannedOperation> Operations, long TotalBytesToTransfer)
 {
-    /// <summary>The planned Add/Change operations that will transfer file content.</summary>
-    public int TotalFilesToTransfer => Operations.Count(o => o is AddOperation or ChangeOperation);
+    /// <summary>The planned transfer operations that will copy file content.</summary>
+    public int TotalFilesToTransfer => Operations.Count(o => o is TransferOperation);
 }
 
 /// <summary>Live execute-stage progress: successfully transferred files and bytes vs. planned totals.</summary>

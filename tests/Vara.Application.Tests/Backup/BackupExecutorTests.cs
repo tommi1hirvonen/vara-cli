@@ -917,10 +917,8 @@ public class BackupExecutorTests : IDisposable
         var scannedEntry = ScanItem.File("torn.txt", path, currentOnDiskInfo.Length, currentOnDiskInfo.LastWriteTimeUtc);
         var diffResult = BackupDiffer.Diff([scannedEntry], _repository.GetCurrentState(), []);
 
-        var pending = Assert.Single(diffResult.Pending);
-        Assert.True(pending.Entry.TryGetValue(out ScannedFile scannedFile));
-        Assert.Equal("torn.txt", scannedFile.RelativePath);
-        Assert.Equal(PendingChangeKind.Added, pending.Kind);
+        var pending = Assert.IsType<AddedFile>(Assert.Single(diffResult.Pending));
+        Assert.Equal("torn.txt", pending.File.RelativePath);
     }
 
     [Fact]

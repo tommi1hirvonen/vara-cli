@@ -56,8 +56,8 @@ public class BackupPlannerTests : IDisposable
     public void A_genuinely_new_file_is_planned_as_an_add_and_counted_in_the_byte_total()
     {
         var path = WriteFile("new.txt", "hello world");
-        var entry = ScanItem.File("new.txt", path, 11, DateTimeOffset.UtcNow);
-        var diff = new DiffResult([new PendingChange(entry, PendingChangeKind.Added)], []);
+        var entry = new ScannedFile("new.txt", path, 11, DateTimeOffset.UtcNow);
+        var diff = new DiffResult([new AddedFile(entry)], []);
 
         var plan = _planner.Plan(diff, new Dictionary<string, CurrentFileState>());
 
@@ -69,8 +69,8 @@ public class BackupPlannerTests : IDisposable
     [Fact]
     public void A_linked_entry_produces_a_metadata_only_link_operation_carrying_the_target_path()
     {
-        var entry = ScanItem.Link("link", @"C:\src\link", @"C:\target");
-        var diff = new DiffResult([new PendingChange(entry, PendingChangeKind.Linked)], []);
+        var entry = new ScannedLink("link", @"C:\src\link", @"C:\target");
+        var diff = new DiffResult([new LinkedEntry(entry)], []);
 
         var plan = _planner.Plan(diff, new Dictionary<string, CurrentFileState>());
 
@@ -88,8 +88,8 @@ public class BackupPlannerTests : IDisposable
         var newPath = WriteFile("Documents/report.pdf".Replace('/', Path.DirectorySeparatorChar), content);
         var size = new FileInfo(newPath).Length;
 
-        var scannedEntry = ScanItem.File(@"Documents\report.pdf", newPath, size, DateTimeOffset.UtcNow);
-        var diff = new DiffResult([new PendingChange(scannedEntry, PendingChangeKind.Added)], [@"Downloads\report.pdf"]);
+        var scannedEntry = new ScannedFile(@"Documents\report.pdf", newPath, size, DateTimeOffset.UtcNow);
+        var diff = new DiffResult([new AddedFile(scannedEntry)], [@"Downloads\report.pdf"]);
         var currentState = new Dictionary<string, CurrentFileState>
         {
             [@"Downloads\report.pdf"] = new(@"Downloads\report.pdf", HashOf(content), size, DateTimeOffset.UtcNow.AddDays(-1)),
@@ -109,8 +109,8 @@ public class BackupPlannerTests : IDisposable
         var newPath = WriteFile("new.txt", "AAAAAAAAAA");
         var size = new FileInfo(newPath).Length;
 
-        var scannedEntry = ScanItem.File("new.txt", newPath, size, DateTimeOffset.UtcNow);
-        var diff = new DiffResult([new PendingChange(scannedEntry, PendingChangeKind.Added)], ["old.txt"]);
+        var scannedEntry = new ScannedFile("new.txt", newPath, size, DateTimeOffset.UtcNow);
+        var diff = new DiffResult([new AddedFile(scannedEntry)], ["old.txt"]);
         var currentState = new Dictionary<string, CurrentFileState>
         {
             ["old.txt"] = new("old.txt", HashOf("BBBBBBBBBB"), size, DateTimeOffset.UtcNow.AddDays(-1)),
@@ -130,8 +130,8 @@ public class BackupPlannerTests : IDisposable
         var path = WriteFile("existing.txt", "new content, same size as deleted file");
         var size = new FileInfo(path).Length;
 
-        var scannedEntry = ScanItem.File("existing.txt", path, size, DateTimeOffset.UtcNow);
-        var diff = new DiffResult([new PendingChange(scannedEntry, PendingChangeKind.Changed)], ["deleted.txt"]);
+        var scannedEntry = new ScannedFile("existing.txt", path, size, DateTimeOffset.UtcNow);
+        var diff = new DiffResult([new ChangedFile(scannedEntry)], ["deleted.txt"]);
         var currentState = new Dictionary<string, CurrentFileState>
         {
             ["existing.txt"] = new("existing.txt", HashOf("old content"), size, DateTimeOffset.UtcNow.AddDays(-1)),
@@ -169,8 +169,8 @@ public class BackupPlannerTests : IDisposable
         var hasher = new CountingHasher();
         var planner = new BackupPlanner(hasher);
 
-        var scannedEntry = ScanItem.File("new.bin", path, addedContent.Length, DateTimeOffset.UtcNow);
-        var diff = new DiffResult([new PendingChange(scannedEntry, PendingChangeKind.Added)], ["old.bin"]);
+        var scannedEntry = new ScannedFile("new.bin", path, addedContent.Length, DateTimeOffset.UtcNow);
+        var diff = new DiffResult([new AddedFile(scannedEntry)], ["old.bin"]);
         var currentState = new Dictionary<string, CurrentFileState>
         {
             ["old.bin"] = new(
@@ -193,8 +193,8 @@ public class BackupPlannerTests : IDisposable
         var hasher = new CountingHasher();
         var planner = new BackupPlanner(hasher);
 
-        var scannedEntry = ScanItem.File(@"Documents\report.bin", path, content.Length, DateTimeOffset.UtcNow);
-        var diff = new DiffResult([new PendingChange(scannedEntry, PendingChangeKind.Added)], [@"Downloads\report.bin"]);
+        var scannedEntry = new ScannedFile(@"Documents\report.bin", path, content.Length, DateTimeOffset.UtcNow);
+        var diff = new DiffResult([new AddedFile(scannedEntry)], [@"Downloads\report.bin"]);
         var currentState = new Dictionary<string, CurrentFileState>
         {
             [@"Downloads\report.bin"] = new(
@@ -221,8 +221,8 @@ public class BackupPlannerTests : IDisposable
         var differentSameSizeContent = RepeatingBytes(50, fill: 0x22);
         var path = WriteFile("new.bin", content);
 
-        var scannedEntry = ScanItem.File("new.bin", path, content.Length, DateTimeOffset.UtcNow);
-        var diff = new DiffResult([new PendingChange(scannedEntry, PendingChangeKind.Added)], ["unmatched.bin", "no-signature.bin"]);
+        var scannedEntry = new ScannedFile("new.bin", path, content.Length, DateTimeOffset.UtcNow);
+        var diff = new DiffResult([new AddedFile(scannedEntry)], ["unmatched.bin", "no-signature.bin"]);
         var currentState = new Dictionary<string, CurrentFileState>
         {
             ["unmatched.bin"] = new(
@@ -247,12 +247,11 @@ public class BackupPlannerTests : IDisposable
         // Many size-matched entries force the parallel signature-computation phase to
         // actually run across multiple candidates concurrently, not just a single one.
         var otherEntries = Enumerable.Range(0, 20)
-            .Select(i => new PendingChange(
-                ScanItem.File($"other-{i}.txt", WriteFile($"other-{i}.txt", $"unrelated content {i}"), size, DateTimeOffset.UtcNow),
-                PendingChangeKind.Added))
+            .Select(i => new AddedFile(
+                new ScannedFile($"other-{i}.txt", WriteFile($"other-{i}.txt", $"unrelated content {i}"), size, DateTimeOffset.UtcNow)))
             .ToList();
-        var scannedEntry = ScanItem.File("new.txt", path, size, DateTimeOffset.UtcNow);
-        var pending = new List<PendingChange> { new(scannedEntry, PendingChangeKind.Added) };
+        var scannedEntry = new ScannedFile("new.txt", path, size, DateTimeOffset.UtcNow);
+        var pending = new List<PendingChange> { new AddedFile(scannedEntry) };
         pending.AddRange(otherEntries);
 
         var diff = new DiffResult(pending, ["first-candidate.txt", "second-candidate.txt"]);
@@ -291,8 +290,8 @@ public class BackupPlannerTests : IDisposable
             {
                 var content = RepeatingBytes(64, fill: (byte)i);
                 var path = WriteFile($"added-{i}.bin", content);
-                return new PendingChange(
-                    ScanItem.File($"added-{i}.bin", path, content.Length, DateTimeOffset.UtcNow), PendingChangeKind.Added);
+                return new AddedFile(
+                    new ScannedFile($"added-{i}.bin", path, content.Length, DateTimeOffset.UtcNow));
             })
             .ToList();
 
@@ -319,8 +318,8 @@ public class BackupPlannerTests : IDisposable
         var size = new FileInfo(path).Length;
         var previousHash = HashOf("old content");
 
-        var scannedEntry = ScanItem.File("existing.txt", path, size, DateTimeOffset.UtcNow);
-        var diff = new DiffResult([new PendingChange(scannedEntry, PendingChangeKind.Changed)], []);
+        var scannedEntry = new ScannedFile("existing.txt", path, size, DateTimeOffset.UtcNow);
+        var diff = new DiffResult([new ChangedFile(scannedEntry)], []);
         var currentState = new Dictionary<string, CurrentFileState>
         {
             ["existing.txt"] = new("existing.txt", previousHash, size, DateTimeOffset.UtcNow.AddDays(-1)),
@@ -336,8 +335,8 @@ public class BackupPlannerTests : IDisposable
     public void An_added_entry_produces_an_add_operation()
     {
         var path = WriteFile("new.txt", "hello world");
-        var entry = ScanItem.File("new.txt", path, 11, DateTimeOffset.UtcNow);
-        var diff = new DiffResult([new PendingChange(entry, PendingChangeKind.Added)], []);
+        var entry = new ScannedFile("new.txt", path, 11, DateTimeOffset.UtcNow);
+        var diff = new DiffResult([new AddedFile(entry)], []);
 
         var plan = _planner.Plan(diff, new Dictionary<string, CurrentFileState>());
 

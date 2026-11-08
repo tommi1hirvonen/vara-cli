@@ -45,72 +45,18 @@ public sealed class BackupPlanner(IHasher hasher, int maxDegreeOfParallelism = 0
 
         foreach (var change in diff.Pending)
         {
-            if (change.Kind == PendingChangeKind.Linked)
+            var operation = change switch
             {
-                if (!change.Entry.TryGetValue(out ScannedLink link))
-                {
-                    throw new InvalidOperationException("A linked change must contain a scanned link.");
-                }
+                LinkedEntry linked => PlanLink(linked.Link, currentState),
+                AddedFile added => PlanAddedOrMove(added.File, deletedCandidatesBySize, fullHashes, consumedAsMoveSource),
+                ChangedFile changed => PlanChanged(changed.File, currentState),
+            };
 
-                // Metadata-only, like Move/Delete below - never a move candidate (its
-                // size is always 0 and it has no real content to hash), and no bytes to
-                // transfer. LinkTarget carries the link's target path; KnownContentHash
-                // stays null since there is no content-store hash for a link.
-                // PreviousContentHash is set only for a file-to-link transition (the
-                // path was not already tracked as a link), carrying the superseded
-                // content's hash so the executor can remove it from the mirror - a Link
-                // op otherwise performs no mirror I/O.
-                var previousLinkContentHash = currentState.TryGetValue(link.RelativePath, out var previousLinkState) &&
-                    !previousLinkState.IsLinked
-                    ? previousLinkState.ContentHash
-                    : null;
-                operations.Add(new LinkOperation(link.RelativePath, previousLinkContentHash, link.LinkTarget));
-                continue;
+            operations.Add(operation);
+            if (operation is TransferOperation transfer)
+            {
+                totalBytes += transfer.Size;
             }
-
-            var file = GetScannedFile(change.Entry);
-            CurrentFileState? moveMatch = null;
-            if (change.Kind == PendingChangeKind.Added &&
-                deletedCandidatesBySize.TryGetValue(file.Size, out var candidates) &&
-                fullHashes.TryGetValue(file.RelativePath, out var entryHash) &&
-                entryHash is not null)
-            {
-                moveMatch = FindMatch(entryHash, candidates, consumedAsMoveSource);
-            }
-
-            if (moveMatch is not null)
-            {
-                consumedAsMoveSource.Add(moveMatch.RelativePath);
-                operations.Add(new MoveOperation(
-                    file.RelativePath,
-                    moveMatch.RelativePath,
-                    moveMatch.ContentHash ?? throw new InvalidOperationException("A move match must have a content hash."),
-                    file.Size,
-                    file.ModifiedAt,
-                    moveMatch.QuickHash,
-                    moveMatch.QuickHashScheme));
-                continue;
-            }
-
-            // For a Changed entry, the manifest's current-state view already holds the
-            // previous content's hash (it's exactly how BackupDiffer classified this entry
-            // as Changed rather than Added) - carried forward so PlaceAtMirrorPath can
-            // restore read-only protection on that superseded blob after the overwrite
-            // (protect-hardlinked-mirror-files change's design.md). Add has no previous
-            // content at all, so this stays null for it.
-            var previousContentHash = change.Kind == PendingChangeKind.Changed &&
-                currentState.TryGetValue(file.RelativePath, out var previousState)
-                ? previousState.ContentHash
-                : null;
-            operations.Add(change.Kind switch
-            {
-                PendingChangeKind.Added => new AddOperation(file.RelativePath, file.AbsolutePath, file.Size, file.ModifiedAt),
-                PendingChangeKind.Changed => new ChangeOperation(
-                    file.RelativePath, file.AbsolutePath, file.Size, file.ModifiedAt, previousContentHash),
-                PendingChangeKind.Linked => throw new InvalidOperationException("A linked change must contain a scanned link."),
-                _ => throw new ArgumentOutOfRangeException(nameof(change.Kind), change.Kind, "Unsupported pending change kind."),
-            });
-            totalBytes += file.Size;
         }
 
         foreach (var path in diff.DeletedPaths)
@@ -141,16 +87,16 @@ public sealed class BackupPlanner(IHasher hasher, int maxDegreeOfParallelism = 0
     {
         var results = new ConcurrentDictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         var sizeMatchedAdds = pending
-            .Where(change => change.Kind == PendingChangeKind.Added &&
-                deletedCandidatesBySize.ContainsKey(GetScannedFile(change.Entry).Size))
+            .OfType<AddedFile>()
+            .Where(added => deletedCandidatesBySize.ContainsKey(added.File.Size))
             .ToList();
 
         Parallel.ForEach(
             sizeMatchedAdds,
             new ParallelOptions { MaxDegreeOfParallelism = _maxDegreeOfParallelism },
-            change =>
+            added =>
             {
-                var file = GetScannedFile(change.Entry);
+                var file = added.File;
                 var candidates = deletedCandidatesBySize[file.Size];
                 results[file.RelativePath] = ComputeFullHashIfCandidateMatchPossible(file, candidates);
             });
@@ -212,14 +158,58 @@ public sealed class BackupPlanner(IHasher hasher, int maxDegreeOfParallelism = 0
         }
     }
 
-    private static ScannedFile GetScannedFile(ScanItem item)
+    private static LinkOperation PlanLink(ScannedLink link, IReadOnlyDictionary<string, CurrentFileState> currentState)
     {
-        if (!item.TryGetValue(out ScannedFile file))
+        // Metadata-only, like Move/Delete - never a move candidate (its size is always
+        // 0 and it has no real content to hash), and no bytes to transfer. LinkTarget
+        // carries the link's target path; KnownContentHash stays null since there is no
+        // content-store hash for a link. PreviousContentHash is set only for a
+        // file-to-link transition (the path was not already tracked as a link),
+        // carrying the superseded content's hash so the executor can remove it from the
+        // mirror - a Link op otherwise performs no mirror I/O.
+        var previousContentHash = currentState.TryGetValue(link.RelativePath, out var previousState) &&
+            !previousState.IsLinked
+            ? previousState.ContentHash
+            : null;
+        return new LinkOperation(link.RelativePath, previousContentHash, link.LinkTarget);
+    }
+
+    private static PlannedOperation PlanAddedOrMove(
+        ScannedFile file,
+        Dictionary<long, List<CurrentFileState>> deletedCandidatesBySize,
+        ConcurrentDictionary<string, string?> fullHashes,
+        HashSet<string> consumedAsMoveSource)
+    {
+        if (deletedCandidatesBySize.TryGetValue(file.Size, out var candidates) &&
+            fullHashes.TryGetValue(file.RelativePath, out var entryHash) &&
+            entryHash is not null &&
+            FindMatch(entryHash, candidates, consumedAsMoveSource) is { } moveMatch)
         {
-            throw new InvalidOperationException("A file change must contain a scanned file.");
+            consumedAsMoveSource.Add(moveMatch.RelativePath);
+            return new MoveOperation(
+                file.RelativePath,
+                moveMatch.RelativePath,
+                moveMatch.ContentHash ?? throw new InvalidOperationException("A move match must have a content hash."),
+                file.Size,
+                file.ModifiedAt,
+                moveMatch.QuickHash,
+                moveMatch.QuickHashScheme);
         }
 
-        return file;
+        return new AddOperation(file.RelativePath, file.AbsolutePath, file.Size, file.ModifiedAt);
+    }
+
+    private static ChangeOperation PlanChanged(ScannedFile file, IReadOnlyDictionary<string, CurrentFileState> currentState)
+    {
+        // The manifest's current-state view already holds the previous content's hash
+        // (it's exactly how BackupDiffer classified this entry as Changed rather than
+        // Added) - carried forward so PlaceAtMirrorPath can restore read-only
+        // protection on that superseded blob after the overwrite
+        // (protect-hardlinked-mirror-files change's design.md).
+        var previousContentHash = currentState.TryGetValue(file.RelativePath, out var previousState)
+            ? previousState.ContentHash
+            : null;
+        return new ChangeOperation(file.RelativePath, file.AbsolutePath, file.Size, file.ModifiedAt, previousContentHash);
     }
 
     private static CurrentFileState? FindMatch(string entryHash, List<CurrentFileState> candidates, HashSet<string> consumed)

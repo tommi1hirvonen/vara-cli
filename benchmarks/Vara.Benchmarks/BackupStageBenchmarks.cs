@@ -128,9 +128,9 @@ public class BackupPlannerBenchmarks
         const string oldRelativePath = "source\\old-location.bin";
         const string addedRelativePath = "source\\new-location.bin";
         var fileInfo = new FileInfo(addedPath);
-        var scannedFile = ScanItem.File(addedRelativePath, addedPath, fileInfo.Length, fileInfo.LastWriteTimeUtc);
+        var scannedFile = new ScannedFile(addedRelativePath, addedPath, fileInfo.Length, fileInfo.LastWriteTimeUtc);
         _diff = new DiffResult(
-            [new PendingChange(scannedFile, PendingChangeKind.Added)],
+            [new AddedFile(scannedFile)],
             [oldRelativePath]);
         _currentState = new Dictionary<string, CurrentFileState>(StringComparer.OrdinalIgnoreCase)
         {

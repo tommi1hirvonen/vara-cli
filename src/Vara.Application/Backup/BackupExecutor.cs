@@ -68,14 +68,7 @@ public sealed class BackupExecutor(
         var counts = new Counts { LastCheckpointUtc = DateTime.UtcNow };
         var failedPaths = new List<string>();
 
-        foreach (var operation in plan.Operations.Where(operation => operation switch
-                 {
-                     MoveOperation => true,
-                     DeleteOperation => true,
-                     LinkOperation => true,
-                     AddOperation => false,
-                     ChangeOperation => false,
-                 }))
+        foreach (var operation in plan.Operations.OfType<MetadataOperation>())
         {
             // Cooperative cancellation: stop starting new metadata-only operations once a
             // graceful Ctrl+C stop has been requested. Whatever has already started is
@@ -98,14 +91,7 @@ public sealed class BackupExecutor(
         // time (fix-transfer-clock-start change's design.md).
         onTransferPhaseStarting?.Invoke();
 
-        var transferOperations = plan.Operations.Where(operation => operation switch
-        {
-            AddOperation => true,
-            ChangeOperation => true,
-            MoveOperation => false,
-            DeleteOperation => false,
-            LinkOperation => false,
-        }).ToList();
+        var transferOperations = plan.Operations.OfType<TransferOperation>().ToList();
 
         // Workers run off-thread and only publish immutable results; this (the calling)
         // thread is the single recorder that owns the repository, manifest batch, counters,
@@ -248,7 +234,7 @@ public sealed class BackupExecutor(
     }
 
     private void ExecuteMetadataOnlyOperation(
-        PlannedOperation operation,
+        MetadataOperation operation,
         long snapshotId,
         DateTimeOffset recordedAt,
         Counts counts,
@@ -298,10 +284,6 @@ public sealed class BackupExecutor(
                         0, DateTimeOffset.MinValue, FileChangeKind.Linked, recordedAt,
                         linkTarget: link.LinkTarget);
                     break;
-
-                case AddOperation:
-                case ChangeOperation:
-                    throw new InvalidOperationException("A transfer operation cannot be executed as metadata-only.");
             }
 
             CheckpointIfDue(counts, manifestBatch);
@@ -315,24 +297,19 @@ public sealed class BackupExecutor(
     }
 
     private void ExecuteTransfer(
-        PlannedOperation operation,
+        TransferOperation operation,
         ChannelWriter<TransferResult> results,
         Action<long>? onBytesTransferred,
         Action<string>? onFileStarted,
         Action<string>? onFileFinished)
     {
-        var (sourceAbsolutePath, scannedSize, sourceModifiedAt, previousContentHash, changeKind) = operation switch
+        var sourceAbsolutePath = operation.SourceAbsolutePath;
+        var scannedSize = operation.Size;
+        var sourceModifiedAt = operation.SourceModifiedAt;
+        var (previousContentHash, changeKind) = operation switch
         {
-            AddOperation add => (add.SourceAbsolutePath, add.Size, add.SourceModifiedAt, null, FileChangeKind.Added),
-            ChangeOperation change => (
-                change.SourceAbsolutePath,
-                change.Size,
-                change.SourceModifiedAt,
-                change.PreviousContentHash,
-                FileChangeKind.Changed),
-            MoveOperation => throw new InvalidOperationException("A move operation cannot be executed as a content transfer."),
-            DeleteOperation => throw new InvalidOperationException("A delete operation cannot be executed as a content transfer."),
-            LinkOperation => throw new InvalidOperationException("A link operation cannot be executed as a content transfer."),
+            AddOperation => ((string?)null, FileChangeKind.Added),
+            ChangeOperation change => (change.PreviousContentHash, FileChangeKind.Changed),
         };
         TransferResult? result = null;
         try

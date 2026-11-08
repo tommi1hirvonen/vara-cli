@@ -17,7 +17,7 @@ public class BackupDifferTests
     [Fact]
     public void An_empty_scan_item_is_rejected()
     {
-        Assert.Throws<InvalidOperationException>(
+        Assert.Throws<System.Runtime.CompilerServices.SwitchExpressionException>(
             () => BackupDiffer.Diff([default], new Dictionary<string, CurrentFileState>(), NoFailures));
     }
 
@@ -28,7 +28,7 @@ public class BackupDifferTests
         var result = BackupDiffer.Diff([Entry("new.txt", 10, now)], new Dictionary<string, CurrentFileState>(), NoFailures);
 
         var change = Assert.Single(result.Pending);
-        Assert.Equal(PendingChangeKind.Added, change.Kind);
+        Assert.IsType<AddedFile>(change);
         Assert.Empty(result.DeletedPaths);
     }
 
@@ -68,7 +68,7 @@ public class BackupDifferTests
         var result = BackupDiffer.Diff([Entry("file.txt", 20, now)], current, NoFailures);
 
         var change = Assert.Single(result.Pending);
-        Assert.Equal(PendingChangeKind.Changed, change.Kind);
+        Assert.IsType<ChangedFile>(change);
     }
 
     [Fact]
@@ -80,7 +80,7 @@ public class BackupDifferTests
         var result = BackupDiffer.Diff([Entry("file.txt", 10, now.AddMinutes(1))], current, NoFailures);
 
         var change = Assert.Single(result.Pending);
-        Assert.Equal(PendingChangeKind.Changed, change.Kind);
+        Assert.IsType<ChangedFile>(change);
     }
 
     [Fact]
@@ -102,7 +102,7 @@ public class BackupDifferTests
         var result = BackupDiffer.Diff([Entry("link", 0, now, isLink: true)], new Dictionary<string, CurrentFileState>(), NoFailures);
 
         var change = Assert.Single(result.Pending);
-        Assert.Equal(PendingChangeKind.Linked, change.Kind);
+        Assert.IsType<LinkedEntry>(change);
         Assert.Empty(result.DeletedPaths);
     }
 
@@ -115,7 +115,7 @@ public class BackupDifferTests
         var result = BackupDiffer.Diff([Entry("was-file", 0, now, isLink: true)], current, NoFailures);
 
         var change = Assert.Single(result.Pending);
-        Assert.Equal(PendingChangeKind.Linked, change.Kind);
+        Assert.IsType<LinkedEntry>(change);
         Assert.Empty(result.DeletedPaths);
     }
 

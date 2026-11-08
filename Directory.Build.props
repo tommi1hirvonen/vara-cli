@@ -3,5 +3,6 @@
         <TargetFramework>net11.0</TargetFramework>
         <Nullable>enable</Nullable>
         <LangVersion>preview</LangVersion>
+        <WarningsAsErrors>$(WarningsAsErrors);CS8509</WarningsAsErrors>
     </PropertyGroup>
 </Project>
