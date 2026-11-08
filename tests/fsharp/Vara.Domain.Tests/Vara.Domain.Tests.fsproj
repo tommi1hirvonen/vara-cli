@@ -11,6 +11,8 @@
     <Compile Include="DiffTests.fs" />
     <Compile Include="PlanningTests.fs" />
     <Compile Include="RunTests.fs" />
+    <Compile Include="ProgressTests.fs" />
+    <Compile Include="PresentationTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

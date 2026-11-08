@@ -13,13 +13,13 @@ open Vara.Cli
 open Vara.Domain
 open Vara.Engine
 
-type private Scratch =
+type Scratch =
     { Root: string
       Source: string
       Target: string
       Config: string }
 
-let private scratch (body: Scratch -> unit) =
+let scratch (body: Scratch -> unit) =
     let root = Path.Combine(Path.GetTempPath(), $"vara-cli-test-{Guid.NewGuid():N}")
     let source = Path.Combine(root, "source")
     let target = Path.Combine(root, "target")
@@ -43,18 +43,32 @@ let private scratch (body: Scratch -> unit) =
 
         Directory.Delete(root, true)
 
-let private write (setup: Scratch) (name: string) (text: string) : unit =
+let write (setup: Scratch) (name: string) (text: string) : unit =
     let path = Path.Combine(setup.Source, name)
     Directory.CreateDirectory(Path.GetDirectoryName path |> nonNull) |> ignore
     File.WriteAllText(path, text)
 
-type private Invocation =
+type Invocation =
     { ExitCode: int
       Output: string
       Errors: string
+      /// What `--json` wrote to its own writer.
+      Json: string
       Syntax: string }
 
-let private invokeWith (token: CancellationToken) (args: string array) : Invocation =
+/// Power calls that succeed and count their requests, so that no test keeps the machine awake.
+let countingPower (requests: int ref) : PowerCalls =
+    { Create =
+        fun _ ->
+            requests.Value <- requests.Value + 1
+            Ok 1n
+      SetSystemRequired = fun _ -> Ok()
+      ClearSystemRequired = fun _ -> Ok()
+      Close = fun _ -> Ok() }
+
+/// Runs the command with the console and the other effects as the test says. The default console is not a terminal,
+/// so the output is plain.
+let invokeEnv (customize: CliEnv -> CliEnv) (token: CancellationToken) (args: string array) : Invocation =
     let console = new TestConsole()
     let errorConsole = new TestConsole()
     // Wide enough that a message is never wrapped across lines.
@@ -62,10 +76,19 @@ let private invokeWith (token: CancellationToken) (args: string array) : Invocat
     errorConsole.Profile.Width <- 400
     let syntax = new StringWriter()
     let output = new StringWriter()
+    let json = new StringWriter()
 
-    let root =
-        Composition.rootCommand ()
-        |> Composition.withCommands console errorConsole BackupRun.live
+    let env =
+        customize
+            { Console = console
+              Capabilities = Terminal.capabilitiesOf console
+              ErrorConsole = errorConsole
+              JsonOut = json
+              MakeBackupEnv = BackupRun.live
+              Power = countingPower (ref 0)
+              TerminalSession = null }
+
+    let root = Composition.rootCommand () |> Composition.withCommands env
 
     let configuration =
         InvocationConfiguration(Output = output, Error = syntax, ProcessTerminationTimeout = Nullable())
@@ -73,11 +96,14 @@ let private invokeWith (token: CancellationToken) (args: string array) : Invocat
     let exitCode = root.Parse(args).InvokeAsync(configuration, token).GetAwaiter().GetResult()
 
     { ExitCode = exitCode
-      Output = console.Output
-      Errors = errorConsole.Output
+      Output = (env.Console :?> TestConsole).Output
+      Errors = (env.ErrorConsole :?> TestConsole).Output
+      Json = json.ToString()
       Syntax = syntax.ToString() + output.ToString() }
 
-let private invoke (args: string array) : Invocation = invokeWith CancellationToken.None args
+let invokeWith (token: CancellationToken) (args: string array) : Invocation = invokeEnv id token args
+
+let invoke (args: string array) : Invocation = invokeWith CancellationToken.None args
 
 let private mirrorFile (setup: Scratch) (name: string) : string =
     let key = ScanRules.toMirrorPath (Path.Combine(setup.Source, name)) |> ValueOption.get |> MirrorPath.value
@@ -246,11 +272,3 @@ module ``Profile configuration errors are reported`` =
             let result = invoke [| "backup"; "docs"; "--config"; setup.Config |]
             Assert.Equal(1, result.ExitCode)
             Assert.Contains("Profile 'docs' is invalid", result.Errors))
-
-module ``Interim summaries`` =
-    [<Fact>]
-    let ``Bytes are scaled to the largest fitting unit`` () =
-        Assert.Equal("0 B", BackupSummary.formatBytes 0L)
-        Assert.Equal("1023 B", BackupSummary.formatBytes 1023L)
-        Assert.Equal("1 KB", BackupSummary.formatBytes 1024L)
-        Assert.Equal("1.5 MB", BackupSummary.formatBytes (1024L * 1024L * 3L / 2L))

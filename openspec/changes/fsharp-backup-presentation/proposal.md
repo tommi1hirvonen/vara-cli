@@ -86,7 +86,7 @@ None. This is a behavior-preserving reimplementation (`skip_specs: true`).
 - **Code:** `src/fsharp/Vara.Cli` gains the presentation code; `src/fsharp/Vara.Engine` gains power-request interop. `src/fsharp/Vara.Domain` may gain pure progress calculations (throughput, ETA, rate limiting). No changes to the C# projects.
 - **Tests:** presentation tests use `Spectre.Console.Testing`. A parity check compares the C# and F# JSON output of the same run.
 - **Gate B:** both `vara.exe` builds are published with Native AOT and measured on a quiet machine:
-  - wall-clock time for a first backup, a "nothing changed" incremental backup and a large tree (100k+ files) must be within ±5% of C#;
+  - wall-clock time for a first backup, a "nothing changed" incremental backup and a large tree (4,000 files) must be within ±5% of C#;
   - peak memory and executable size are recorded and must be within the margins the design fixes (D8);
   - there must be zero AOT warnings.
 

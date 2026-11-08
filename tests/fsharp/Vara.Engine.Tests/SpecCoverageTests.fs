@@ -35,22 +35,52 @@ let ``every owned profile-config scenario has a test`` () =
         let missing = SpecCoverage.missingTests ownedElsewhere (testAssemblies ()) (File.ReadAllText path)
         Assert.True(missing.IsEmpty, "Scenarios without a test:\n" + String.Join("\n", missing |> List.map SpecCoverage.describe))
 
-/// Owned by fsharp-backup-presentation, together with the rest of the backup command's presentation.
-let private sleepPreventionRequirements: string list =
-    [ "Automatic system sleep is prevented during a real backup"
-      "Sleep-prevention request failure does not block backup" ]
+/// The scenarios of a spec that have no test, leaving out those that `excluded` picks from the spec's scenarios.
+let private missingIn (capability: string) (excluded: SpecCoverage.ScenarioId list -> SpecCoverage.ScenarioId list) : string list =
+    match specPath capability with
+    | Error message -> [ message ]
+    | Ok path ->
+        let text = File.ReadAllText path
+
+        SpecCoverage.missingTests (excluded (SpecCoverage.parseSpec text)) (testAssemblies ()) text
+        |> List.map SpecCoverage.describe
+
+/// The scenarios of the named requirements.
+let private ofRequirements (names: string list) (scenarios: SpecCoverage.ScenarioId list) : SpecCoverage.ScenarioId list =
+    scenarios |> List.filter (fun scenario -> List.contains scenario.Requirement names)
+
+/// The scenarios of every requirement but the named ones.
+let private exceptRequirements (names: string list) (scenarios: SpecCoverage.ScenarioId list) : SpecCoverage.ScenarioId list =
+    scenarios |> List.filter (fun scenario -> not (List.contains scenario.Requirement names))
+
+/// The `progress-reporting` requirements that later changes own, excluded by name.
+let private progressOwnedElsewhere: string list =
+    [ "Count-based progress indication for non-byte-transfer operations" // fsharp-retention-and-integrity
+      "Aggregate progress across a multi-file directory restore" // fsharp-snapshot-history
+      "Restore task labels are bounded to a fixed width" ] // fsharp-snapshot-history
+
+/// The `cli-presentation` requirements this change owns; the others belong to the commands that need them.
+let private cliPresentationOwned: string list =
+    [ "Outcome severity is visually distinct"
+      "Outcome severity determines process exit code"
+      "Non-interactive or color-incapable output falls back to plain text"
+      "Unclassified exceptions are rendered in the hard-error style"
+      "Machine-readable JSON output for the backup command" ]
+
+let private show (missing: string list) : string =
+    "Scenarios without a test: " + String.Join(" | ", missing)
 
 [<Fact>]
 let ``every owned backup-execution scenario has a test`` () =
-    match specPath "backup-execution" with
-    | Error message -> Assert.Fail message
-    | Ok path ->
-        let text = File.ReadAllText path
-        let excluded =
-            SpecCoverage.parseSpec text
-            |> List.filter (fun scenario -> List.contains scenario.Requirement sleepPreventionRequirements)
+    let missing = missingIn "backup-execution" (fun _ -> [])
+    Assert.True(missing.IsEmpty, show missing)
 
-        let missing = SpecCoverage.missingTests excluded (testAssemblies ()) text
-        Assert.True(missing.IsEmpty, "Scenarios without a test:
-" + String.Join("
-", missing |> List.map SpecCoverage.describe))
+[<Fact>]
+let ``every owned progress-reporting scenario has a test`` () =
+    let missing = missingIn "progress-reporting" (ofRequirements progressOwnedElsewhere)
+    Assert.True(missing.IsEmpty, show missing)
+
+[<Fact>]
+let ``every owned cli-presentation scenario has a test`` () =
+    let missing = missingIn "cli-presentation" (exceptRequirements cliPresentationOwned)
+    Assert.True(missing.IsEmpty, show missing)

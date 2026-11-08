@@ -2,8 +2,6 @@ module Vara.Cli.Program
 
 open System
 open System.CommandLine
-open Spectre.Console
-open Vara.Engine
 
 [<EntryPoint>]
 let main argv =
@@ -14,7 +12,6 @@ let main argv =
     let configuration = InvocationConfiguration(ProcessTerminationTimeout = Nullable())
 
     let root =
-        Composition.rootCommand ()
-        |> Composition.withCommands AnsiConsole.Console Terminal.standardError BackupRun.live
+        Composition.rootCommand () |> Composition.withCommands CliEnv.live
 
     root.Parse(argv).InvokeAsync(configuration, cancellation.Token).GetAwaiter().GetResult()

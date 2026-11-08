@@ -16,6 +16,7 @@
     <Compile Include="Signatures.fs" />
     <Compile Include="Execution.fs" />
     <Compile Include="RunLock.fs" />
+    <Compile Include="PowerRequest.fs" />
     <Compile Include="BackupRun.fs" />
     <Compile Include="YamlConfig.fs" />
     <Compile Include="ConfigFile.fs" />

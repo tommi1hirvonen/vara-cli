@@ -3,6 +3,9 @@
   <ItemGroup>
     <Compile Include="HostTests.fs" />
     <Compile Include="BackupCommandTests.fs" />
+    <Compile Include="PresentationCommandTests.fs" />
+    <Compile Include="RunProgressTests.fs" />
+    <Compile Include="CommandParityTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -11,6 +14,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\fsharp\Vara.Cli\Vara.Cli.fsproj" />
+    <!-- The parity tests run the C# command as a process. Its assembly is not referenced: both builds are named vara. -->
+    <ProjectReference Include="..\..\..\src\Vara.Cli\Vara.Cli.csproj" ReferenceOutputAssembly="false" Private="false" />
   </ItemGroup>
 
 </Project>

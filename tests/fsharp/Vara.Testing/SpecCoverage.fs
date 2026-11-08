@@ -8,9 +8,12 @@ open System.Reflection
 type ScenarioId = { Requirement: string; Scenario: string }
 
 /// F# cannot spell some characters in a module name (a `+`, as in "Ctrl+C"), so names are compared without them.
+/// The runtime also escapes a comma in a type's name as `\,`, which is read back as the comma it stands for.
 let private comparable (id: ScenarioId) : ScenarioId =
-    { Requirement = id.Requirement.Replace("+", "")
-      Scenario = id.Scenario.Replace("+", "") }
+    let normalize (name: string) = name.Replace(@"\,", ",").Replace("+", "")
+
+    { Requirement = normalize id.Requirement
+      Scenario = normalize id.Scenario }
 
 let private requirementPrefix = "### Requirement:"
 let private scenarioPrefix = "#### Scenario:"

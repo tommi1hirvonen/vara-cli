@@ -46,9 +46,30 @@ module BackupRun =
     let private databasePath (profile: Profile) : string =
         Path.Combine(AbsolutePath.value (Profile.target profile), ".vara", "profile.db")
 
+    /// How many scanned entries pass between two reports of the running count. A display redraws far less often than
+    /// the scan yields entries, so reporting each one would only allocate; a hundred keeps the count moving visibly.
+    let scanReportInterval = 100
+
+    /// The scan, counting its entries for the display when there is one. Without a display the scan is returned as it
+    /// is, so the count costs nothing.
+    let private counted (observers: Observers) (scan: seq<ScanEntry>) : seq<ScanEntry> =
+        match observers.ScanProgress with
+        | ValueNone -> scan
+        | ValueSome report ->
+            let seen = ref 0
+
+            scan
+            |> Seq.map (fun entry ->
+                seen.Value <- seen.Value + 1
+
+                if seen.Value % scanReportInterval = 0 then
+                    report seen.Value
+
+                entry)
+
     /// Scan, diff and plan, the sequence a real run and a dry run share. Returns the plan and the scan's failures.
     let private planFor (env: BackupEnv) (profile: Profile) (tracked: TrackedPaths) : struct (BackupPlan * ScanFailure list) =
-        let diff = Diff.run tracked (Scanner.scan (Profile.sources profile))
+        let diff = Diff.run tracked (counted env.Observers (Scanner.scan (Profile.sources profile)))
         let candidates = Planning.moveCandidates diff.Deleted
         let adds = Planning.sizeMatchedAdds candidates diff.Pending
         let hashes = Signatures.readFullHashes env.OpenRead (scanConcurrency profile) candidates adds

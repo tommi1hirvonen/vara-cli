@@ -7,10 +7,18 @@ open System.Threading
 open System.Threading.Tasks
 open Vara.Domain
 
-/// What a progress display may observe while a plan runs. Every function runs on the single recorder, one call at
-/// a time. `BytesCopied` is optional because chunk events cost channel traffic nobody pays for without a display.
+/// What the transfer phase will do, known once the plan is made: the bytes and the files whose content is copied.
+/// A struct, so the observer call allocates nothing.
+[<Struct>]
+type PlanTotals = { Bytes: int64; Files: int }
+
+/// What a progress display may observe while a run proceeds. Every function runs on the single recorder, one call at
+/// a time, except `ScanProgress`, which runs on the thread that enumerates the scan. `BytesCopied` and `ScanProgress`
+/// are optional because their events cost traffic nobody pays for without a display.
 type Observers =
-    { TransferPhaseStarting: unit -> unit
+    { /// Reports the running count of entries the scan has seen, in steps of `BackupRun.scanReportInterval`.
+      ScanProgress: (int -> unit) voption
+      TransferPhaseStarting: PlanTotals -> unit
       BytesCopied: (int64 -> unit) voption
       FileStarted: string -> unit
       FileFinished: string -> unit
@@ -18,7 +26,8 @@ type Observers =
 
 module Observers =
     let none: Observers =
-        { TransferPhaseStarting = ignore
+        { ScanProgress = ValueNone
+          TransferPhaseStarting = ignore
           BytesCopied = ValueNone
           FileStarted = ignore
           FileFinished = ignore
@@ -294,7 +303,9 @@ module Execution =
 
             // Fired once, even when there is nothing to transfer, so a throughput clock starts only when bytes begin
             // to move and excludes the metadata pass.
-            env.Observers.TransferPhaseStarting()
+            env.Observers.TransferPhaseStarting
+                { Bytes = plan.TotalBytes
+                  Files = List.length plan.Transfers }
 
             use stop = new CancellationTokenSource()
 

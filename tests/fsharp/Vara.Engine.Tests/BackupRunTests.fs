@@ -445,3 +445,52 @@ module ``Configurable backup-stage concurrency`` =
         within (fun setup ->
             moves setup 6
             Assert.Equal(1, peakReads setup (profileOf setup "p" (limited (Some 1) None))))
+
+/// What a progress display needs from the engine beyond the per-file events (fsharp-backup-presentation, design D7).
+module ``Run observers`` =
+    let private watching (totals: ResizeArray<PlanTotals>) (counts: ResizeArray<int>) : BackupEnv =
+        { quiet with
+            Observers =
+                { Observers.none with
+                    ScanProgress = ValueSome counts.Add
+                    TransferPhaseStarting = totals.Add } }
+
+    [<Fact>]
+    let ``The transfer phase starts with the plan's totals`` () =
+        within (fun setup ->
+            write setup "a.txt" "12345" |> ignore
+            write setup "b.txt" "123" |> ignore
+            let totals = ResizeArray()
+            runOk (watching totals (ResizeArray())) (profileOf setup "p" None) |> ignore
+            let only = Assert.Single totals
+            Assert.Equal(8L, only.Bytes)
+            Assert.Equal(2, only.Files)
+
+            // Nothing changed: the phase still starts once, with nothing to transfer.
+            let again = ResizeArray()
+            runOk (watching again (ResizeArray())) (profileOf setup "p" None) |> ignore
+            let none = Assert.Single again
+            Assert.Equal(0L, none.Bytes)
+            Assert.Equal(0, none.Files))
+
+    [<Fact>]
+    let ``The scan reports its running entry count for a real run and a dry run`` () =
+        within (fun setup ->
+            let total = BackupRun.scanReportInterval * 2 + 5
+
+            for index in 1..total do
+                write setup $"f{index}.txt" "x" |> ignore
+
+            let profile = profileOf setup "p" None
+            let counts = ResizeArray()
+            runOk (watching (ResizeArray()) counts) profile |> ignore
+            // A report per interval, counting upward; the entries past the last full interval are not reported.
+            Assert.Equal<int list>([ BackupRun.scanReportInterval; BackupRun.scanReportInterval * 2 ], List.ofSeq counts)
+
+            let dryCounts = ResizeArray()
+
+            match BackupRun.dryRun (watching (ResizeArray()) dryCounts) profile with
+            | Ok _ -> ()
+            | Error refusal -> failwith (BackupRefusal.render refusal)
+
+            Assert.Equal<int list>([ BackupRun.scanReportInterval; BackupRun.scanReportInterval * 2 ], List.ofSeq dryCounts))

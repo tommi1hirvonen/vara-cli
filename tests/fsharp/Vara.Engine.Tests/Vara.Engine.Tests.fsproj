@@ -8,6 +8,7 @@
     <Compile Include="SqliteManifestTests.fs" />
     <Compile Include="ScannerTests.fs" />
     <Compile Include="SignatureTests.fs" />
+    <Compile Include="PowerRequestTests.fs" />
     <Compile Include="ExecutionTests.fs" />
     <Compile Include="BackupRunTests.fs" />
     <Compile Include="BackupScenarioTests.fs" />
