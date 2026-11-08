@@ -76,7 +76,7 @@ public static class BackupCommand
             profileArgument, configOption, dryRunOption, jsonOption
         };
 
-        command.SetAction(parseResult =>
+        command.SetAction(async (parseResult, _) =>
         {
             var profileName = parseResult.GetValue(profileArgument)!;
             var configPath = parseResult.GetValue(configOption);
@@ -84,13 +84,13 @@ public static class BackupCommand
             var json = parseResult.GetValue(jsonOption);
 
             // Populated by whichever branch below runs, regardless of mode - so the
-            // exit-code check after ErrorReporting.Run stays a single, uniform check
+            // exit-code check after ErrorReporting.RunAsync stays a single, uniform check
             // instead of four mode-specific ones (cli-presentation's "Outcome severity
             // determines process exit code" requirement).
             IReadOnlyList<string> failedPaths = [];
             var cancelled = false;
 
-            var exitCode = ErrorReporting.Run(() =>
+            var exitCode = await ErrorReporting.RunAsync(async () =>
             {
                 var profile = profileResolver.Resolve(profileName, configPath);
                 using var services = serviceFactory.CreateFor(profile);
@@ -118,17 +118,17 @@ public static class BackupCommand
                     return;
                 }
 
-                RunWithPowerRequest(
+                await RunWithPowerRequestAsync(
                     powerRequestFactory ?? WindowsBackupPowerRequestFactory.Instance,
                     errorConsole ?? StandardError.Console,
-                    () =>
+                    async () =>
                     {
                         if (json)
                         {
                             // No IProgress<T> callback: --json suppresses progress display
                             // entirely, per the cli-presentation delta's "Machine-readable JSON
                             // output for the backup command" requirement.
-                            var jsonResult = pipeline.Run(profile, progress: null, cancellationToken: cancellationToken);
+                            var jsonResult = await pipeline.RunAsync(profile, progress: null, cancellationToken: cancellationToken);
                             failedPaths = jsonResult.FailedPaths;
                             cancelled = jsonResult.Cancelled;
                             WriteJson(jsonWriter, jsonResult.ToJson(profile.Name));
@@ -136,8 +136,8 @@ public static class BackupCommand
                         }
 
                         var result = OutputMode.IsLiveCapable(ansiConsole)
-                            ? RunWithLiveDisplay(pipeline, profile, ansiConsole, cancellationToken)
-                            : RunWithPlainOutput(pipeline, profile, ansiConsole, cancellationToken);
+                            ? await RunWithLiveDisplayAsync(pipeline, profile, ansiConsole, cancellationToken)
+                            : await RunWithPlainOutputAsync(pipeline, profile, ansiConsole, cancellationToken);
                         failedPaths = result.FailedPaths;
                         cancelled = result.Cancelled;
 
@@ -163,10 +163,10 @@ public static class BackupCommand
         return command;
     }
 
-    private static void RunWithPowerRequest(
+    private static async Task RunWithPowerRequestAsync(
         IBackupPowerRequestFactory powerRequestFactory,
         IAnsiConsole errorConsole,
-        Action run)
+        Func<Task> run)
     {
         IDisposable? request;
         try
@@ -176,13 +176,13 @@ public static class BackupCommand
         catch (PowerRequestException exception)
         {
             ReportPowerRequestFailure(errorConsole, "could not be activated", exception);
-            run();
+            await run();
             return;
         }
 
         try
         {
-            run();
+            await run();
         }
         finally
         {
@@ -222,7 +222,7 @@ public static class BackupCommand
     // design.md's "one unified column" decision. Progress()'s own AutoRefresh (unlike
     // Live, which has none) is what keeps throughput/ETA advancing during a stall - no
     // manual heartbeat timer is needed any more.
-    private static BackupRunResult RunWithLiveDisplay(
+    private static Task<BackupRunResult> RunWithLiveDisplayAsync(
         BackupPipeline pipeline,
         Vara.Core.Configuration.Profile profile,
         IAnsiConsole console,
@@ -232,7 +232,7 @@ public static class BackupCommand
         var displayGate = new ProgressDisplayGate(renderFileCountAdvancesImmediately: false);
         var column = new BackupProgressColumn(calculator);
 
-        return LiveProgress.Run(
+        return LiveProgress.RunAsync(
             console,
             [column],
             (ctx, terminalProgress) =>
@@ -254,8 +254,8 @@ public static class BackupCommand
                     statsTask.State.Update(BackupProgressColumn.ProgressKey, (BackupProgressState _) => state);
                 }
 
-                // Render and RefreshActivePaths are only ever invoked by the render loop's
-                // single consumer (and never after Close returns), so they need no locking.
+                // Render and RefreshActivePaths are only ever invoked by the rendering run's
+                // single consumer (and never after it returns), so they need no locking.
                 void Render(BackupProgress admitted)
                 {
                     if (barTask is null)
@@ -301,35 +301,28 @@ public static class BackupCommand
                     ctx.Refresh();
                 }
 
-                // Reports and active-path refresh requests arrive from transfer worker
-                // threads; the render loop funnels them to one consumer, and Close drains
-                // it (bounded by DrainTimeout) before the outcome is stamped, so no
-                // render can fire against an already torn-down context.
-                var loop = new BackupProgressRenderLoop(displayGate, Render, RefreshActivePaths);
-
+                // Reports and active-path changes are published by the backup recorder; the
+                // rendering run funnels them to one consumer and awaits it (bounded by
+                // DrainTimeout) before the outcome is stamped, so no render can fire against
+                // an already torn-down context.
+                //
                 // The bar's final color reflects the run's actual outcome, not the
                 // byte-based percentage BackupProgressColumn happened to reach - stamped
-                // once by Close, after the run either returns or throws, per design.md's
+                // once, after the run either returns or throws, per design.md's
                 // "BackupCommand.RunWithLiveDisplay resolves and stamps the outcome
                 // itself" decision. barTask is guaranteed non-null on a normal return
-                // (onTransferPhaseStarting always fires before Run returns, even for a
+                // (onTransferPhaseStarting always fires before the run returns, even for a
                 // zero-byte run); scanTask is still the active task if an exception is
                 // thrown before transfer begins (e.g. during scanning/diffing/planning).
-                try
-                {
-                    var result = pipeline.Run(profile, loop, loop.RequestActivePathsRefresh, cancellationToken);
-                    var outcome = ResolveOutcome(result);
-                    loop.Close(
-                        DrainTimeout,
-                        () => StampOutcome(loop.IsFaulted ? BackupProgressOutcome.Error : outcome));
-                    loop.ThrowIfFaulted();
-                    return result;
-                }
-                catch
-                {
-                    loop.Close(DrainTimeout, () => StampOutcome(BackupProgressOutcome.Error));
-                    throw;
-                }
+                return BackupProgressRendering.RunAsync(
+                    displayGate,
+                    Render,
+                    RefreshActivePaths,
+                    DrainTimeout,
+                    (progress, onActivePathsChanged) =>
+                        pipeline.RunAsync(profile, progress, onActivePathsChanged, cancellationToken),
+                    ResolveOutcome,
+                    StampOutcome);
             },
             startIndeterminate: true);
     }
@@ -371,7 +364,7 @@ public static class BackupCommand
     /// partial failures, including a gracefully cancelled run (bar turns/stays amber),
     /// per the progress-reporting delta's "Progress bar reflects run outcome severity"
     /// requirement. A hard error (the run throwing before completing) is handled
-    /// separately, in <see cref="RunWithLiveDisplay"/>'s catch block, since no
+    /// separately, by <see cref="BackupProgressRendering"/>, since no
     /// <see cref="BackupRunResult"/> exists in that case.
     /// Internal and pure so it can be unit tested directly, without needing a real
     /// <see cref="BackupPipeline"/>/<see cref="Progress"/> run.
@@ -382,7 +375,7 @@ public static class BackupCommand
     // Non-interactive/redirected path: plain, uncolored, appended lines with no
     // in-place redraw, per the cli-presentation delta's "Non-interactive or
     // color-incapable output falls back to plain text" requirement.
-    private static BackupRunResult RunWithPlainOutput(
+    private static Task<BackupRunResult> RunWithPlainOutputAsync(
         BackupPipeline pipeline,
         Vara.Core.Configuration.Profile profile,
         IAnsiConsole console,
@@ -402,19 +395,14 @@ public static class BackupCommand
                 $"{BackupRunSummaryFormatter.FormatBytes((long)snapshot.ThroughputBytesPerSecond)}/s - ETA {eta}");
         }
 
-        // Closed before returning, so no progress line can follow the run summary.
-        var loop = new BackupProgressRenderLoop(displayGate, Render);
-        try
-        {
-            var result = pipeline.Run(profile, loop, cancellationToken: cancellationToken);
-            loop.Close(DrainTimeout);
-            loop.ThrowIfFaulted();
-            return result;
-        }
-        catch
-        {
-            loop.Close(DrainTimeout);
-            throw;
-        }
+        // The rendering run is awaited before returning, so no progress line can follow the
+        // run summary.
+        return BackupProgressRendering.RunAsync(
+            displayGate,
+            Render,
+            refreshActivePaths: null,
+            DrainTimeout,
+            (progress, _) => pipeline.RunAsync(profile, progress, cancellationToken: cancellationToken),
+            ResolveOutcome);
     }
 }

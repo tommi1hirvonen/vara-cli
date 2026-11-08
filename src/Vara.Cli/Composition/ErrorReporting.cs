@@ -33,35 +33,58 @@ public static class ErrorReporting
             action();
             return ExitCodes.Success;
         }
-        catch (VaraDomainException ex)
+        catch (Exception ex)
+        {
+            return Report(ex, errorConsole);
+        }
+    }
+
+    /// <summary>
+    /// The asynchronous counterpart of <see cref="Run"/>; both share one exception-to-exit-code
+    /// mapping so the handling cannot drift.
+    /// </summary>
+    public static async Task<int> RunAsync(Func<Task> action, IAnsiConsole? errorConsole = null)
+    {
+        try
+        {
+            await action();
+            return ExitCodes.Success;
+        }
+        catch (Exception ex)
+        {
+            return Report(ex, errorConsole);
+        }
+    }
+
+    private static int Report(Exception ex, IAnsiConsole? errorConsole)
+    {
+        var console = errorConsole ?? StandardError.Console;
+        if (ex is VaraDomainException)
         {
             // Styled per the cli-presentation delta's "Outcome severity is visually
             // distinct" requirement, applying uniformly regardless of which command
             // raised the error. Written to standard error by default, so it stays
             // visible even when standard output is redirected.
-            OutcomeStyle.WriteLineError(errorConsole ?? StandardError.Console, $"Error: {ex.Message}");
+            OutcomeStyle.WriteLineError(console, $"Error: {ex.Message}");
             return ExitCodes.HardError;
         }
-        catch (Exception ex)
-        {
-            // A catch-all for any exception not already recognized as a known,
-            // friendly-message error condition, per the cli-presentation delta's
-            // "Unclassified exceptions are rendered in the hard-error style"
-            // requirement - previously this propagated unhandled and produced a raw,
-            // unstyled .NET stack trace. Hand-formatted (type name + message in the
-            // hard-error style, stack trace in a dim style below) rather than using
-            // Spectre's AnsiConsole.WriteException: that API is explicitly documented
-            // as unsupported under Native AOT (RequiresDynamicCode, "ExceptionFormatter
-            // is currently not supported for AOT") and this project publishes with
-            // PublishAot enabled - see design.md's "Unhandled exceptions" decision.
-            var console = errorConsole ?? StandardError.Console;
-            OutcomeStyle.WriteLineError(console, $"Unhandled exception: {ex.GetType().Name}: {ex.Message}");
-            if (!string.IsNullOrEmpty(ex.StackTrace))
-            {
-                console.WriteLine(ex.StackTrace, new Style(Color.Grey));
-            }
 
-            return ExitCodes.HardError;
+        // A catch-all for any exception not already recognized as a known,
+        // friendly-message error condition, per the cli-presentation delta's
+        // "Unclassified exceptions are rendered in the hard-error style"
+        // requirement - previously this propagated unhandled and produced a raw,
+        // unstyled .NET stack trace. Hand-formatted (type name + message in the
+        // hard-error style, stack trace in a dim style below) rather than using
+        // Spectre's AnsiConsole.WriteException: that API is explicitly documented
+        // as unsupported under Native AOT (RequiresDynamicCode, "ExceptionFormatter
+        // is currently not supported for AOT") and this project publishes with
+        // PublishAot enabled - see design.md's "Unhandled exceptions" decision.
+        OutcomeStyle.WriteLineError(console, $"Unhandled exception: {ex.GetType().Name}: {ex.Message}");
+        if (!string.IsNullOrEmpty(ex.StackTrace))
+        {
+            console.WriteLine(ex.StackTrace, new Style(Color.Grey));
         }
+
+        return ExitCodes.HardError;
     }
 }

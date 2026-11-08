@@ -13,12 +13,14 @@ namespace Vara.Application.Backup;
 /// Add/Change reads from the source. Add/Change operations - the only ones that
 /// perform real source-disk I/O - run with bounded parallelism suited to NVMe
 /// queue depth (design.md); Move/Delete operations are cheap metadata-only changes
-/// and run sequentially beforehand. Add/Change workers never touch the repository: each
-/// publishes an immutable per-file result to a channel, and the thread that called
-/// <see cref="Execute"/> is the single recorder that drains it and owns the manifest
-/// writes, counters, failed paths and checkpoint clock, since a single SQLite connection
-/// is not safe for concurrent use from multiple threads. When <paramref name="manifestBatch"/> (see
-/// <see cref="Execute"/>) is supplied, this executor also checkpoints it - commits it
+/// and run sequentially beforehand. Add/Change workers never touch the repository or
+/// invoke a callback: each publishes immutable <see cref="TransferEvent"/>s to a channel,
+/// and the body of <see cref="ExecuteAsync"/> is the single recorder that awaits it and
+/// owns every callback, the manifest writes, counters, failed paths and checkpoint clock.
+/// The recorder may resume on different thread-pool threads between awaits, but it never
+/// runs concurrently with itself, which is all a single SQLite connection requires.
+/// When <paramref name="manifestBatch"/> (see
+/// <see cref="ExecuteAsync"/>) is supplied, this executor also checkpoints it - commits it
 /// and reopens - roughly every <see cref="DefaultCheckpointInterval"/> of elapsed
 /// time, so an interruption only discards work performed since the most recent
 /// checkpoint rather than the whole run (backup-execution spec's "Manifest writes are
@@ -53,7 +55,7 @@ public sealed class BackupExecutor(
     private readonly int _maxDegreeOfParallelism = maxDegreeOfParallelism > 0 ? maxDegreeOfParallelism : DefaultTransferConcurrency;
     private readonly TimeSpan _checkpointInterval = checkpointInterval ?? DefaultCheckpointInterval;
 
-    public ExecutionOutcome Execute(
+    public async Task<ExecutionOutcome> ExecuteAsync(
         long snapshotId,
         DateTimeOffset recordedAt,
         BackupPlan plan,
@@ -93,81 +95,50 @@ public sealed class BackupExecutor(
 
         var transferOperations = plan.Operations.OfType<TransferOperation>().ToList();
 
-        // Workers run off-thread and only publish immutable results; this (the calling)
-        // thread is the single recorder that owns the repository, manifest batch, counters,
-        // failed paths and checkpoint clock, so no lock is needed. The channel is unbounded
-        // so a worker's TryWrite never blocks on the recorder.
-        var results = Channel.CreateUnbounded<TransferResult>(
+        // Workers run in a pool and only publish immutable events; the body of this method is
+        // the single recorder that owns the repository, manifest batch, counters, failed paths,
+        // checkpoint clock and every callback, so no lock is needed. The channel is unbounded
+        // so a worker's TryWrite never waits on the recorder.
+        var events = Channel.CreateUnbounded<TransferEvent>(
             new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
 
-        // Distinct from the graceful Ctrl+C token: cancelling this one only happens when the
-        // recorder itself fails, to stop workers from starting any further transfers.
-        using var abort = new CancellationTokenSource();
+        // Distinct from the graceful Ctrl+C token: cancelled only when the recorder fails or a
+        // worker crashes, to stop the pool from starting any further transfers.
+        using var stopTransfers = new CancellationTokenSource();
 
-        var transferTask = Task.Run(() =>
-        {
-            try
-            {
-                Parallel.ForEach(
-                    transferOperations,
-                    new ParallelOptions
-                    {
-                        MaxDegreeOfParallelism = _maxDegreeOfParallelism,
-                        CancellationToken = abort.Token,
-                    },
-                    operation =>
-                    {
-                        // Same cooperative cancellation as above: a worker that dequeues an item
-                        // after cancellation was requested skips it entirely rather than starting
-                        // it, instead of aborting a transfer already in progress on another thread.
-                        if (cancellationToken.IsCancellationRequested)
-                        {
-                            return;
-                        }
+        var recorder = new TransferRecorder(
+            repository, snapshotId, recordedAt, counts, failedPaths,
+            () => CheckpointIfDue(counts, manifestBatch),
+            stopTransfers,
+            onBytesTransferred, onFileStarted, onFileFinished, onFileTransferred);
 
-                        ExecuteTransfer(
-                            operation, results.Writer, onBytesTransferred, onFileStarted, onFileFinished);
-                    });
-            }
-            finally
-            {
-                results.Writer.Complete();
-            }
-        }, CancellationToken.None);
+        var pool = RunPoolAsync(
+            transferOperations,
+            events.Writer,
+            reportBytes: onBytesTransferred is not null,
+            shouldStop: () => cancellationToken.IsCancellationRequested || stopTransfers.IsCancellationRequested);
 
         try
         {
-            // Blocking here is acceptable: this is the pipeline's own thread, not a thread-pool
-            // thread, and a console app has no SynchronizationContext to deadlock on.
-            while (results.Reader.WaitToReadAsync(CancellationToken.None).AsTask().GetAwaiter().GetResult())
+            await foreach (var transferEvent in events.Reader.ReadAllAsync(CancellationToken.None))
             {
-                while (results.Reader.TryRead(out var result))
-                {
-                    RecordTransferResult(
-                        result, snapshotId, recordedAt, counts, failedPaths, manifestBatch, onFileTransferred);
-                }
+                recorder.Record(transferEvent);
             }
         }
-        catch
+        finally
         {
-            // Stop workers and wait for them, so none is still writing to the content store
-            // when the caller records the failure; then surface the recorder's own exception.
-            abort.Cancel();
-            try
-            {
-                transferTask.Wait(CancellationToken.None);
-            }
-            catch (AggregateException)
-            {
-            }
-
-            throw;
+            // Stop the pool and wait for it, so no worker is still writing to the content store
+            // when the caller records a failure. The pool never throws (crashes are events), so
+            // awaiting it cannot mask the recorder's own exception.
+            stopTransfers.Cancel();
+            await pool;
         }
 
-        // Rethrows an unexpected worker exception (every result produced before it has
-        // already been recorded above), with the same shape Parallel.ForEach produced
-        // when it ran on the calling thread.
-        transferTask.GetAwaiter().GetResult();
+        // Every event produced before a crash has been recorded above.
+        if (recorder.Crashes.Count > 0)
+        {
+            throw new AggregateException(recorder.Crashes);
+        }
 
         return new ExecutionOutcome(
             counts.BytesTransferred,
@@ -180,10 +151,46 @@ public sealed class BackupExecutor(
     }
 
     /// <summary>
+    /// Runs the transfers with bounded parallelism and completes <paramref name="writer"/>
+    /// when done. Never throws: <see cref="ExecuteTransfer"/> turns every exception into an event.
+    /// </summary>
+    private async Task RunPoolAsync(
+        List<TransferOperation> operations,
+        ChannelWriter<TransferEvent> writer,
+        bool reportBytes,
+        Func<bool> shouldStop)
+    {
+        try
+        {
+            await Parallel.ForEachAsync(
+                operations,
+                new ParallelOptions { MaxDegreeOfParallelism = _maxDegreeOfParallelism },
+                (operation, _) =>
+                {
+                    // Cooperative cancellation: a worker that dequeues an item after a stop was
+                    // requested skips it instead of starting it. Neither token is handed to the
+                    // pool, because that would throw and could abandon queued bookkeeping.
+                    if (!shouldStop())
+                    {
+                        // The body is deliberately synchronous (blocking file I/O) and returns a
+                        // completed ValueTask; the pool still reaches full concurrency.
+                        ExecuteTransfer(operation, writer, reportBytes);
+                    }
+
+                    return ValueTask.CompletedTask;
+                });
+        }
+        finally
+        {
+            writer.Complete();
+        }
+    }
+
+    /// <summary>
     /// Checkpoints <paramref name="manifestBatch"/> - committing it and reopening a fresh
     /// transaction - if it is supplied and <see cref="_checkpointInterval"/> has elapsed
-    /// since the last checkpoint. Must only be called from the recorder (the thread that
-    /// called <see cref="Execute"/>), which owns <paramref name="counts"/>.
+    /// since the last checkpoint. Must only be called from the recorder, which owns
+    /// <paramref name="counts"/>.
     /// </summary>
     private void CheckpointIfDue(Counts counts, IManifestBatch? manifestBatch)
     {
@@ -200,37 +207,6 @@ public sealed class BackupExecutor(
 
         manifestBatch.Commit();
         counts.LastCheckpointUtc = now;
-    }
-
-    private void RecordTransferResult(
-        TransferResult result,
-        long snapshotId,
-        DateTimeOffset recordedAt,
-        Counts counts,
-        List<string> failedPaths,
-        IManifestBatch? manifestBatch,
-        Action? onFileTransferred)
-    {
-        switch (result)
-        {
-            case Transferred transferred:
-                repository.RecordFileVersion(
-                    snapshotId, transferred.RelativePath, null, transferred.Hash, transferred.Size,
-                    transferred.SourceModifiedAt, transferred.ChangeKind, recordedAt,
-                    transferred.QuickHash, QuickHashPolicy.CurrentScheme);
-
-                counts.BytesTransferred += transferred.Size;
-                if (transferred.ChangeKind == FileChangeKind.Added) counts.Added++; else counts.Changed++;
-                CheckpointIfDue(counts, manifestBatch);
-                onFileTransferred?.Invoke();
-                break;
-
-            case Failed failed:
-                counts.Failed++;
-                failedPaths.Add(failed.RelativePath);
-                CheckpointIfDue(counts, manifestBatch);
-                break;
-        }
     }
 
     private void ExecuteMetadataOnlyOperation(
@@ -298,10 +274,38 @@ public sealed class BackupExecutor(
 
     private void ExecuteTransfer(
         TransferOperation operation,
-        ChannelWriter<TransferResult> results,
-        Action<long>? onBytesTransferred,
-        Action<string>? onFileStarted,
-        Action<string>? onFileFinished)
+        ChannelWriter<TransferEvent> events,
+        bool reportBytes)
+    {
+        var sourceAbsolutePath = operation.SourceAbsolutePath;
+        events.TryWrite(new FileStarted(sourceAbsolutePath));
+
+        TransferEvent outcome;
+        try
+        {
+            outcome = CopyToStore(operation, events, reportBytes);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            outcome = new Failed(operation.RelativePath);
+        }
+        catch (Exception ex)
+        {
+            // An unexpected exception must not escape the pool: it becomes a value the
+            // recorder collects after draining everything produced before it.
+            outcome = new Crashed(operation.RelativePath, ex);
+        }
+
+        // Finished is published before the outcome: the file leaves the active transfer
+        // list once its I/O is done, not once its manifest row is written.
+        events.TryWrite(new FileFinished(sourceAbsolutePath));
+        events.TryWrite(outcome);
+    }
+
+    private TransferEvent CopyToStore(
+        TransferOperation operation,
+        ChannelWriter<TransferEvent> events,
+        bool reportBytes)
     {
         var sourceAbsolutePath = operation.SourceAbsolutePath;
         var scannedSize = operation.Size;
@@ -311,126 +315,118 @@ public sealed class BackupExecutor(
             AddOperation => ((string?)null, FileChangeKind.Added),
             ChangeOperation change => (change.PreviousContentHash, FileChangeKind.Changed),
         };
-        TransferResult? result = null;
-        try
+        Action<long>? onBytesTransferred = reportBytes
+            ? count => events.TryWrite(new BytesCopied(count))
+            : null;
+
+        string hash;
+        long size;
+        string quickHash;
+
+        // The actual disk I/O - reading the source and streaming it into the
+        // content store - happens on the pool's threads, concurrently with the
+        // recorder's manifest writes. The quick hash is computed from the same bytes already
+        // being read here (see StreamingContentSignature), so recording it costs no
+        // extra I/O and lets a future run's move detection pre-filter against this
+        // file without a full-content read.
+        // When hardlinks are not supported, placing content at the mirror path also
+        // streams the whole file as a fallback copy. In that case, chunk progress is
+        // apportioned 50% to StoreFromStream and 50% to PlaceAtMirrorPath (reconciling
+        // any integer remainder upon completion), so progress advances continuously
+        // without exceeding the file's size or doubling the planned total bytes.
+        // When hardlinks are supported, StoreFromStream receives 100% of progress,
+        // and PlaceAtMirrorPath suppresses callbacks so hardlink-limit fallbacks do
+        // not double-count.
+        Action<long>? storeCallback = null;
+        Action<long>? mirrorCallback = null;
+        var reportedSoFar = 0L;
+
+        if (onBytesTransferred is not null)
         {
-            onFileStarted?.Invoke(sourceAbsolutePath);
-
-            string hash;
-            long size;
-            string quickHash;
-
-            // The actual disk I/O - reading the source and streaming it into the
-            // content store - happens on the worker threads, concurrently with the
-            // recorder's manifest writes. The quick hash is computed from the same bytes already
-            // being read here (see StreamingContentSignature), so recording it costs no
-            // extra I/O and lets a future run's move detection pre-filter against this
-            // file without a full-content read.
-            // When hardlinks are not supported, placing content at the mirror path also
-            // streams the whole file as a fallback copy. In that case, chunk progress is
-            // apportioned 50% to StoreFromStream and 50% to PlaceAtMirrorPath (reconciling
-            // any integer remainder upon completion), so progress advances continuously
-            // without exceeding the file's size or doubling the planned total bytes.
-            // When hardlinks are supported, StoreFromStream receives 100% of progress,
-            // and PlaceAtMirrorPath suppresses callbacks so hardlink-limit fallbacks do
-            // not double-count.
-            Action<long>? storeCallback = null;
-            Action<long>? mirrorCallback = null;
-            var reportedSoFar = 0L;
-
-            if (onBytesTransferred is not null)
+            if (contentStore.SupportsHardlinks)
             {
-                if (contentStore.SupportsHardlinks)
+                storeCallback = onBytesTransferred;
+                mirrorCallback = null;
+            }
+            else
+            {
+                var storeSoFar = 0L;
+                storeCallback = chunk =>
                 {
-                    storeCallback = onBytesTransferred;
-                    mirrorCallback = null;
-                }
-                else
-                {
-                    var storeSoFar = 0L;
-                    storeCallback = chunk =>
+                    storeSoFar += chunk;
+                    var target = storeSoFar / 2;
+                    var delta = target - reportedSoFar;
+                    if (delta > 0)
                     {
-                        storeSoFar += chunk;
-                        var target = storeSoFar / 2;
-                        var delta = target - reportedSoFar;
-                        if (delta > 0)
-                        {
-                            reportedSoFar += delta;
-                            onBytesTransferred(delta);
-                        }
-                    };
+                        reportedSoFar += delta;
+                        onBytesTransferred(delta);
+                    }
+                };
 
-                    var mirrorSoFar = 0L;
-                    mirrorCallback = chunk =>
-                    {
-                        mirrorSoFar += chunk;
-                        var target = (scannedSize / 2) + (mirrorSoFar / 2);
-                        var delta = target - reportedSoFar;
-                        if (delta > 0)
-                        {
-                            reportedSoFar += delta;
-                            onBytesTransferred(delta);
-                        }
-                    };
-                }
-            }
-
-            using (var sourceStream = File.OpenRead(sourceAbsolutePath))
-            {
-                var signature = new StreamingContentSignature(sourceStream, hasher);
-                quickHash = signature.ComputeQuickHash();
-                (hash, size) = contentStore.StoreFromStream(signature.ReplayFromStart(), storeCallback);
-            }
-
-            // Re-stat the source right after the read completes - and before placing
-            // anything at the mirror path - and compare against what was observed at scan
-            // time. A mismatch means the file was modified after being scanned but before
-            // (or while) its content was actually captured above, so the content just read
-            // can no longer be trusted as "the file as of SourceModifiedAt" - treat the
-            // whole operation as failed and let the next run's incremental scan pick it up
-            // again, rather than placing that content at the mirror path or recording a
-            // manifest entry under stale metadata (detect-torn-reads-after-transfer
-            // change's design.md). Uses a plain FileInfo stat, the same mechanism the
-            // scanner itself uses (DirectoryFileSystemScanner.ToEntry).
-            var postTransferInfo = new FileInfo(sourceAbsolutePath);
-            if (postTransferInfo.Length != scannedSize || postTransferInfo.LastWriteTimeUtc != sourceModifiedAt)
-            {
-                result = new Failed(operation.RelativePath);
-                return;
-            }
-
-            contentStore.PlaceAtMirrorPath(hash, operation.RelativePath, mirrorCallback, previousContentHash);
-
-            if (!contentStore.SupportsHardlinks && onBytesTransferred is not null)
-            {
-                var remainder = size - reportedSoFar;
-                if (remainder > 0)
+                var mirrorSoFar = 0L;
+                mirrorCallback = chunk =>
                 {
-                    onBytesTransferred(remainder);
-                }
+                    mirrorSoFar += chunk;
+                    var target = (scannedSize / 2) + (mirrorSoFar / 2);
+                    var delta = target - reportedSoFar;
+                    if (delta > 0)
+                    {
+                        reportedSoFar += delta;
+                        onBytesTransferred(delta);
+                    }
+                };
             }
+        }
 
-            result = new Transferred(
-                operation.RelativePath, hash, size, sourceModifiedAt, changeKind, quickHash);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        using (var sourceStream = File.OpenRead(sourceAbsolutePath))
         {
-            result = new Failed(operation.RelativePath);
+            var signature = new StreamingContentSignature(sourceStream, hasher);
+            quickHash = signature.ComputeQuickHash();
+            (hash, size) = contentStore.StoreFromStream(signature.ReplayFromStart(), storeCallback);
         }
-        finally
+
+        // Re-stat the source right after the read completes - and before placing
+        // anything at the mirror path - and compare against what was observed at scan
+        // time. A mismatch means the file was modified after being scanned but before
+        // (or while) its content was actually captured above, so the content just read
+        // can no longer be trusted as "the file as of SourceModifiedAt" - treat the
+        // whole operation as failed and let the next run's incremental scan pick it up
+        // again, rather than placing that content at the mirror path or recording a
+        // manifest entry under stale metadata (detect-torn-reads-after-transfer
+        // change's design.md). Uses a plain FileInfo stat, the same mechanism the
+        // scanner itself uses (DirectoryFileSystemScanner.ToEntry).
+        var postTransferInfo = new FileInfo(sourceAbsolutePath);
+        if (postTransferInfo.Length != scannedSize || postTransferInfo.LastWriteTimeUtc != sourceModifiedAt)
         {
-            // Finished fires before the result is published: the file leaves the active
-            // transfer list once its I/O is done, not once its manifest row is written.
-            // No result is published when an unexpected exception is propagating.
-            onFileFinished?.Invoke(sourceAbsolutePath);
-            if (result is not null)
+            return new Failed(operation.RelativePath);
+        }
+
+        contentStore.PlaceAtMirrorPath(hash, operation.RelativePath, mirrorCallback, previousContentHash);
+
+        if (!contentStore.SupportsHardlinks && onBytesTransferred is not null)
+        {
+            var remainder = size - reportedSoFar;
+            if (remainder > 0)
             {
-                results.TryWrite(result);
+                onBytesTransferred(remainder);
             }
         }
+
+        return new Transferred(
+            operation.RelativePath, hash, size, sourceModifiedAt, changeKind, quickHash);
     }
 
-    private closed record TransferResult(string RelativePath);
+    /// <summary>
+    /// An immutable fact published by a pool worker. The recorder turns each one into the
+    /// matching callback, manifest write or counter update.
+    /// </summary>
+    private closed record TransferEvent;
+
+    private sealed record FileStarted(string SourceAbsolutePath) : TransferEvent;
+
+    private sealed record BytesCopied(long Count) : TransferEvent;
+
+    private sealed record FileFinished(string SourceAbsolutePath) : TransferEvent;
 
     private sealed record Transferred(
         string RelativePath,
@@ -438,9 +434,72 @@ public sealed class BackupExecutor(
         long Size,
         DateTimeOffset SourceModifiedAt,
         FileChangeKind ChangeKind,
-        string QuickHash) : TransferResult(RelativePath);
+        string QuickHash) : TransferEvent;
 
-    private sealed record Failed(string RelativePath) : TransferResult(RelativePath);
+    private sealed record Failed(string RelativePath) : TransferEvent;
+
+    private sealed record Crashed(string RelativePath, Exception Exception) : TransferEvent;
+
+    /// <summary>
+    /// Owns everything the transfer phase mutates - counters, failed paths, crashes, the
+    /// checkpoint clock and every callback invocation. Only the single recorder uses it.
+    /// </summary>
+    private sealed class TransferRecorder(
+        ISnapshotRepository repository,
+        long snapshotId,
+        DateTimeOffset recordedAt,
+        Counts counts,
+        List<string> failedPaths,
+        Action checkpointIfDue,
+        CancellationTokenSource stopTransfers,
+        Action<long>? onBytesTransferred,
+        Action<string>? onFileStarted,
+        Action<string>? onFileFinished,
+        Action? onFileTransferred)
+    {
+        public List<Exception> Crashes { get; } = [];
+
+        public void Record(TransferEvent transferEvent)
+        {
+            switch (transferEvent)
+            {
+                case FileStarted started:
+                    onFileStarted?.Invoke(started.SourceAbsolutePath);
+                    break;
+
+                case BytesCopied copied:
+                    onBytesTransferred?.Invoke(copied.Count);
+                    break;
+
+                case FileFinished finished:
+                    onFileFinished?.Invoke(finished.SourceAbsolutePath);
+                    break;
+
+                case Transferred transferred:
+                    repository.RecordFileVersion(
+                        snapshotId, transferred.RelativePath, null, transferred.Hash, transferred.Size,
+                        transferred.SourceModifiedAt, transferred.ChangeKind, recordedAt,
+                        transferred.QuickHash, QuickHashPolicy.CurrentScheme);
+
+                    counts.BytesTransferred += transferred.Size;
+                    if (transferred.ChangeKind == FileChangeKind.Added) counts.Added++; else counts.Changed++;
+                    checkpointIfDue();
+                    onFileTransferred?.Invoke();
+                    break;
+
+                case Failed failed:
+                    counts.Failed++;
+                    failedPaths.Add(failed.RelativePath);
+                    checkpointIfDue();
+                    break;
+
+                case Crashed crashed:
+                    Crashes.Add(crashed.Exception);
+                    stopTransfers.Cancel();
+                    break;
+            }
+        }
+    }
 
     private sealed class Counts
     {

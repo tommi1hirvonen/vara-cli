@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Vara.Core.Abstractions;
 using Vara.Core.Hashing;
 using Vara.Core.Snapshots;
@@ -82,24 +81,33 @@ public sealed class BackupPlanner(IHasher hasher, int maxDegreeOfParallelism = 0
     /// this entry, whether because a bounded read has ruled every candidate out, or
     /// because the file could not be read at all).
     /// </summary>
-    private ConcurrentDictionary<string, string?> ComputeMoveCandidateFullHashes(
+    private Dictionary<string, string?> ComputeMoveCandidateFullHashes(
         IReadOnlyList<PendingChange> pending, Dictionary<long, List<CurrentFileState>> deletedCandidatesBySize)
     {
-        var results = new ConcurrentDictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         var sizeMatchedAdds = pending
             .OfType<AddedFile>()
             .Where(added => deletedCandidatesBySize.ContainsKey(added.File.Size))
             .ToList();
 
-        Parallel.ForEach(
-            sizeMatchedAdds,
+        // One slot per entry, each written by exactly one iteration, so the fork-join needs
+        // no synchronization; the map is built serially once every slot is filled.
+        var slots = new string?[sizeMatchedAdds.Count];
+        Parallel.For(
+            0,
+            sizeMatchedAdds.Count,
             new ParallelOptions { MaxDegreeOfParallelism = _maxDegreeOfParallelism },
-            added =>
+            i =>
             {
-                var file = added.File;
+                var file = sizeMatchedAdds[i].File;
                 var candidates = deletedCandidatesBySize[file.Size];
-                results[file.RelativePath] = ComputeFullHashIfCandidateMatchPossible(file, candidates);
+                slots[i] = ComputeFullHashIfCandidateMatchPossible(file, candidates);
             });
+
+        var results = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < sizeMatchedAdds.Count; i++)
+        {
+            results[sizeMatchedAdds[i].File.RelativePath] = slots[i];
+        }
 
         return results;
     }
@@ -177,7 +185,7 @@ public sealed class BackupPlanner(IHasher hasher, int maxDegreeOfParallelism = 0
     private static PlannedOperation PlanAddedOrMove(
         ScannedFile file,
         Dictionary<long, List<CurrentFileState>> deletedCandidatesBySize,
-        ConcurrentDictionary<string, string?> fullHashes,
+        Dictionary<string, string?> fullHashes,
         HashSet<string> consumedAsMoveSource)
     {
         if (deletedCandidatesBySize.TryGetValue(file.Size, out var candidates) &&

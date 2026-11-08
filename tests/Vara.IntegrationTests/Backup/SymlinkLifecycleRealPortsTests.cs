@@ -55,7 +55,7 @@ public class SymlinkLifecycleRealPortsTests : IDisposable
         new("files", targetRoot, [new Source(sourceRoot)], null, null);
 
     [Fact]
-    public void Backup_check_and_recursive_restore_handle_a_tracked_symlink_and_a_file_to_link_transition_correctly()
+    public async Task Backup_check_and_recursive_restore_handle_a_tracked_symlink_and_a_file_to_link_transition_correctly()
     {
         var regularPath = Path.Combine(_sourceRoot, "regular.txt");
         File.WriteAllText(regularPath, "hello");
@@ -72,9 +72,9 @@ public class SymlinkLifecycleRealPortsTests : IDisposable
         var hasher = new XxHash128Hasher();
 
         // First run: two regular files and a tracked symlink.
-        var firstRun = new BackupPipeline(
+        var firstRun = await new BackupPipeline(
                 new FakeFileSystemScanner([regularEntry, staleFileEntry, linkEntry]), hasher, ContentStore, Repository, new FakeRunLock())
-            .Run(SimpleProfile(_sourceRoot, _targetRoot));
+            .RunAsync(SimpleProfile(_sourceRoot, _targetRoot));
 
         Assert.Equal(2, firstRun.Stats.FilesAdded);
         Assert.Empty(firstRun.FailedPaths);
@@ -89,10 +89,10 @@ public class SymlinkLifecycleRealPortsTests : IDisposable
         // Second run: "stale.txt" is now replaced by a symlink at the same path - a
         // file-to-link transition. The regular file and the pre-existing link are unchanged.
         var staleBecomesLinkEntry = ScanItem.Link("stale.txt", staleFilePath, @"C:\somewhere\else.txt");
-        var secondRun = new BackupPipeline(
+        var secondRun = await new BackupPipeline(
                 new FakeFileSystemScanner([regularEntry, staleBecomesLinkEntry, linkEntry]),
                 hasher, ContentStore, Repository, new FakeRunLock())
-            .Run(SimpleProfile(_sourceRoot, _targetRoot));
+            .RunAsync(SimpleProfile(_sourceRoot, _targetRoot));
 
         Assert.Equal(0, secondRun.Stats.FilesAdded);
         Assert.Equal(0, secondRun.Stats.FilesChanged);

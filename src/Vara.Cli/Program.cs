@@ -1,3 +1,4 @@
+using System.CommandLine;
 using Microsoft.Extensions.DependencyInjection;
 using Vara.Cli.Composition;
 
@@ -24,4 +25,6 @@ Console.CancelKeyPress += (_, e) => e.Cancel = gracefulCancellation.RequestCance
 var rootCommand = CommandLineComposition.CreateRootCommand(services, gracefulCancellation.TokenSource.Token);
 
 var parseResult = rootCommand.Parse(args);
-return parseResult.Invoke();
+// A null termination timeout stops System.CommandLine from registering its own Ctrl+C
+// handler, which would otherwise compete with GracefulCancellation above.
+return await parseResult.InvokeAsync(new InvocationConfiguration { ProcessTerminationTimeout = null });

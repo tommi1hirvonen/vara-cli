@@ -4,12 +4,11 @@ namespace Vara.Application.Reporting;
 /// Gatekeeps which of a rapid, potentially out-of-order stream of progress reports
 /// actually gets rendered, per the progress-reporting spec's "Progress display never
 /// regresses to a stale value" and "Progress display updates are rate-limited"
-/// requirements. Reports reach this gate in channel order from the backup render loop,
-/// but concurrent transfer workers each compute their running byte total and then enqueue
-/// it, so two reports can still be enqueued in the opposite order of their totals. Callers
-/// may therefore invoke <see cref="Report"/> concurrently and out of order; the
-/// admit-and-render decision below happens under a single lock so
-/// only a monotonically increasing, rate-limited subset of reports is ever rendered.
+/// requirements. Backup reports reach this gate from the single render consumer, in the
+/// global order the backup recorder produced them; the never-regress guard stays as a
+/// defense in depth, and the admit-and-render decision happens under a small lock because
+/// the gate is also shared with the other commands' progress displays. Only a
+/// monotonically increasing, rate-limited subset of reports is ever rendered.
 /// File-count advances render immediately by default; callers can disable that behavior
 /// when the file count must share the numeric-statistics rate limit.
 /// Stateful per run - construct a fresh instance per backup run.

@@ -7,6 +7,7 @@ every individual measurement), plus the GitHub Markdown and CSV reports for read
 | Baseline | Code | Notes |
 |---|---|---|
 | [2026-11-06-csharp-net11](./2026-11-06-csharp-net11/) | commit `3692197` (after the channel-based progress and recording refactors) | **Current reference baseline.** `--job short`, command below |
+| [2026-11-08-csharp-async-net11](./2026-11-08-csharp-async-net11/) | after `csharp-async-backup-recording` (on top of `csharp-closed-set-redesigns`) | `--job short`. Allocations equal or lower in every case (executor and pipeline within about -0.5%). Time flags against the reference (pipeline +67-80%, `ExecuteTransfers(1, 8, 1 MiB)` +54%, and one untouched sub-microsecond case) were machine drift: a same-session default-job re-run of `BackupPipelineBenchmarks` and `BackupExecutorBenchmarks` on the base commit and on this change gave equivalent times (for example pipeline 64 files x 1 MiB 278 ms vs 278 ms, executor concurrency 1/4 within noise) |
 
 Environment of the `2026-11-06-csharp-net11` run: Windows 11 25H2 (10.0.26200), AMD Ryzen AI
 9 HX PRO 375 (12 cores / 24 threads), 64 GB RAM, .NET SDK 11.0.100-rc.1.26425.128, .NET

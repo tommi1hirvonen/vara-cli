@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using Vara.Core.Abstractions;
 using Vara.Core.Backup;
 using Vara.Core.Configuration;
@@ -29,11 +28,10 @@ public sealed class BackupPipeline(
 
     /// <param name="profile"></param>
     /// <param name="progress"></param>
-    /// <param name="requestActivePathsRefresh">
-    ///     Optional notification invoked on a transfer worker after a file enters or leaves
-    ///     the in-flight set. The callback should return promptly; the supplied capture
-    ///     function reads the current set when invoked rather than preserving the lifecycle
-    ///     event's path snapshot.
+    /// <param name="onActivePathsChanged">
+    ///     Optional notification invoked, on the executor's single recorder, with a fresh
+    ///     snapshot of the in-flight paths after a file enters or leaves the in-flight set.
+    ///     The callback should return promptly.
     /// </param>
     /// <param name="cancellationToken">
     ///     Cooperative "stop starting new work" signal, set by a graceful Ctrl+C stop (see
@@ -44,10 +42,10 @@ public sealed class BackupPipeline(
     ///     instead of <see cref="SnapshotStatus.Complete"/> - see backup-execution's
     ///     "Graceful cancellation via Ctrl+C" requirement and design.md.
     /// </param>
-    public BackupRunResult Run(
+    public async Task<BackupRunResult> RunAsync(
         Profile profile,
         IProgress<BackupProgress>? progress = null,
-        Action<Func<IReadOnlyList<string>>>? requestActivePathsRefresh = null,
+        Action<IReadOnlyList<string>>? onActivePathsChanged = null,
         CancellationToken cancellationToken = default)
     {
         using (runLock)
@@ -88,40 +86,36 @@ public sealed class BackupPipeline(
                 // bytes reported matches plan.TotalBytesToTransfer without overshooting 100%.
                 var progressTotalBytes = plan.TotalBytesToTransfer;
 
-                // bytesSoFar is updated from chunk-level callbacks that may arrive
-                // concurrently across multiple in-flight file transfers once
-                // transfer_concurrency is configured above its default of 1 - Interlocked
-                // keeps it correct without taking BackupExecutor's own per-file reportLock
-                // (which continues to serialize only the once-per-file manifest write and
-                // summary counter, independent of this live-progress counter).
+                // The counters and the in-flight set are plain locals: every executor callback
+                // runs on the executor's single recorder, one at a time, so nothing else
+                // touches them.
                 var bytesSoFar = 0L;
                 var filesSoFar = 0;
-                var inFlight = new ConcurrentDictionary<string, byte>();
-                Func<IReadOnlyList<string>> captureActivePaths = () => inFlight.Keys.ToArray();
+                var inFlight = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
                 // The first progress report - which seeds the live display's
                 // throughput/ETA clock (BackupProgressCalculator lazily starts its own
                 // elapsed-time clock on its first Calculate() call, itself driven by this
-                // first report) - is deliberately deferred until Execute's Move/Delete pass
+                // first report) - is deliberately deferred until ExecuteAsync's Move/Delete pass
                 // has finished, rather than emitted up front. Otherwise, that pass's own
                 // wall-clock time (mirror renames/removals, manifest writes - reporting
                 // zero bytes) would be folded into the throughput denominator as if it
                 // were part of the byte-transfer phase, permanently skewing the run's
                 // reported throughput and ETA (fix-transfer-clock-start change's design.md).
                 var executor = new BackupExecutor(contentStore, repository, hasher, profile.Concurrency?.TransferConcurrency ?? 0);
-                var outcome = executor.Execute(
+                var outcome = await executor.ExecuteAsync(
                     snapshotId,
                     startedAt,
                     plan,
                     transferred =>
                     {
-                        var total = Interlocked.Add(ref bytesSoFar, transferred);
+                        bytesSoFar += transferred;
                         var report = new BackupProgress(
-                            total,
+                            bytesSoFar,
                             progressTotalBytes,
-                            Volatile.Read(ref filesSoFar),
+                            filesSoFar,
                             plan.TotalFilesToTransfer,
-                            inFlight.Keys.ToArray());
+                            inFlight.ToArray());
                         progress?.Report(report);
                     },
                     onTransferPhaseStarting: () =>
@@ -131,30 +125,30 @@ public sealed class BackupPipeline(
                             progressTotalBytes,
                             0,
                             plan.TotalFilesToTransfer,
-                            inFlight.Keys.ToArray());
+                            inFlight.ToArray());
                         progress?.Report(report);
                     },
                     manifestBatch: manifestBatch,
                     onFileTransferred: () =>
                     {
-                        var completedFiles = Interlocked.Increment(ref filesSoFar);
+                        filesSoFar++;
                         var report = new BackupProgress(
-                            Interlocked.Read(ref bytesSoFar),
+                            bytesSoFar,
                             progressTotalBytes,
-                            completedFiles,
+                            filesSoFar,
                             plan.TotalFilesToTransfer,
-                            inFlight.Keys.ToArray());
+                            inFlight.ToArray());
                         progress?.Report(report);
                     },
                     onFileStarted: path =>
                     {
-                        inFlight.TryAdd(path, 0);
-                        requestActivePathsRefresh?.Invoke(captureActivePaths);
+                        inFlight.Add(path);
+                        onActivePathsChanged?.Invoke(inFlight.ToArray());
                     },
                     onFileFinished: path =>
                     {
-                        inFlight.TryRemove(path, out _);
-                        requestActivePathsRefresh?.Invoke(captureActivePaths);
+                        inFlight.Remove(path);
+                        onActivePathsChanged?.Invoke(inFlight.ToArray());
                     },
                     cancellationToken: cancellationToken);
 
@@ -220,7 +214,7 @@ public sealed class BackupPipeline(
     /// Computes and returns a <see cref="BackupPlanSummary"/> for <paramref name="profile"/>
     /// without performing any writes: no mirror/content-store writes, no manifest rows, and
     /// no new snapshot record. Still acquires the run lock (throwing
-    /// <see cref="BackupAlreadyRunningException"/> on failure, same as <see cref="Run"/>), so
+    /// <see cref="BackupAlreadyRunningException"/> on failure, same as <see cref="RunAsync"/>), so
     /// its output reflects a consistent view of the manifest and it cannot race a concurrently
     /// starting real run - see design.md's "PlanOnly" decision. Deliberately skips
     /// <c>ReconcileIncompleteSnapshots</c>, <c>ProbeHardlinkSupport</c>, <c>CleanupOrphanedTemp</c>,
@@ -264,7 +258,7 @@ public sealed class BackupPipeline(
     }
 
     /// <summary>
-    /// The shared scan -> diff -> plan sequence used by both <see cref="Run"/> and
+    /// The shared scan -> diff -> plan sequence used by both <see cref="RunAsync"/> and
     /// <see cref="PlanOnly"/>, extracted so the two entry points can't silently drift apart
     /// on which stages they invoke in which order (design.md's "Risks / Trade-offs").
     /// </summary>

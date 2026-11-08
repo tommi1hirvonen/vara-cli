@@ -124,8 +124,8 @@ public class BackupExecutorBenchmarks : BackupBenchmarkBase
     }
 
     [Benchmark]
-    public ExecutionOutcome ExecuteTransfers() =>
-        _executor.Execute(_snapshotId, _recordedAt, _plan, manifestBatch: _manifestBatch);
+    public Task<ExecutionOutcome> ExecuteTransfers() =>
+        _executor.ExecuteAsync(_snapshotId, _recordedAt, _plan, manifestBatch: _manifestBatch);
 
     private void DisposeCurrentIteration()
     {
@@ -178,5 +178,5 @@ public class BackupPipelineBenchmarks : BackupBenchmarkBase
     }
 
     [Benchmark]
-    public BackupRunResult RunFirstBackup() => _pipeline.Run(_profile);
+    public Task<BackupRunResult> RunFirstBackup() => _pipeline.RunAsync(_profile);
 }

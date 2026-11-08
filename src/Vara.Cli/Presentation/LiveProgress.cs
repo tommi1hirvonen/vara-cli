@@ -38,4 +38,24 @@ internal static class LiveProgress
             .Start(ctx => result = body(ctx, terminalProgress));
         return result;
     }
+
+    /// <summary>
+    /// The asynchronous counterpart of <see cref="Run{T}"/>, for a body that awaits.
+    /// </summary>
+    public static async Task<T> RunAsync<T>(
+        IAnsiConsole console,
+        ProgressColumn[] columns,
+        Func<ProgressContext, WindowsTerminalProgress?, Task<T>> body,
+        bool startIndeterminate = false)
+    {
+        using var terminalProgress = WindowsTerminalProgress.TryCreate(console);
+        if (startIndeterminate)
+        {
+            terminalProgress?.SetIndeterminate();
+        }
+
+        return await console.Progress()
+            .Columns(columns)
+            .StartAsync(ctx => body(ctx, terminalProgress));
+    }
 }

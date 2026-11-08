@@ -36,7 +36,7 @@ public class BackupExecutorTests : IDisposable
     private static DateTimeOffset ScanTimeModifiedAt(string path) => new FileInfo(path).LastWriteTimeUtc;
 
     [Fact]
-    public void Executing_an_add_stores_content_places_it_in_the_mirror_and_records_it()
+    public async Task Executing_an_add_stores_content_places_it_in_the_mirror_and_records_it()
     {
         var path = WriteFile("new.txt", "hello world");
         var plan = new BackupPlan(
@@ -44,7 +44,7 @@ public class BackupExecutorTests : IDisposable
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
         Assert.Equal(1, outcome.FilesAdded);
         Assert.Equal(11, outcome.BytesTransferred);
@@ -53,7 +53,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void Transfer_lifecycle_callbacks_receive_the_source_path_for_a_successful_file()
+    public async Task Transfer_lifecycle_callbacks_receive_the_source_path_for_a_successful_file()
     {
         var path = WriteFile("new.txt", "hello");
         var plan = new BackupPlan(
@@ -63,7 +63,7 @@ public class BackupExecutorTests : IDisposable
         var startedPaths = new List<string>();
         var finishedPaths = new List<string>();
 
-        executor.Execute(
+        await executor.ExecuteAsync(
             snapshotId,
             DateTimeOffset.UtcNow,
             plan,
@@ -75,7 +75,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void File_finished_callback_runs_after_a_failed_transfer_without_counting_it_as_transferred()
+    public async Task File_finished_callback_runs_after_a_failed_transfer_without_counting_it_as_transferred()
     {
         var path = Path.Combine(_root, "missing.txt");
         var plan = new BackupPlan(
@@ -86,7 +86,7 @@ public class BackupExecutorTests : IDisposable
         var finishedPaths = new List<string>();
         var transferredFiles = 0;
 
-        var outcome = executor.Execute(
+        var outcome = await executor.ExecuteAsync(
             snapshotId,
             DateTimeOffset.UtcNow,
             plan,
@@ -101,7 +101,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void A_single_large_file_transfer_reports_progress_incrementally_not_just_once_on_completion()
+    public async Task A_single_large_file_transfer_reports_progress_incrementally_not_just_once_on_completion()
     {
         var content = new string('a', 500_000);
         var path = WriteFile("large.txt", content);
@@ -113,7 +113,7 @@ public class BackupExecutorTests : IDisposable
 
         var reports = new List<long>();
         var completedFiles = 0;
-        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, reports.Add, onFileTransferred: () => completedFiles++);
+        await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan, reports.Add, onFileTransferred: () => completedFiles++);
 
         Assert.True(reports.Count > 1, $"expected more than one progress report for a large file, observed {reports.Count}");
         Assert.Equal(size, reports.Sum());
@@ -121,7 +121,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void Executing_an_add_records_a_quick_hash_for_the_stored_content()
+    public async Task Executing_an_add_records_a_quick_hash_for_the_stored_content()
     {
         var path = WriteFile("new.txt", "hello world");
         var plan = new BackupPlan(
@@ -129,7 +129,7 @@ public class BackupExecutorTests : IDisposable
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
         var record = Assert.Single(_repository.GetFileHistory("new.txt"));
         Assert.NotNull(record.QuickHash);
@@ -137,7 +137,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void A_placement_that_succeeds_via_a_per_blob_copy_fallback_is_recorded_like_any_other_success()
+    public async Task A_placement_that_succeeds_via_a_per_blob_copy_fallback_is_recorded_like_any_other_success()
     {
         // BackupExecutor only ever sees IContentStore.PlaceAtMirrorPath succeed or throw - it
         // has no knowledge of whether the real FileSystemContentStore placed the blob via a
@@ -151,7 +151,7 @@ public class BackupExecutorTests : IDisposable
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
         Assert.Equal(1, outcome.FilesAdded);
         Assert.Empty(outcome.FailedPaths);
@@ -160,7 +160,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void A_locked_source_file_is_recorded_as_failed_without_aborting_the_run()
+    public async Task A_locked_source_file_is_recorded_as_failed_without_aborting_the_run()
     {
         var lockedPath = WriteFile("locked.txt", "cannot read me");
         var okPath = WriteFile("ok.txt", "this one is fine");
@@ -176,7 +176,7 @@ public class BackupExecutorTests : IDisposable
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
         var completedFiles = 0;
 
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, onFileTransferred: () => completedFiles++);
+        var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan, onFileTransferred: () => completedFiles++);
 
         Assert.Equal(1, outcome.FilesFailed);
         Assert.Equal(["locked.txt"], outcome.FailedPaths);
@@ -187,7 +187,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void Executing_a_move_relocates_the_mirror_entry_and_records_delete_plus_move()
+    public async Task Executing_a_move_relocates_the_mirror_entry_and_records_delete_plus_move()
     {
         _contentStore.PlaceAtMirrorPath("hash-1", @"Downloads\report.pdf");
         var plan = new BackupPlan(
@@ -196,7 +196,7 @@ public class BackupExecutorTests : IDisposable
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
         Assert.Equal(1, outcome.FilesMoved);
         Assert.Equal(0, outcome.BytesTransferred);
@@ -208,7 +208,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void Executing_a_move_carries_the_matched_candidates_quick_hash_forward_without_rehashing()
+    public async Task Executing_a_move_carries_the_matched_candidates_quick_hash_forward_without_rehashing()
     {
         _contentStore.PlaceAtMirrorPath("hash-1", @"Downloads\report.pdf");
         var plan = new BackupPlan(
@@ -219,7 +219,7 @@ public class BackupExecutorTests : IDisposable
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
         var newPathRecord = _repository.GetFileHistory(@"Documents\report.pdf")
             .Single(r => r.ChangeKind == Vara.Core.Snapshots.FileChangeKind.Moved);
@@ -228,7 +228,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void A_move_retried_after_the_mirror_was_already_relocated_completes_normally()
+    public async Task A_move_retried_after_the_mirror_was_already_relocated_completes_normally()
     {
         // Simulates a run interrupted between the mirror's physical relocation and the
         // manifest transaction recording it: the destination already holds the content
@@ -240,7 +240,7 @@ public class BackupExecutorTests : IDisposable
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
         Assert.Equal(1, outcome.FilesMoved);
         Assert.Empty(outcome.FailedPaths);
@@ -254,21 +254,21 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void Executing_a_delete_removes_the_mirror_entry_and_records_a_tombstone()
+    public async Task Executing_a_delete_removes_the_mirror_entry_and_records_a_tombstone()
     {
         _contentStore.PlaceAtMirrorPath("hash-1", "gone.txt");
         var plan = new BackupPlan([new DeleteOperation("gone.txt", 10, DateTimeOffset.UtcNow, "hash-1")], 0);
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
         Assert.Equal(1, outcome.FilesDeleted);
         Assert.False(_contentStore.Mirror.ContainsKey("gone.txt"));
     }
 
     [Fact]
-    public void Executing_a_delete_passes_the_operations_known_hash_to_RemoveFromMirror()
+    public async Task Executing_a_delete_passes_the_operations_known_hash_to_RemoveFromMirror()
     {
         // The content store needs the deleted file's hash to restore read-only protection
         // on its blob after removing the mirror entry (protect-hardlinked-mirror-files
@@ -278,13 +278,13 @@ public class BackupExecutorTests : IDisposable
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
         Assert.Equal("hash-1", _contentStore.RemoveFromMirrorHashesSeen["gone.txt"]);
     }
 
     [Fact]
-    public void Executing_a_change_passes_the_operations_previous_content_hash_to_PlaceAtMirrorPath()
+    public async Task Executing_a_change_passes_the_operations_previous_content_hash_to_PlaceAtMirrorPath()
     {
         // The content store needs the previous content's hash to restore read-only
         // protection on that content's blob after overwriting the mirror entry
@@ -296,13 +296,13 @@ public class BackupExecutorTests : IDisposable
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
         Assert.Equal("old-hash", _contentStore.PreviousContentHashesSeen["changed.txt"]);
     }
 
     [Fact]
-    public void Executing_a_link_records_a_null_content_hash_and_the_scanned_target()
+    public async Task Executing_a_link_records_a_null_content_hash_and_the_scanned_target()
     {
         var plan = new BackupPlan(
             [new LinkOperation("link", null, @"C:\target")],
@@ -310,7 +310,7 @@ public class BackupExecutorTests : IDisposable
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
         var record = Assert.Single(_repository.GetFileHistory("link"));
         Assert.Equal(Vara.Core.Snapshots.FileChangeKind.Linked, record.ChangeKind);
@@ -319,7 +319,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void A_file_to_link_transition_removes_the_files_previous_mirror_copy()
+    public async Task A_file_to_link_transition_removes_the_files_previous_mirror_copy()
     {
         // The path was previously tracked as a regular file with mirrored content
         // ("old-hash"); BackupPlanner surfaces that as PreviousContentHash on the Link
@@ -331,14 +331,14 @@ public class BackupExecutorTests : IDisposable
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
         Assert.False(_contentStore.Mirror.ContainsKey("was-a-file"));
         Assert.Equal("old-hash", _contentStore.RemoveFromMirrorHashesSeen["was-a-file"]);
     }
 
     [Fact]
-    public void A_link_with_no_prior_file_content_performs_no_mirror_removal()
+    public async Task A_link_with_no_prior_file_content_performs_no_mirror_removal()
     {
         // A path newly observed as a link (never previously tracked as a regular file)
         // has no PreviousContentHash - there is nothing in the mirror to remove.
@@ -348,13 +348,13 @@ public class BackupExecutorTests : IDisposable
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
         Assert.False(_contentStore.RemoveFromMirrorHashesSeen.ContainsKey("brand-new-link"));
     }
 
     [Fact]
-    public void Deleting_a_path_whose_most_recent_state_was_itself_a_link_performs_no_mirror_removal_and_does_not_throw()
+    public async Task Deleting_a_path_whose_most_recent_state_was_itself_a_link_performs_no_mirror_removal_and_does_not_throw()
     {
         // BackupPlanner leaves KnownContentHash null for a Delete of a path whose most
         // recent state was a Linked entry - there was never a content-store blob for it.
@@ -364,7 +364,7 @@ public class BackupExecutorTests : IDisposable
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
         Assert.Equal(1, outcome.FilesDeleted);
         Assert.Empty(outcome.FailedPaths);
@@ -374,10 +374,10 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void The_transfer_phase_starting_callback_fires_once_after_moves_deletes_and_before_any_transfer()
+    public async Task The_transfer_phase_starting_callback_fires_once_after_moves_deletes_and_before_any_transfer()
     {
         // A move and a delete both precede the add in the plan's operation list, but
-        // Execute always runs every Move/Delete before any Add/Change regardless of
+        // ExecuteAsync always runs every Move/Delete before any Add/Change regardless of
         // list order (fix-transfer-clock-start change), so the callback fired between
         // those two passes should observe both the move and the delete already applied,
         // and the add's content not yet stored.
@@ -399,7 +399,7 @@ public class BackupExecutorTests : IDisposable
         var deleteAlreadyAppliedWhenCallbackFired = false;
         var addNotYetStoredWhenCallbackFired = false;
 
-        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, onTransferPhaseStarting: () =>
+        await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan, onTransferPhaseStarting: () =>
         {
             callCount++;
             moveAlreadyAppliedWhenCallbackFired = _contentStore.Mirror.ContainsKey(@"Documents\report.pdf");
@@ -414,7 +414,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void The_transfer_phase_starting_callback_fires_even_with_no_move_delete_operations()
+    public async Task The_transfer_phase_starting_callback_fires_even_with_no_move_delete_operations()
     {
         var addPath = WriteFile("new.txt", "hello world");
         var plan = new BackupPlan([new AddOperation("new.txt", addPath, 11, ScanTimeModifiedAt(addPath))], 11);
@@ -422,13 +422,13 @@ public class BackupExecutorTests : IDisposable
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
         var callCount = 0;
-        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, onTransferPhaseStarting: () => callCount++);
+        await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan, onTransferPhaseStarting: () => callCount++);
 
         Assert.Equal(1, callCount);
     }
 
     [Fact]
-    public void The_transfer_phase_starting_callback_fires_even_with_no_add_change_operations()
+    public async Task The_transfer_phase_starting_callback_fires_even_with_no_add_change_operations()
     {
         _contentStore.PlaceAtMirrorPath("hash-1", "gone.txt");
         var plan = new BackupPlan([new DeleteOperation("gone.txt", 10, DateTimeOffset.UtcNow, "hash-1")], 0);
@@ -436,26 +436,26 @@ public class BackupExecutorTests : IDisposable
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
         var callCount = 0;
-        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, onTransferPhaseStarting: () => callCount++);
+        await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan, onTransferPhaseStarting: () => callCount++);
 
         Assert.Equal(1, callCount);
     }
 
     [Fact]
-    public void The_transfer_phase_starting_callback_fires_even_when_the_plan_is_entirely_empty()
+    public async Task The_transfer_phase_starting_callback_fires_even_when_the_plan_is_entirely_empty()
     {
         var plan = new BackupPlan([], 0);
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
         var callCount = 0;
-        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, onTransferPhaseStarting: () => callCount++);
+        await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan, onTransferPhaseStarting: () => callCount++);
 
         Assert.Equal(1, callCount);
     }
 
     [Fact]
-    public void The_transfer_phase_starting_callback_still_fires_after_a_move_operation_fails()
+    public async Task The_transfer_phase_starting_callback_still_fires_after_a_move_operation_fails()
     {
         _contentStore.PlaceAtMirrorPath("hash-1", @"Downloads\report.pdf");
         _contentStore.ThrowOnMove = new IOException("locked");
@@ -466,14 +466,14 @@ public class BackupExecutorTests : IDisposable
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
         var callCount = 0;
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, onTransferPhaseStarting: () => callCount++);
+        var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan, onTransferPhaseStarting: () => callCount++);
 
         Assert.Equal(1, callCount);
         Assert.Equal(1, outcome.FilesFailed);
     }
 
     [Fact]
-    public void A_locked_mirror_entry_during_move_is_recorded_as_failed_without_aborting_the_run()
+    public async Task A_locked_mirror_entry_during_move_is_recorded_as_failed_without_aborting_the_run()
     {
         _contentStore.PlaceAtMirrorPath("hash-1", @"Downloads\report.pdf");
         _contentStore.ThrowOnMove = new IOException("The process cannot access the file because it is being used by another process.");
@@ -488,7 +488,7 @@ public class BackupExecutorTests : IDisposable
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
         Assert.Equal(1, outcome.FilesFailed);
         Assert.Equal([@"Documents\report.pdf"], outcome.FailedPaths);
@@ -498,7 +498,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void A_locked_mirror_entry_during_delete_is_recorded_as_failed_without_aborting_the_run()
+    public async Task A_locked_mirror_entry_during_delete_is_recorded_as_failed_without_aborting_the_run()
     {
         _contentStore.PlaceAtMirrorPath("hash-1", "gone.txt");
         _contentStore.ThrowOnRemove = new IOException("The process cannot access the file because it is being used by another process.");
@@ -513,7 +513,7 @@ public class BackupExecutorTests : IDisposable
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
         Assert.Equal(1, outcome.FilesFailed);
         Assert.Equal(["gone.txt"], outcome.FailedPaths);
@@ -523,7 +523,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void A_mirror_path_escaping_the_target_root_is_recorded_as_failed_without_aborting_the_run()
+    public async Task A_mirror_path_escaping_the_target_root_is_recorded_as_failed_without_aborting_the_run()
     {
         // MirrorPathEscapesTargetRootException is an IOException subclass thrown by
         // FileSystemContentStore's containment guard (for example, for an unmapped UNC source
@@ -546,7 +546,7 @@ public class BackupExecutorTests : IDisposable
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
         Assert.Equal(1, outcome.FilesFailed);
         Assert.Equal([@"\\srv\share\new.txt"], outcome.FailedPaths);
@@ -560,7 +560,7 @@ public class BackupExecutorTests : IDisposable
         var movePlan = new BackupPlan(
             [new MoveOperation(@"\\srv\share\report.pdf", @"Downloads\report.pdf", "hash-move", 100, DateTimeOffset.UtcNow)],
             0);
-        var moveOutcome = executor.Execute(_repository.BeginSnapshot(DateTimeOffset.UtcNow), DateTimeOffset.UtcNow, movePlan);
+        var moveOutcome = await executor.ExecuteAsync(_repository.BeginSnapshot(DateTimeOffset.UtcNow), DateTimeOffset.UtcNow, movePlan);
         Assert.Equal(1, moveOutcome.FilesFailed);
         Assert.Equal([@"\\srv\share\report.pdf"], moveOutcome.FailedPaths);
 
@@ -569,13 +569,13 @@ public class BackupExecutorTests : IDisposable
         var deletePlan = new BackupPlan(
             [new DeleteOperation("gone.txt", 10, DateTimeOffset.UtcNow, "hash-delete")],
             0);
-        var deleteOutcome = executor.Execute(_repository.BeginSnapshot(DateTimeOffset.UtcNow), DateTimeOffset.UtcNow, deletePlan);
+        var deleteOutcome = await executor.ExecuteAsync(_repository.BeginSnapshot(DateTimeOffset.UtcNow), DateTimeOffset.UtcNow, deletePlan);
         Assert.Equal(1, deleteOutcome.FilesFailed);
         Assert.Equal(["gone.txt"], deleteOutcome.FailedPaths);
     }
 
     [Fact]
-    public void A_failed_move_does_not_record_any_file_version_for_the_affected_paths()
+    public async Task A_failed_move_does_not_record_any_file_version_for_the_affected_paths()
     {
         _contentStore.PlaceAtMirrorPath("hash-1", @"Downloads\report.pdf");
         _contentStore.ThrowOnMove = new IOException("locked");
@@ -590,7 +590,7 @@ public class BackupExecutorTests : IDisposable
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
         Assert.Empty(_repository.GetFileHistory(@"Downloads\report.pdf"));
         Assert.Empty(_repository.GetFileHistory(@"Documents\report.pdf"));
@@ -598,7 +598,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void Many_adds_execute_correctly_under_bounded_parallelism()
+    public async Task Many_adds_execute_correctly_under_bounded_parallelism()
     {
         const int fileCount = 50;
         var operations = new List<PlannedOperation>();
@@ -618,7 +618,7 @@ public class BackupExecutorTests : IDisposable
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
         var reportedBytes = 0L;
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, bytes => Interlocked.Add(ref reportedBytes, bytes));
+        var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan, bytes => Interlocked.Add(ref reportedBytes, bytes));
 
         Assert.Equal(fileCount, outcome.FilesAdded);
         Assert.Equal(expectedBytes, outcome.BytesTransferred);
@@ -629,7 +629,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void Unconfigured_transfer_concurrency_defaults_to_one_not_processor_count()
+    public async Task Unconfigured_transfer_concurrency_defaults_to_one_not_processor_count()
     {
         const int fileCount = 12;
         var operations = new List<PlannedOperation>();
@@ -652,13 +652,13 @@ public class BackupExecutorTests : IDisposable
         var executor = new BackupExecutor(_contentStore, _repository, hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
         Assert.Equal(1, hasher.MaxObservedConcurrency);
     }
 
     [Fact]
-    public void Configuring_transfer_concurrency_above_one_allows_concurrent_transfers()
+    public async Task Configuring_transfer_concurrency_above_one_allows_concurrent_transfers()
     {
         const int fileCount = 12;
         var operations = new List<PlannedOperation>();
@@ -678,7 +678,7 @@ public class BackupExecutorTests : IDisposable
         var executor = new BackupExecutor(_contentStore, _repository, hasher, maxDegreeOfParallelism: 8);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
         Assert.True(
             hasher.MaxObservedConcurrency > 1,
@@ -686,7 +686,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void Manifest_writes_for_many_files_commit_once_as_a_batch_not_per_file()
+    public async Task Manifest_writes_for_many_files_commit_once_as_a_batch_not_per_file()
     {
         const int fileCount = 25;
         var operations = new List<PlannedOperation>();
@@ -708,7 +708,7 @@ public class BackupExecutorTests : IDisposable
         ExecutionOutcome outcome;
         using (var batch = _repository.BeginManifestBatch())
         {
-            outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+            outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
             // Nothing is durable yet - the batch covering all 25 files has not committed.
             Assert.Empty(_repository.GetFileHistory("file-0.txt"));
@@ -727,7 +727,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void Periodic_checkpoints_commit_multiple_times_during_one_run_when_a_manifest_batch_is_supplied()
+    public async Task Periodic_checkpoints_commit_multiple_times_during_one_run_when_a_manifest_batch_is_supplied()
     {
         // add-backup-checkpoints-and-cancellation's design.md "Checkpoint trigger"
         // decision: a zero interval means every completed operation is immediately due
@@ -751,7 +751,7 @@ public class BackupExecutorTests : IDisposable
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
         using var batch = _repository.BeginManifestBatch();
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, manifestBatch: batch);
+        var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan, manifestBatch: batch);
 
         Assert.Equal(fileCount, outcome.FilesAdded);
         Assert.True(_repository.CommitCount > 1, $"Expected more than one checkpoint commit, got {_repository.CommitCount}.");
@@ -765,7 +765,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void No_checkpointing_occurs_when_no_manifest_batch_is_supplied()
+    public async Task No_checkpointing_occurs_when_no_manifest_batch_is_supplied()
     {
         // Existing callers that omit manifestBatch (e.g. every other test in this file)
         // must see unchanged behavior: no checkpoint commits at all.
@@ -775,13 +775,13 @@ public class BackupExecutorTests : IDisposable
         var executor = new BackupExecutor(_contentStore, _repository, _hasher, checkpointInterval: TimeSpan.Zero);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
         Assert.Equal(0, _repository.CommitCount);
     }
 
     [Fact]
-    public void Cooperative_cancellation_lets_the_current_operation_finish_but_starts_no_further_ones()
+    public async Task Cooperative_cancellation_lets_the_current_operation_finish_but_starts_no_further_ones()
     {
         // Three Delete operations: the executor's sequential Move/Delete/Link loop
         // processes these one at a time, so cancelling right after the first one
@@ -803,7 +803,7 @@ public class BackupExecutorTests : IDisposable
         // "b.txt" starts.
         _repository.OnRecordFileVersion = () => cts.Cancel();
 
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, cancellationToken: cts.Token);
+        var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan, cancellationToken: cts.Token);
 
         Assert.Equal(1, outcome.FilesDeleted);
         Assert.Single(_repository.GetFileHistory("a.txt"));
@@ -812,7 +812,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void Cooperative_cancellation_requested_before_starting_skips_every_operation()
+    public async Task Cooperative_cancellation_requested_before_starting_skips_every_operation()
     {
         var path = WriteFile("new.txt", "hello world");
         var plan = new BackupPlan(
@@ -822,7 +822,7 @@ public class BackupExecutorTests : IDisposable
         using var cts = new CancellationTokenSource();
         cts.Cancel();
 
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, cancellationToken: cts.Token);
+        var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan, cancellationToken: cts.Token);
 
         Assert.Equal(0, outcome.FilesAdded);
         Assert.False(_contentStore.Mirror.ContainsKey("new.txt"));
@@ -830,7 +830,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void A_crash_before_batch_commit_leaves_mirror_correct_but_manifest_rows_absent()
+    public async Task A_crash_before_batch_commit_leaves_mirror_correct_but_manifest_rows_absent()
     {
         var path = WriteFile("new.txt", "hello world");
         var plan = new BackupPlan(
@@ -840,7 +840,7 @@ public class BackupExecutorTests : IDisposable
 
         using (_repository.BeginManifestBatch())
         {
-            var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+            var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
             Assert.Equal(1, outcome.FilesAdded);
             // No Commit() call here - models the process crashing mid-run, before the
             // batch's transaction would have committed.
@@ -858,7 +858,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void A_file_modified_between_scan_and_transfer_is_recorded_as_failed_with_no_manifest_entry()
+    public async Task A_file_modified_between_scan_and_transfer_is_recorded_as_failed_with_no_manifest_entry()
     {
         var path = WriteFile("torn.txt", "original content as of scan time");
         var scanTimeSize = new FileInfo(path).Length;
@@ -877,7 +877,7 @@ public class BackupExecutorTests : IDisposable
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
         Assert.Equal(1, outcome.FilesFailed);
         Assert.Equal(["torn.txt"], outcome.FailedPaths);
@@ -887,7 +887,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void A_file_modified_during_transfer_is_re_selected_by_incremental_change_detection_on_the_next_run()
+    public async Task A_file_modified_during_transfer_is_re_selected_by_incremental_change_detection_on_the_next_run()
     {
         // First run: a file is scanned, then edited (torn read) before its content is
         // actually read during transfer, so the operation fails and no manifest row is
@@ -907,7 +907,7 @@ public class BackupExecutorTests : IDisposable
 
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
         Assert.Equal(1, outcome.FilesFailed);
 
         // Second run: scan observes the file's current (post-edit) state; diff it against
@@ -922,7 +922,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void An_unmodified_during_transfer_file_still_records_its_manifest_entry_with_the_scan_time_modification_time()
+    public async Task An_unmodified_during_transfer_file_still_records_its_manifest_entry_with_the_scan_time_modification_time()
     {
         var path = WriteFile("stable.txt", "content that is not touched during its own transfer");
         var scanTimeSize = new FileInfo(path).Length;
@@ -933,7 +933,7 @@ public class BackupExecutorTests : IDisposable
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan);
+        var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
         Assert.Equal(1, outcome.FilesAdded);
         Assert.Empty(outcome.FailedPaths);
@@ -943,27 +943,22 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void A_source_file_deleted_immediately_after_being_read_is_recorded_as_failed()
+    public async Task A_source_file_deleted_immediately_after_being_read_is_recorded_as_failed()
     {
         var path = WriteFile("vanishing.txt", "will vanish right after being read");
         var size = new FileInfo(path).Length;
         var plan = new BackupPlan(
             [new AddOperation("vanishing.txt", path, size, ScanTimeModifiedAt(path))],
             size);
-        var executor = new BackupExecutor(_contentStore, _repository, _hasher);
+        // The source is deleted from within the worker while its content is being read (the
+        // hasher runs on the worker, so the deletion cannot be deferred to the recorder like an
+        // onBytesTransferred callback). Either the delete itself fails on the open handle (an
+        // IOException) or the post-read re-stat throws FileNotFoundException; both must be
+        // recorded as a failed transfer rather than observing a mismatch.
+        var executor = new BackupExecutor(_contentStore, _repository, new SourceDeletingHasher(path, _hasher));
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        // onBytesTransferred fires from within StoreFromStream, once the content has
-        // already been fully read - deleting the source here simulates the re-stat call
-        // itself throwing (FileNotFoundException, an IOException) rather than observing a
-        // mismatch.
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, onBytesTransferred: _ =>
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        });
+        var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan);
 
         Assert.Equal(1, outcome.FilesFailed);
         Assert.Equal(["vanishing.txt"], outcome.FailedPaths);
@@ -973,7 +968,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void Transfer_on_non_hardlink_store_apportions_progress_across_both_passes_and_sums_to_exact_file_size()
+    public async Task Transfer_on_non_hardlink_store_apportions_progress_across_both_passes_and_sums_to_exact_file_size()
     {
         _contentStore.ForceHardlinkSupportForTesting(false);
         const int contentLength = 200 * 1024; // > 64KB SimulatedChunkSize, multiple chunks
@@ -989,7 +984,7 @@ public class BackupExecutorTests : IDisposable
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
         var reports = new List<long>();
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, onBytesTransferred: delta => reports.Add(delta));
+        var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan, onBytesTransferred: delta => reports.Add(delta));
 
         Assert.Equal(1, outcome.FilesAdded);
         Assert.Equal(contentLength, outcome.BytesTransferred);
@@ -999,7 +994,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void Transfer_on_non_hardlink_store_reconciles_odd_file_size_exactly()
+    public async Task Transfer_on_non_hardlink_store_reconciles_odd_file_size_exactly()
     {
         _contentStore.ForceHardlinkSupportForTesting(false);
         var path = WriteFile("odd.txt", "1234567"); // 7 bytes (odd size)
@@ -1013,7 +1008,7 @@ public class BackupExecutorTests : IDisposable
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
         var reports = new List<long>();
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, onBytesTransferred: delta => reports.Add(delta));
+        var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan, onBytesTransferred: delta => reports.Add(delta));
 
         Assert.Equal(1, outcome.FilesAdded);
         Assert.Equal(size, outcome.BytesTransferred);
@@ -1021,7 +1016,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void Transfer_on_hardlink_capable_store_suppresses_mirror_progress_on_placement()
+    public async Task Transfer_on_hardlink_capable_store_suppresses_mirror_progress_on_placement()
     {
         _contentStore.ForceHardlinkSupportForTesting(true);
         var path = WriteFile("linkable.txt", "content for hardlinkable mirror placement");
@@ -1034,7 +1029,7 @@ public class BackupExecutorTests : IDisposable
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
         var reports = new List<long>();
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, onBytesTransferred: delta => reports.Add(delta));
+        var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan, onBytesTransferred: delta => reports.Add(delta));
 
         Assert.Equal(1, outcome.FilesAdded);
         Assert.Equal(size, outcome.BytesTransferred);
@@ -1056,7 +1051,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void An_unexpected_worker_exception_still_records_results_already_produced_then_propagates()
+    public async Task An_unexpected_worker_exception_still_records_results_already_produced_then_propagates()
     {
         var operations = WriteAddOperations(3, "ok");
         var badPath = WriteFile("bad.txt", "this placement blows up");
@@ -1066,8 +1061,8 @@ public class BackupExecutorTests : IDisposable
         var executor = new BackupExecutor(_contentStore, _repository, _hasher);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
-        var exception = Assert.Throws<AggregateException>(
-            () => executor.Execute(snapshotId, DateTimeOffset.UtcNow, new BackupPlan(operations, 0)));
+        var exception = await Assert.ThrowsAsync<AggregateException>(
+            () => executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, new BackupPlan(operations, 0)));
 
         Assert.IsType<InvalidOperationException>(Assert.Single(exception.InnerExceptions));
         for (var i = 0; i < 3; i++)
@@ -1079,7 +1074,7 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void A_recorder_failure_stops_the_workers_and_is_rethrown_after_they_have_finished()
+    public async Task A_recorder_failure_stops_the_workers_and_is_rethrown_after_they_have_finished()
     {
         const int fileCount = 30;
         var plan = new BackupPlan(WriteAddOperations(fileCount), 0);
@@ -1089,7 +1084,7 @@ public class BackupExecutorTests : IDisposable
         var started = 0;
         var finished = 0;
 
-        var exception = Assert.Throws<InvalidOperationException>(() => executor.Execute(
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => executor.ExecuteAsync(
             snapshotId,
             DateTimeOffset.UtcNow,
             plan,
@@ -1111,17 +1106,18 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void Graceful_cancellation_with_concurrent_transfers_records_every_started_transfer_and_starts_no_more()
+    public async Task Graceful_cancellation_with_concurrent_transfers_records_every_started_transfer_and_starts_no_more()
     {
         const int fileCount = 40;
         var plan = new BackupPlan(WriteAddOperations(fileCount), 0);
-        var executor = new BackupExecutor(_contentStore, _repository, _hasher, maxDegreeOfParallelism: 4);
+        var executor = new BackupExecutor(
+            _contentStore, _repository, new ConcurrencyObservingHasher(), maxDegreeOfParallelism: 4);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
         using var cts = new CancellationTokenSource();
         var started = 0;
         var transferred = 0;
 
-        var outcome = executor.Execute(
+        var outcome = await executor.ExecuteAsync(
             snapshotId,
             DateTimeOffset.UtcNow,
             plan,
@@ -1145,22 +1141,112 @@ public class BackupExecutorTests : IDisposable
     }
 
     [Fact]
-    public void All_repository_and_manifest_batch_calls_happen_on_the_calling_thread_with_concurrent_transfers()
+    public async Task Repository_and_manifest_batch_calls_never_overlap_with_concurrent_transfers()
     {
         var plan = new BackupPlan(WriteAddOperations(20), 0);
-        var callingThread = Environment.CurrentManagedThreadId;
-        var threads = new System.Collections.Concurrent.ConcurrentBag<int>();
-        _repository.OnRecordFileVersion = () => threads.Add(Environment.CurrentManagedThreadId);
-        _repository.OnCommit = () => threads.Add(Environment.CurrentManagedThreadId);
+        var tracker = new OverlapTracker();
+        _repository.OnRecordFileVersion = tracker.Visit;
+        _repository.OnCommit = tracker.Visit;
         var executor = new BackupExecutor(
-            _contentStore, _repository, _hasher, maxDegreeOfParallelism: 4, checkpointInterval: TimeSpan.Zero);
+            _contentStore,
+            _repository,
+            new ConcurrencyObservingHasher(),
+            maxDegreeOfParallelism: 4,
+            checkpointInterval: TimeSpan.Zero);
         var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
 
         using var batch = _repository.BeginManifestBatch();
-        var outcome = executor.Execute(snapshotId, DateTimeOffset.UtcNow, plan, manifestBatch: batch);
+        var outcome = await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, plan, manifestBatch: batch);
 
         Assert.Equal(20, outcome.FilesAdded);
-        Assert.True(threads.Count >= 40, $"expected record and commit calls, observed {threads.Count}");
-        Assert.All(threads, thread => Assert.Equal(callingThread, thread));
+        Assert.True(tracker.Calls >= 40, $"expected record and commit calls, observed {tracker.Calls}");
+        Assert.Equal(1, tracker.MaxOverlap);
+    }
+
+    [Fact]
+    public async Task Every_callback_runs_sequentially_with_concurrent_transfers()
+    {
+        const int fileCount = 30;
+        var plan = new BackupPlan(WriteAddOperations(fileCount), 0);
+        var tracker = new OverlapTracker();
+        var bytesCalls = 0;
+        var startedCalls = 0;
+        var finishedCalls = 0;
+        var transferredCalls = 0;
+        var executor = new BackupExecutor(
+            _contentStore, _repository, new ConcurrencyObservingHasher(), maxDegreeOfParallelism: 4);
+        var snapshotId = _repository.BeginSnapshot(DateTimeOffset.UtcNow);
+
+        var outcome = await executor.ExecuteAsync(
+            snapshotId,
+            DateTimeOffset.UtcNow,
+            plan,
+            onBytesTransferred: _ =>
+            {
+                tracker.Visit();
+                bytesCalls++;
+            },
+            onFileStarted: _ =>
+            {
+                tracker.Visit();
+                startedCalls++;
+            },
+            onFileFinished: _ =>
+            {
+                tracker.Visit();
+                finishedCalls++;
+            },
+            onFileTransferred: () =>
+            {
+                tracker.Visit();
+                transferredCalls++;
+            });
+
+        Assert.Equal(fileCount, outcome.FilesAdded);
+        Assert.True(bytesCalls > 0, "onBytesTransferred never fired");
+        Assert.Equal(fileCount, startedCalls);
+        Assert.Equal(fileCount, finishedCalls);
+        Assert.Equal(fileCount, transferredCalls);
+        Assert.Equal(1, tracker.MaxOverlap);
+    }
+
+    private sealed class SourceDeletingHasher(string path, IHasher inner) : IHasher
+    {
+        public string ComputeHash(Stream content)
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+
+            return inner.ComputeHash(content);
+        }
+    }
+
+    // Counts concurrent entries into Visit; a short sleep inside widens the window in which an
+    // overlapping caller would be observed.
+    private sealed class OverlapTracker
+    {
+        private int _current;
+        private int _maxOverlap;
+        private int _calls;
+
+        public int MaxOverlap => Volatile.Read(ref _maxOverlap);
+
+        public int Calls => Volatile.Read(ref _calls);
+
+        public void Visit()
+        {
+            var current = Interlocked.Increment(ref _current);
+            Interlocked.Increment(ref _calls);
+            int observed;
+            do
+            {
+                observed = Volatile.Read(ref _maxOverlap);
+            } while (current > observed && Interlocked.CompareExchange(ref _maxOverlap, current, observed) != observed);
+
+            Thread.Sleep(Random.Shared.Next(1, 4));
+            Interlocked.Decrement(ref _current);
+        }
     }
 }

@@ -65,6 +65,54 @@ public class ErrorReportingTests
     }
 
     [Fact]
+    public async Task RunAsync_reports_a_domain_exception_in_the_friendly_style_with_exit_code_1()
+    {
+        var console = new TestConsole();
+        console.Profile.Width = 200;
+
+        var exitCode = await ErrorReporting.RunAsync(
+            async () =>
+            {
+                await Task.Yield();
+                throw new ProfileConfigNotFoundException("C:\\missing\\profiles.yml");
+            },
+            console);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Error: Profile configuration file not found at 'C:\\missing\\profiles.yml'.", console.Output);
+        Assert.DoesNotContain("Unhandled exception", console.Output);
+    }
+
+    [Fact]
+    public async Task RunAsync_reports_an_unclassified_exception_as_unhandled_with_exit_code_1()
+    {
+        var console = new TestConsole();
+        console.Profile.Width = 200;
+
+        var exitCode = await ErrorReporting.RunAsync(
+            async () =>
+            {
+                await Task.Yield();
+                throw new InvalidOperationException("boom");
+            },
+            console);
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Unhandled exception: InvalidOperationException: boom", console.Output);
+    }
+
+    [Fact]
+    public async Task RunAsync_returns_exit_code_0_and_writes_nothing_on_success()
+    {
+        var console = new TestConsole();
+
+        var exitCode = await ErrorReporting.RunAsync(async () => await Task.Yield(), console);
+
+        Assert.Equal(0, exitCode);
+        Assert.Empty(console.Output);
+    }
+
+    [Fact]
     public void Recognized_exception_still_takes_the_friendly_message_path_unchanged()
     {
         var console = new TestConsole { EmitAnsiSequences = true };

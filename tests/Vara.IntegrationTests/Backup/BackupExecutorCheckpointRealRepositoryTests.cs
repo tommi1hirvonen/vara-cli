@@ -43,7 +43,7 @@ public class BackupExecutorCheckpointRealRepositoryTests : IDisposable
     }
 
     [Fact]
-    public void An_interruption_between_checkpoints_only_undoes_work_recorded_after_the_last_completed_checkpoint()
+    public async Task An_interruption_between_checkpoints_only_undoes_work_recorded_after_the_last_completed_checkpoint()
     {
         const int checkpointedCount = 4;
         const int unfinishedCount = 3;
@@ -69,13 +69,13 @@ public class BackupExecutorCheckpointRealRepositoryTests : IDisposable
             // these must survive the "crash" below, exactly as a real periodic
             // checkpoint firing at this point would guarantee.
             var checkpointedPlan = new BackupPlan(allOperations.Take(checkpointedCount).ToList(), 0);
-            executor.Execute(snapshotId, DateTimeOffset.UtcNow, checkpointedPlan);
+            await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, checkpointedPlan);
             batch.Commit();
 
             // Remaining files: recorded but never checkpointed - models a crash before
             // the next periodic checkpoint (or the run's own final commit) occurs.
             var unfinishedPlan = new BackupPlan(allOperations.Skip(checkpointedCount).ToList(), 0);
-            executor.Execute(snapshotId, DateTimeOffset.UtcNow, unfinishedPlan);
+            await executor.ExecuteAsync(snapshotId, DateTimeOffset.UtcNow, unfinishedPlan);
             // No further Commit() - disposing the batch here rolls back only these
             // unfinished rows, not the ones the earlier checkpoint already committed.
         }

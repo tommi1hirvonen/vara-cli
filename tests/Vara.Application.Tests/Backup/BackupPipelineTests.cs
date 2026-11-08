@@ -30,13 +30,13 @@ public class BackupPipelineTests : IDisposable
             : throw new InvalidOperationException("Expected a scanned file.");
 
     [Fact]
-    public void Run_throws_when_the_lock_cannot_be_acquired()
+    public async Task Run_throws_when_the_lock_cannot_be_acquired()
     {
         var repository = new FakeSnapshotRepository();
         var pipeline = new BackupPipeline(
             new FakeFileSystemScanner([]), new FakeHasher(), new FakeContentStore(), repository, new FakeRunLock(acquirable: false));
 
-        var ex = Assert.Throws<BackupAlreadyRunningException>(() => pipeline.Run(SimpleProfile(_root)));
+        var ex = await Assert.ThrowsAsync<BackupAlreadyRunningException>(() => pipeline.RunAsync(SimpleProfile(_root)));
         Assert.Equal("files", ex.ProfileName);
         Assert.Equal(_root, ex.TargetRoot);
         Assert.Contains(_root, ex.Message);
@@ -47,7 +47,7 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
-    public void A_successful_run_completes_the_snapshot()
+    public async Task A_successful_run_completes_the_snapshot()
     {
         var path = Path.Combine(_root, "a.txt");
         File.WriteAllText(path, "hello");
@@ -57,7 +57,7 @@ public class BackupPipelineTests : IDisposable
         var pipeline = new BackupPipeline(
             new FakeFileSystemScanner([entry]), new FakeHasher(), new FakeContentStore(), repository, new FakeRunLock());
 
-        var result = pipeline.Run(SimpleProfile(_root));
+        var result = await pipeline.RunAsync(SimpleProfile(_root));
 
         var snapshot = Assert.Single(repository.ListSnapshots());
         Assert.Equal(SnapshotStatus.Complete, snapshot.Status);
@@ -81,7 +81,7 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
-    public void PlanOnly_performs_zero_writes_for_a_profile_with_pending_adds_changes_deletes_and_moves()
+    public async Task PlanOnly_performs_zero_writes_for_a_profile_with_pending_adds_changes_deletes_and_moves()
     {
         var unchangedPath = Path.Combine(_root, "unchanged.txt");
         File.WriteAllText(unchangedPath, "same");
@@ -106,10 +106,10 @@ public class BackupPipelineTests : IDisposable
         var repository = new FakeSnapshotRepository();
         var contentStore = new FakeContentStore();
 
-        new BackupPipeline(
+        await new BackupPipeline(
                 new FakeFileSystemScanner([unchangedEntry, oldNameEntry, changedEntryV1, deletedEntry]),
                 new FakeHasher(), contentStore, repository, new FakeRunLock())
-            .Run(SimpleProfile(_root));
+            .RunAsync(SimpleProfile(_root));
 
         var mirrorBeforeDryRun = contentStore.Mirror.ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
         var snapshotCountBeforeDryRun = repository.ListSnapshots().Count;
@@ -153,7 +153,7 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
-    public void PlanOnlys_reported_counts_match_what_a_real_Run_against_the_same_state_would_report()
+    public async Task PlanOnlys_reported_counts_match_what_a_real_Run_against_the_same_state_would_report()
     {
         var basePath = Path.Combine(_root, "base.txt");
         File.WriteAllText(basePath, "hello");
@@ -161,8 +161,8 @@ public class BackupPipelineTests : IDisposable
 
         var repository = new FakeSnapshotRepository();
         var contentStore = new FakeContentStore();
-        new BackupPipeline(new FakeFileSystemScanner([baseEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock())
-            .Run(SimpleProfile(_root));
+        await new BackupPipeline(new FakeFileSystemScanner([baseEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .RunAsync(SimpleProfile(_root));
 
         File.WriteAllText(basePath, "hello, changed");
         var changedBaseEntry = ScanItem.File("base.txt", basePath, new FileInfo(basePath).Length, File.GetLastWriteTimeUtc(basePath));
@@ -177,8 +177,8 @@ public class BackupPipelineTests : IDisposable
         var summary = new BackupPipeline(scanner, new FakeHasher(), contentStore, repository, new FakeRunLock())
             .PlanOnly(SimpleProfile(_root));
 
-        var realRun = new BackupPipeline(scanner, new FakeHasher(), contentStore, repository, new FakeRunLock())
-            .Run(SimpleProfile(_root));
+        var realRun = await new BackupPipeline(scanner, new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .RunAsync(SimpleProfile(_root));
 
         Assert.Equal(realRun.Stats.FilesAdded, summary.FilesAdded);
         Assert.Equal(realRun.Stats.FilesChanged, summary.FilesChanged);
@@ -188,7 +188,7 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
-    public void Dry_run_live_progress_and_run_summary_all_agree_on_total_bytes_when_target_has_no_hardlink_support()
+    public async Task Dry_run_live_progress_and_run_summary_all_agree_on_total_bytes_when_target_has_no_hardlink_support()
     {
         var entries = WriteFiles(_root, count: 5);
         var expectedTotal = entries.Sum(FileSize);
@@ -202,8 +202,8 @@ public class BackupPipelineTests : IDisposable
             .PlanOnly(SimpleProfile(_root));
 
         var progress = new SyncProgress<BackupProgress>();
-        var realRun = new BackupPipeline(scanner, new FakeHasher(), contentStore, repository, new FakeRunLock())
-            .Run(SimpleProfile(_root), progress);
+        var realRun = await new BackupPipeline(scanner, new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .RunAsync(SimpleProfile(_root), progress);
 
         // Dry run planned total, live progress TotalBytes & max BytesTransferred, and
         // post-run completion summary BytesTransferred must all equal expectedTotal.
@@ -231,7 +231,7 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
-    public void PlanOnly_reports_zero_planned_changes_for_a_profile_with_nothing_pending()
+    public async Task PlanOnly_reports_zero_planned_changes_for_a_profile_with_nothing_pending()
     {
         var path = Path.Combine(_root, "a.txt");
         File.WriteAllText(path, "hello");
@@ -241,7 +241,7 @@ public class BackupPipelineTests : IDisposable
         var contentStore = new FakeContentStore();
         var scanner = new FakeFileSystemScanner([entry]);
 
-        new BackupPipeline(scanner, new FakeHasher(), contentStore, repository, new FakeRunLock()).Run(SimpleProfile(_root));
+        await new BackupPipeline(scanner, new FakeHasher(), contentStore, repository, new FakeRunLock()).RunAsync(SimpleProfile(_root));
 
         // Second call against the same, now-unchanged state: nothing pending.
         var summary = new BackupPipeline(scanner, new FakeHasher(), contentStore, repository, new FakeRunLock())
@@ -269,20 +269,20 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
-    public void Run_with_unconfigured_concurrency_leaves_the_executors_own_default_of_one_in_effect()
+    public async Task Run_with_unconfigured_concurrency_leaves_the_executors_own_default_of_one_in_effect()
     {
         var entries = WriteFiles(_root, count: 12);
         var hasher = new ConcurrencyObservingHasher();
         var pipeline = new BackupPipeline(
             new FakeFileSystemScanner(entries), hasher, new FakeContentStore(), new FakeSnapshotRepository(), new FakeRunLock());
 
-        pipeline.Run(SimpleProfile(_root));
+        await pipeline.RunAsync(SimpleProfile(_root));
 
         Assert.Equal(1, hasher.MaxObservedConcurrency);
     }
 
     [Fact]
-    public void Run_with_configured_transfer_concurrency_passes_it_through_to_the_executor()
+    public async Task Run_with_configured_transfer_concurrency_passes_it_through_to_the_executor()
     {
         var entries = WriteFiles(_root, count: 12);
         var hasher = new ConcurrencyObservingHasher();
@@ -290,7 +290,7 @@ public class BackupPipelineTests : IDisposable
             new FakeFileSystemScanner(entries), hasher, new FakeContentStore(), new FakeSnapshotRepository(), new FakeRunLock());
         var profile = SimpleProfile(_root, new ConcurrencySettings(scanConcurrency: null, transferConcurrency: 8));
 
-        pipeline.Run(profile);
+        await pipeline.RunAsync(profile);
 
         Assert.True(
             hasher.MaxObservedConcurrency > 1,
@@ -298,7 +298,7 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
-    public void Concurrent_chunk_level_progress_reports_never_lose_an_update_under_configured_concurrency()
+    public async Task Concurrent_chunk_level_progress_reports_never_lose_an_update_under_configured_concurrency()
     {
         var entries = WriteFiles(_root, count: 40);
         var expectedTotal = entries.Sum(FileSize);
@@ -308,7 +308,7 @@ public class BackupPipelineTests : IDisposable
         var profile = SimpleProfile(_root, new ConcurrencySettings(scanConcurrency: null, transferConcurrency: 8));
         var progress = new SyncProgress<BackupProgress>();
 
-        pipeline.Run(profile, progress);
+        await pipeline.RunAsync(profile, progress);
 
         // Every file's transfer reports chunk-level progress concurrently (transfer_concurrency
         // 8); an unsynchronized bytesSoFar accumulation could silently drop updates under this
@@ -321,7 +321,7 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
-    public void Progress_reports_include_paths_while_files_are_transferring_and_remove_them_on_completion()
+    public async Task Progress_reports_include_paths_while_files_are_transferring_and_remove_them_on_completion()
     {
         var path = Path.Combine(_root, "large.txt");
         File.WriteAllText(path, new string('a', 500_000));
@@ -330,30 +330,31 @@ public class BackupPipelineTests : IDisposable
         var pipeline = new BackupPipeline(
             new FakeFileSystemScanner([entry]), new FakeHasher(), new FakeContentStore(), new FakeSnapshotRepository(), new FakeRunLock());
 
-        pipeline.Run(SimpleProfile(_root), progress);
+        await pipeline.RunAsync(SimpleProfile(_root), progress);
 
         Assert.Contains(progress.Reports, report => report.ActivePaths?.Contains(path) == true);
         Assert.Empty(progress.Reports[^1].ActivePaths!);
     }
 
     [Fact]
-    public void Active_path_refresh_requests_capture_the_current_set_when_serviced()
+    public async Task Active_path_refresh_requests_capture_the_current_set_when_serviced()
     {
         var path = Path.Combine(_root, "short.txt");
         File.WriteAllText(path, "small");
         var entry = ScanItem.File("short.txt", path, new FileInfo(path).Length, File.GetLastWriteTimeUtc(path));
-        var captures = new List<Func<IReadOnlyList<string>>>();
+        var snapshots = new List<IReadOnlyList<string>>();
         var pipeline = new BackupPipeline(
             new FakeFileSystemScanner([entry]), new FakeHasher(), new FakeContentStore(), new FakeSnapshotRepository(), new FakeRunLock());
 
-        pipeline.Run(SimpleProfile(_root), requestActivePathsRefresh: captures.Add);
+        await pipeline.RunAsync(SimpleProfile(_root), onActivePathsChanged: snapshots.Add);
 
-        Assert.Equal(2, captures.Count);
-        Assert.All(captures.AsEnumerable().Reverse(), capture => Assert.DoesNotContain(path, capture()));
+        Assert.Equal(2, snapshots.Count);
+        Assert.Contains(path, snapshots[0]);
+        Assert.DoesNotContain(path, snapshots[1]);
     }
 
     [Fact]
-    public void Failed_content_transfers_remain_in_the_total_but_not_the_completed_file_count()
+    public async Task Failed_content_transfers_remain_in_the_total_but_not_the_completed_file_count()
     {
         var lockedPath = Path.Combine(_root, "locked.txt");
         File.WriteAllText(lockedPath, "cannot read me");
@@ -366,32 +367,32 @@ public class BackupPipelineTests : IDisposable
         };
         using var exclusiveHold = new FileStream(lockedPath, FileMode.Open, FileAccess.Read, FileShare.None);
         var progress = new SyncProgress<BackupProgress>();
-        var activePathCaptures = new List<Func<IReadOnlyList<string>>>();
+        var activePathSnapshots = new List<IReadOnlyList<string>>();
         var pipeline = new BackupPipeline(
             new FakeFileSystemScanner(entries), new FakeHasher(), new FakeContentStore(), new FakeSnapshotRepository(), new FakeRunLock());
 
-        pipeline.Run(SimpleProfile(_root), progress, requestActivePathsRefresh: activePathCaptures.Add);
+        await pipeline.RunAsync(SimpleProfile(_root), progress, onActivePathsChanged: activePathSnapshots.Add);
 
         Assert.All(progress.Reports, report => Assert.Equal(2, report.TotalFiles));
         Assert.Equal(1, progress.Reports.Max(report => report.FilesTransferred));
         Assert.DoesNotContain(progress.Reports, report => report.ActivePaths?.Contains(lockedPath) == true);
-        Assert.All(activePathCaptures, capture => Assert.DoesNotContain(lockedPath, capture()));
+        Assert.DoesNotContain(lockedPath, activePathSnapshots[^1]);
     }
 
     [Fact]
-    public void Metadata_only_operations_report_zero_files_transferred_out_of_zero_planned()
+    public async Task Metadata_only_operations_report_zero_files_transferred_out_of_zero_planned()
     {
         var entry = WriteFiles(_root, count: 1).Single();
         var repository = new FakeSnapshotRepository();
         var contentStore = new FakeContentStore();
-        new BackupPipeline(
+        await new BackupPipeline(
                 new FakeFileSystemScanner([entry]), new FakeHasher(), contentStore, repository, new FakeRunLock())
-            .Run(SimpleProfile(_root));
+            .RunAsync(SimpleProfile(_root));
 
         var progress = new SyncProgress<BackupProgress>();
-        new BackupPipeline(
+        await new BackupPipeline(
                 new FakeFileSystemScanner([]), new FakeHasher(), contentStore, repository, new FakeRunLock())
-            .Run(SimpleProfile(_root), progress);
+            .RunAsync(SimpleProfile(_root), progress);
 
         Assert.NotEmpty(progress.Reports);
         Assert.All(progress.Reports, report =>
@@ -402,7 +403,7 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
-    public void Progress_never_exceeds_100_percent_when_the_target_has_no_hardlink_support()
+    public async Task Progress_never_exceeds_100_percent_when_the_target_has_no_hardlink_support()
     {
         var entries = WriteFiles(_root, count: 10);
         var expectedTotal = entries.Sum(FileSize);
@@ -412,7 +413,7 @@ public class BackupPipelineTests : IDisposable
             new FakeFileSystemScanner(entries), new FakeHasher(), contentStore, new FakeSnapshotRepository(), new FakeRunLock());
         var progress = new SyncProgress<BackupProgress>();
 
-        var result = pipeline.Run(SimpleProfile(_root), progress);
+        var result = await pipeline.RunAsync(SimpleProfile(_root), progress);
 
         // Every file's placement falls back to a real streamed copy (no hardlink support).
         // Progress is scaled across both passes so that TotalBytes remains equal to the
@@ -429,7 +430,7 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
-    public void The_first_progress_report_is_deferred_until_after_move_delete_operations_complete()
+    public async Task The_first_progress_report_is_deferred_until_after_move_delete_operations_complete()
     {
         var content = "identical content, relocated";
         var oldPath = Path.Combine(_root, "old-location.txt");
@@ -438,8 +439,8 @@ public class BackupPipelineTests : IDisposable
 
         var repository = new FakeSnapshotRepository();
         var contentStore = new FakeContentStore();
-        new BackupPipeline(new FakeFileSystemScanner([oldEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock())
-            .Run(SimpleProfile(_root));
+        await new BackupPipeline(new FakeFileSystemScanner([oldEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .RunAsync(SimpleProfile(_root));
 
         // Second run: the same content is now scanned under a different relative path,
         // and the old path is no longer scanned - BackupPlanner detects this as a Move
@@ -458,9 +459,9 @@ public class BackupPipelineTests : IDisposable
                 contentStore.Mirror.ContainsKey("new.txt") && !contentStore.Mirror.ContainsKey("old.txt");
         });
 
-        var secondRun = new BackupPipeline(
+        var secondRun = await new BackupPipeline(
                 new FakeFileSystemScanner([newEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock())
-            .Run(SimpleProfile(_root), progress);
+            .RunAsync(SimpleProfile(_root), progress);
 
         Assert.Equal(1, secondRun.Stats.FilesMoved);
         Assert.True(reportObserved, "expected at least one progress report");
@@ -470,7 +471,7 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
-    public void A_run_with_nothing_to_transfer_still_reports_zero_over_zero_progress()
+    public async Task A_run_with_nothing_to_transfer_still_reports_zero_over_zero_progress()
     {
         var path = Path.Combine(_root, "a.txt");
         File.WriteAllText(path, "hello");
@@ -480,12 +481,12 @@ public class BackupPipelineTests : IDisposable
         var contentStore = new FakeContentStore();
         var scanner = new FakeFileSystemScanner([entry]);
 
-        new BackupPipeline(scanner, new FakeHasher(), contentStore, repository, new FakeRunLock()).Run(SimpleProfile(_root));
+        await new BackupPipeline(scanner, new FakeHasher(), contentStore, repository, new FakeRunLock()).RunAsync(SimpleProfile(_root));
 
         // Second run: same file, unchanged - an empty plan (no Move/Delete, no Add/Change).
         var progress = new SyncProgress<BackupProgress>();
-        var secondRun = new BackupPipeline(scanner, new FakeHasher(), contentStore, repository, new FakeRunLock())
-            .Run(SimpleProfile(_root), progress);
+        var secondRun = await new BackupPipeline(scanner, new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .RunAsync(SimpleProfile(_root), progress);
 
         Assert.Equal(0, secondRun.Stats.BytesTransferred);
         var report = Assert.Single(progress.Reports);
@@ -520,7 +521,7 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
-    public void A_scan_time_failure_is_recorded_but_does_not_abort_the_run()
+    public async Task A_scan_time_failure_is_recorded_but_does_not_abort_the_run()
     {
         var path = Path.Combine(_root, "a.txt");
         File.WriteAllText(path, "hello");
@@ -531,7 +532,7 @@ public class BackupPipelineTests : IDisposable
         var pipeline = new BackupPipeline(
             new FakeFileSystemScanner([entry], [scanFailure]), new FakeHasher(), new FakeContentStore(), repository, new FakeRunLock());
 
-        var result = pipeline.Run(SimpleProfile(_root));
+        var result = await pipeline.RunAsync(SimpleProfile(_root));
 
         // The run still completes and commits a snapshot rather than failing it ...
         var snapshot = Assert.Single(repository.ListSnapshots());
@@ -545,21 +546,21 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
-    public void A_failure_during_the_run_marks_the_snapshot_failed_and_rethrows()
+    public async Task A_failure_during_the_run_marks_the_snapshot_failed_and_rethrows()
     {
         var repository = new FakeSnapshotRepository();
         var throwingScanner = new ThrowingScanner();
 
         var pipeline = new BackupPipeline(throwingScanner, new FakeHasher(), new FakeContentStore(), repository, new FakeRunLock());
 
-        Assert.Throws<InvalidOperationException>(() => pipeline.Run(SimpleProfile(_root)));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => pipeline.RunAsync(SimpleProfile(_root)));
 
         var snapshot = Assert.Single(repository.ListSnapshots());
         Assert.Equal(SnapshotStatus.Failed, snapshot.Status);
     }
 
     [Fact]
-    public void Two_consecutive_runs_over_a_source_containing_a_symlink_record_the_link_and_cause_no_false_deletion()
+    public async Task Two_consecutive_runs_over_a_source_containing_a_symlink_record_the_link_and_cause_no_false_deletion()
     {
         var filePath = Path.Combine(_root, "regular.txt");
         File.WriteAllText(filePath, "hello");
@@ -569,9 +570,9 @@ public class BackupPipelineTests : IDisposable
         var repository = new FakeSnapshotRepository();
         var contentStore = new FakeContentStore();
 
-        var firstRun = new BackupPipeline(
+        var firstRun = await new BackupPipeline(
                 new FakeFileSystemScanner([fileEntry, linkEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock())
-            .Run(SimpleProfile(_root));
+            .RunAsync(SimpleProfile(_root));
 
         Assert.Equal(1, firstRun.Stats.FilesAdded);
         Assert.Equal(0, firstRun.Stats.FilesDeleted);
@@ -580,9 +581,9 @@ public class BackupPipelineTests : IDisposable
         // Second run: the same source is rescanned unchanged (same regular file, same
         // still-present symlink). Neither should be misclassified as deleted, and the
         // already-tracked link shouldn't be re-recorded.
-        var secondRun = new BackupPipeline(
+        var secondRun = await new BackupPipeline(
                 new FakeFileSystemScanner([fileEntry, linkEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock())
-            .Run(SimpleProfile(_root));
+            .RunAsync(SimpleProfile(_root));
 
         Assert.Equal(0, secondRun.Stats.FilesAdded);
         Assert.Equal(0, secondRun.Stats.FilesChanged);
@@ -600,7 +601,7 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
-    public void Running_twice_against_an_unchanged_source_performs_zero_content_transfer_the_second_time()
+    public async Task Running_twice_against_an_unchanged_source_performs_zero_content_transfer_the_second_time()
     {
         var path = Path.Combine(_root, "a.txt");
         File.WriteAllText(path, "hello");
@@ -610,16 +611,16 @@ public class BackupPipelineTests : IDisposable
         var contentStore = new FakeContentStore();
         var scanner = new FakeFileSystemScanner([entry]);
 
-        var firstRun = new BackupPipeline(scanner, new FakeHasher(), contentStore, repository, new FakeRunLock()).Run(SimpleProfile(_root));
+        var firstRun = await new BackupPipeline(scanner, new FakeHasher(), contentStore, repository, new FakeRunLock()).RunAsync(SimpleProfile(_root));
         Assert.Equal(1, firstRun.Stats.FilesAdded);
         Assert.Equal(5, firstRun.Stats.BytesTransferred);
 
         // Second run: same file, unchanged. Must use a fresh lock instance (a run lock
         // is scoped to one run's process lifetime), but the same repository/content
         // store, representing persisted state from the first run.
-        var secondRun = new BackupPipeline(
+        var secondRun = await new BackupPipeline(
                 scanner, new FakeHasher(), contentStore, repository, new FakeRunLock())
-            .Run(SimpleProfile(_root));
+            .RunAsync(SimpleProfile(_root));
 
         Assert.Equal(0, secondRun.Stats.FilesAdded);
         Assert.Equal(0, secondRun.Stats.FilesChanged);
@@ -628,7 +629,7 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
-    public void Running_twice_after_a_source_files_casing_changes_treats_it_as_unchanged_not_as_a_new_addition()
+    public async Task Running_twice_after_a_source_files_casing_changes_treats_it_as_unchanged_not_as_a_new_addition()
     {
         var path = Path.Combine(_root, "Photo.JPG");
         File.WriteAllText(path, "hello");
@@ -638,9 +639,9 @@ public class BackupPipelineTests : IDisposable
         var contentStore = new FakeContentStore();
 
         var firstEntry = ScanItem.File("Photo.JPG", path, 5, modifiedAt);
-        var firstRun = new BackupPipeline(
+        var firstRun = await new BackupPipeline(
                 new FakeFileSystemScanner([firstEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock())
-            .Run(SimpleProfile(_root));
+            .RunAsync(SimpleProfile(_root));
         Assert.Equal(1, firstRun.Stats.FilesAdded);
 
         // Simulate the source file being renamed with only its casing changed - size and
@@ -648,9 +649,9 @@ public class BackupPipelineTests : IDisposable
         // different-cased path. A fresh scanner/lock models the second run's process
         // lifetime, but the same repository/content store carries persisted state forward.
         var secondEntry = ScanItem.File("photo.jpg", path, 5, modifiedAt);
-        var secondRun = new BackupPipeline(
+        var secondRun = await new BackupPipeline(
                 new FakeFileSystemScanner([secondEntry]), new FakeHasher(), contentStore, repository, new FakeRunLock())
-            .Run(SimpleProfile(_root));
+            .RunAsync(SimpleProfile(_root));
 
         Assert.Equal(0, secondRun.Stats.FilesAdded);
         Assert.Equal(0, secondRun.Stats.FilesChanged);
@@ -666,7 +667,7 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
-    public void A_secondary_failure_while_recording_the_original_failure_does_not_replace_it()
+    public async Task A_secondary_failure_while_recording_the_original_failure_does_not_replace_it()
     {
         var repository = new FakeSnapshotRepository();
         var pipeline = new BackupPipeline(new ThrowingScanner(), new FakeHasher(), new FakeContentStore(), repository, new FakeRunLock());
@@ -677,12 +678,12 @@ public class BackupPipelineTests : IDisposable
 
         // The original scan failure must still be what propagates, not the secondary
         // commit failure encountered while trying to record it.
-        var ex = Assert.Throws<InvalidOperationException>(() => pipeline.Run(SimpleProfile(_root)));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => pipeline.RunAsync(SimpleProfile(_root)));
         Assert.Equal("scan failed", ex.Message);
     }
 
     [Fact]
-    public void A_secondary_failure_while_recording_the_original_failure_is_still_surfaced_via_diagnostics()
+    public async Task A_secondary_failure_while_recording_the_original_failure_is_still_surfaced_via_diagnostics()
     {
         var repository = new FakeSnapshotRepository();
         var diagnostics = new StringWriter();
@@ -691,7 +692,7 @@ public class BackupPipelineTests : IDisposable
 
         repository.ThrowOnNextCommit = new InvalidOperationException("commit failed while recording failure");
 
-        Assert.Throws<InvalidOperationException>(() => pipeline.Run(SimpleProfile(_root)));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => pipeline.RunAsync(SimpleProfile(_root)));
 
         // The secondary exception isn't silently discarded - it's still observable
         // through the diagnostics channel, even though it never becomes the exception
@@ -700,7 +701,7 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
-    public void Cancellation_requested_before_execution_starts_still_records_a_Cancelled_snapshot()
+    public async Task Cancellation_requested_before_execution_starts_still_records_a_Cancelled_snapshot()
     {
         // Models Ctrl+C pressed while still scanning/diffing - before any file
         // operation has started (backup-execution's "Ctrl+C pressed before any file
@@ -711,7 +712,7 @@ public class BackupPipelineTests : IDisposable
         using var cts = new CancellationTokenSource();
         cts.Cancel();
 
-        var result = pipeline.Run(SimpleProfile(_root), cancellationToken: cts.Token);
+        var result = await pipeline.RunAsync(SimpleProfile(_root), cancellationToken: cts.Token);
 
         Assert.True(result.Cancelled);
         var snapshot = Assert.Single(repository.ListSnapshots());
@@ -719,7 +720,7 @@ public class BackupPipelineTests : IDisposable
     }
 
     [Fact]
-    public void A_graceful_Ctrl_C_cancellation_stops_after_the_current_operation_and_records_the_snapshot_as_Cancelled()
+    public async Task A_graceful_Ctrl_C_cancellation_stops_after_the_current_operation_and_records_the_snapshot_as_Cancelled()
     {
         var pathA = Path.Combine(_root, "a.txt");
         var pathB = Path.Combine(_root, "b.txt");
@@ -732,8 +733,8 @@ public class BackupPipelineTests : IDisposable
         var contentStore = new FakeContentStore();
 
         // First run: both files tracked normally (no cancellation).
-        new BackupPipeline(new FakeFileSystemScanner([entryA, entryB]), new FakeHasher(), contentStore, repository, new FakeRunLock())
-            .Run(SimpleProfile(_root));
+        await new BackupPipeline(new FakeFileSystemScanner([entryA, entryB]), new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .RunAsync(SimpleProfile(_root));
 
         // Second run: both files removed from source, so the diff produces two Delete
         // operations, processed sequentially via the executor's Move/Delete/Link loop -
@@ -743,8 +744,8 @@ public class BackupPipelineTests : IDisposable
         using var cts = new CancellationTokenSource();
         repository.OnRecordFileVersion = () => cts.Cancel();
 
-        var secondRun = new BackupPipeline(new FakeFileSystemScanner([]), new FakeHasher(), contentStore, repository, new FakeRunLock())
-            .Run(SimpleProfile(_root), cancellationToken: cts.Token);
+        var secondRun = await new BackupPipeline(new FakeFileSystemScanner([]), new FakeHasher(), contentStore, repository, new FakeRunLock())
+            .RunAsync(SimpleProfile(_root), cancellationToken: cts.Token);
 
         Assert.True(secondRun.Cancelled);
         Assert.Equal(1, secondRun.Stats.FilesDeleted);

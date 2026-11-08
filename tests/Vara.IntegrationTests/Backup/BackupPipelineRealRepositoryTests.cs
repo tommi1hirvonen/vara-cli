@@ -43,7 +43,7 @@ public class BackupPipelineRealRepositoryTests : IDisposable
         new("files", targetRoot, [new Source(@"C:\irrelevant-for-fake-scanner")], null, concurrency);
 
     [Fact]
-    public void A_run_against_the_real_repository_records_an_added_file_in_current_state()
+    public async Task A_run_against_the_real_repository_records_an_added_file_in_current_state()
     {
         var path = Path.Combine(_root, "a.txt");
         File.WriteAllText(path, "hello");
@@ -51,14 +51,14 @@ public class BackupPipelineRealRepositoryTests : IDisposable
 
         var pipeline = new BackupPipeline(
             new FakeFileSystemScanner([entry]), new FakeHasher(), new FakeContentStore(), Repository, new FakeRunLock());
-        var result = pipeline.Run(SimpleProfile(_root));
+        var result = await pipeline.RunAsync(SimpleProfile(_root));
 
         Assert.Equal(1, result.Stats.FilesAdded);
         Assert.True(Repository.GetCurrentState().ContainsKey("a.txt"));
     }
 
     [Fact]
-    public void Running_twice_against_an_unchanged_source_performs_zero_content_transfer_the_second_time()
+    public async Task Running_twice_against_an_unchanged_source_performs_zero_content_transfer_the_second_time()
     {
         var path = Path.Combine(_root, "a.txt");
         File.WriteAllText(path, "hello");
@@ -66,14 +66,14 @@ public class BackupPipelineRealRepositoryTests : IDisposable
         var contentStore = new FakeContentStore();
         var scanner = new FakeFileSystemScanner([entry]);
 
-        var firstRun = new BackupPipeline(scanner, new FakeHasher(), contentStore, Repository, new FakeRunLock()).Run(SimpleProfile(_root));
+        var firstRun = await new BackupPipeline(scanner, new FakeHasher(), contentStore, Repository, new FakeRunLock()).RunAsync(SimpleProfile(_root));
         Assert.Equal(1, firstRun.Stats.FilesAdded);
         Assert.Equal(5, firstRun.Stats.BytesTransferred);
 
         // Second run: same file, unchanged. Fresh lock (scoped to one run's process
         // lifetime), same real repository/content store carrying persisted state forward.
-        var secondRun = new BackupPipeline(
-            scanner, new FakeHasher(), contentStore, Repository, new FakeRunLock()).Run(SimpleProfile(_root));
+        var secondRun = await new BackupPipeline(
+            scanner, new FakeHasher(), contentStore, Repository, new FakeRunLock()).RunAsync(SimpleProfile(_root));
 
         Assert.Equal(0, secondRun.Stats.FilesAdded);
         Assert.Equal(0, secondRun.Stats.FilesChanged);
@@ -82,7 +82,7 @@ public class BackupPipelineRealRepositoryTests : IDisposable
     }
 
     [Fact]
-    public void Running_twice_after_a_source_files_casing_changes_treats_it_as_unchanged_not_as_a_new_addition()
+    public async Task Running_twice_after_a_source_files_casing_changes_treats_it_as_unchanged_not_as_a_new_addition()
     {
         var path = Path.Combine(_root, "Photo.JPG");
         File.WriteAllText(path, "hello");
@@ -90,9 +90,9 @@ public class BackupPipelineRealRepositoryTests : IDisposable
         var contentStore = new FakeContentStore();
 
         var firstEntry = ScanItem.File("Photo.JPG", path, 5, modifiedAt);
-        var firstRun = new BackupPipeline(
+        var firstRun = await new BackupPipeline(
             new FakeFileSystemScanner([firstEntry]), new FakeHasher(), contentStore,
-            Repository, new FakeRunLock()).Run(SimpleProfile(_root));
+            Repository, new FakeRunLock()).RunAsync(SimpleProfile(_root));
         Assert.Equal(1, firstRun.Stats.FilesAdded);
 
         // Simulate the source file being renamed with only its casing changed - size and
@@ -100,9 +100,9 @@ public class BackupPipelineRealRepositoryTests : IDisposable
         // regression added in the fix-current-state-case-sensitivity change (which only
         // exercised FakeSnapshotRepository).
         var secondEntry = ScanItem.File("photo.jpg", path, 5, modifiedAt);
-        var secondRun = new BackupPipeline(
+        var secondRun = await new BackupPipeline(
             new FakeFileSystemScanner([secondEntry]), new FakeHasher(), contentStore,
-            Repository, new FakeRunLock()).Run(SimpleProfile(_root));
+            Repository, new FakeRunLock()).RunAsync(SimpleProfile(_root));
 
         Assert.Equal(0, secondRun.Stats.FilesAdded);
         Assert.Equal(0, secondRun.Stats.FilesChanged);
@@ -116,7 +116,7 @@ public class BackupPipelineRealRepositoryTests : IDisposable
     }
 
     [Fact]
-    public void A_run_with_a_configured_transfer_concurrency_above_one_still_produces_a_correct_one_to_one_mirror()
+    public async Task A_run_with_a_configured_transfer_concurrency_above_one_still_produces_a_correct_one_to_one_mirror()
     {
         const int fileCount = 30;
         var entries = new List<ScanItem>();
@@ -131,8 +131,8 @@ public class BackupPipelineRealRepositoryTests : IDisposable
         var contentStore = new FakeContentStore();
         var profile = SimpleProfile(_root, new ConcurrencySettings(scanConcurrency: null, transferConcurrency: 8));
 
-        var result = new BackupPipeline(
-            new FakeFileSystemScanner(entries), new FakeHasher(), contentStore, Repository, new FakeRunLock()).Run(profile);
+        var result = await new BackupPipeline(
+            new FakeFileSystemScanner(entries), new FakeHasher(), contentStore, Repository, new FakeRunLock()).RunAsync(profile);
 
         // Functional correctness under non-default concurrency, not a timing/performance
         // assertion: every source file made it into the mirror and the current-state
@@ -150,7 +150,7 @@ public class BackupPipelineRealRepositoryTests : IDisposable
     }
 
     [Fact]
-    public void A_source_unavailable_failure_does_not_delete_that_sources_previously_mirrored_files()
+    public async Task A_source_unavailable_failure_does_not_delete_that_sources_previously_mirrored_files()
     {
         var appDataPath = Path.Combine(_root, "app-data", "a.txt");
         var otherPath = Path.Combine(_root, "other.txt");
@@ -161,9 +161,9 @@ public class BackupPipelineRealRepositoryTests : IDisposable
         var contentStore = new FakeContentStore();
 
         // First run: both sources scan successfully.
-        var firstRun = new BackupPipeline(
+        var firstRun = await new BackupPipeline(
             new FakeFileSystemScanner([appDataEntry, otherEntry]), new FakeHasher(), contentStore, Repository, new FakeRunLock())
-            .Run(SimpleProfile(_root));
+            .RunAsync(SimpleProfile(_root));
         Assert.Equal(2, firstRun.Stats.FilesAdded);
 
         // Second run: the "app-data" source is now unavailable (unplugged drive/typo) - only
@@ -171,9 +171,9 @@ public class BackupPipelineRealRepositoryTests : IDisposable
         // failure whose mirror path is "app-data", matching appDataEntry's own mirror path.
         var sourceUnavailable = new ScanFailure(
             @"D:\missing-drive\app-data", ScanFailureReason.SourceUnavailable, "app-data");
-        var secondRun = new BackupPipeline(
+        var secondRun = await new BackupPipeline(
             new FakeFileSystemScanner([otherEntry], [sourceUnavailable]), new FakeHasher(), contentStore, Repository, new FakeRunLock())
-            .Run(SimpleProfile(_root));
+            .RunAsync(SimpleProfile(_root));
 
         Assert.Equal(0, secondRun.Stats.FilesDeleted);
         Assert.Equal(0, secondRun.Stats.FilesAdded);
@@ -187,7 +187,7 @@ public class BackupPipelineRealRepositoryTests : IDisposable
     }
 
     [Fact]
-    public void A_permission_denied_directory_failure_does_not_delete_previously_mirrored_files_under_it()
+    public async Task A_permission_denied_directory_failure_does_not_delete_previously_mirrored_files_under_it()
     {
         var deniedPath = Path.Combine(_root, "denied-dir", "hidden.txt");
         var otherPath = Path.Combine(_root, "other.txt");
@@ -198,18 +198,18 @@ public class BackupPipelineRealRepositoryTests : IDisposable
         var contentStore = new FakeContentStore();
 
         // First run: both files scan successfully.
-        var firstRun = new BackupPipeline(
+        var firstRun = await new BackupPipeline(
             new FakeFileSystemScanner([deniedEntry, otherEntry]), new FakeHasher(), contentStore, Repository, new FakeRunLock())
-            .Run(SimpleProfile(_root));
+            .RunAsync(SimpleProfile(_root));
         Assert.Equal(2, firstRun.Stats.FilesAdded);
 
         // Second run: "denied-dir" can no longer be enumerated (permission denied) - only
         // "other.txt" still scans. The fake scanner reports an UnreadableDirectory failure
         // whose mirror path is "denied-dir", the ancestor of deniedEntry's own mirror path.
         var unreadableDirectory = new ScanFailure("denied-dir", ScanFailureReason.UnreadableDirectory, "denied-dir");
-        var secondRun = new BackupPipeline(
+        var secondRun = await new BackupPipeline(
             new FakeFileSystemScanner([otherEntry], [unreadableDirectory]), new FakeHasher(), contentStore, Repository, new FakeRunLock())
-            .Run(SimpleProfile(_root));
+            .RunAsync(SimpleProfile(_root));
 
         Assert.Equal(0, secondRun.Stats.FilesDeleted);
         Assert.Contains("denied-dir", secondRun.FailedPaths);

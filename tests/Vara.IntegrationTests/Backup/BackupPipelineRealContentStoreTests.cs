@@ -52,7 +52,7 @@ public class BackupPipelineRealContentStoreTests : IDisposable
         new("files", targetRoot, [new Source(sourceRoot)], null, null);
 
     [Fact]
-    public void Backing_up_a_single_large_file_reports_progress_incrementally_through_the_real_content_store()
+    public async Task Backing_up_a_single_large_file_reports_progress_incrementally_through_the_real_content_store()
     {
         const int contentLength = 5 * 1024 * 1024;
         var bytes = new byte[contentLength];
@@ -65,7 +65,7 @@ public class BackupPipelineRealContentStoreTests : IDisposable
             new FakeFileSystemScanner([entry]), new XxHash128Hasher(), ContentStore, Repository, new FakeRunLock());
         var progress = new SyncProgress<BackupProgress>();
 
-        var result = pipeline.Run(SimpleProfile(_sourceRoot, _targetRoot), progress);
+        var result = await pipeline.RunAsync(SimpleProfile(_sourceRoot, _targetRoot), progress);
 
         Assert.Equal(1, result.Stats.FilesAdded);
         Assert.Equal(contentLength, result.Stats.BytesTransferred);
