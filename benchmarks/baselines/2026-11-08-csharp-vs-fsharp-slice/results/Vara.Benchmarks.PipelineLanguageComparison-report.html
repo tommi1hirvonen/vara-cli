@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+<meta charset='utf-8' />
+<title>Vara.Benchmarks.PipelineLanguageComparison</title>
+
+<style type="text/css">
+	table { border-collapse: collapse; display: block; width: 100%; overflow: auto; }
+	td, th { padding: 6px 13px; border: 1px solid #ddd; text-align: right; }
+	tr { background-color: #fff; border-top: 1px solid #ccc; }
+	tr:nth-child(even) { background: #f8f8f8; }
+</style>
+</head>
+<body>
+<pre><code>
+BenchmarkDotNet v0.16.0-preview.2, Windows 11 (10.0.26200.9711/25H2/2025Update/HudsonValley2)
+AMD Ryzen AI 9 HX PRO 375 w/ Radeon 890M 2.00GHz, 1 CPU, 24 logical and 12 physical cores
+Memory: 63,28 GB Total, 36,66 GB Available
+.NET SDK 11.0.100-rc.1.26425.128
+  [Host]     : .NET 11.0.0 (11.0.0-rc.1.26425.128, 11.0.26.42628), X64 RyuJIT x86-64-v4
+  Job-CNUJVU : .NET 11.0.0 (11.0.0-rc.1.26425.128, 11.0.26.42628), X64 RyuJIT x86-64-v4
+</code></pre>
+<pre><code>InvocationCount=1  UnrollFactor=1  
+</code></pre>
+
+<table>
+<thead><tr><th>Method</th><th>WithProgress</th><th>FileCount</th><th>BytesPerFile</th><th>Mean</th><th>Error</th><th>StdDev</th><th>Median</th><th>Ratio</th><th>RatioSD</th><th>Gen0</th><th>Allocated</th><th>Alloc Ratio</th>
+</tr>
+</thead><tbody><tr><td>CSharp</td><td>False</td><td>8</td><td>65536</td><td>65.37 ms</td><td>9.140 ms</td><td>25.927 ms</td><td>55.26 ms</td><td>1.00</td><td>0.00</td><td>-</td><td>1.26 MB</td><td>1.00</td>
+</tr><tr><td>FSharp</td><td>False</td><td>8</td><td>65536</td><td>50.70 ms</td><td>3.157 ms</td><td>9.006 ms</td><td>50.96 ms</td><td>0.88</td><td>0.33</td><td>-</td><td>1.26 MB</td><td>1.00</td>
+</tr><tr><td>CSharp</td><td>False</td><td>8</td><td>1048576</td><td>80.46 ms</td><td>8.362 ms</td><td>24.260 ms</td><td>72.65 ms</td><td>1.00</td><td>0.00</td><td>-</td><td>1.27 MB</td><td>1.00</td>
+</tr><tr><td>FSharp</td><td>False</td><td>8</td><td>1048576</td><td>33.72 ms</td><td>2.231 ms</td><td>6.471 ms</td><td>34.18 ms</td><td>0.45</td><td>0.15</td><td>-</td><td>1.26 MB</td><td>1.00</td>
+</tr><tr><td>CSharp</td><td>False</td><td>64</td><td>65536</td><td>185.13 ms</td><td>8.001 ms</td><td>22.956 ms</td><td>184.23 ms</td><td>1.00</td><td>0.00</td><td>1000.0000</td><td>9.84 MB</td><td>1.00</td>
+</tr><tr><td>FSharp</td><td>False</td><td>64</td><td>65536</td><td>183.65 ms</td><td>6.406 ms</td><td>18.584 ms</td><td>183.46 ms</td><td>1.01</td><td>0.16</td><td>1000.0000</td><td>9.85 MB</td><td>1.00</td>
+</tr><tr><td>CSharp</td><td>False</td><td>64</td><td>1048576</td><td>242.33 ms</td><td>7.172 ms</td><td>20.694 ms</td><td>242.82 ms</td><td>1.00</td><td>0.00</td><td>1000.0000</td><td>9.89 MB</td><td>1.00</td>
+</tr><tr><td>FSharp</td><td>False</td><td>64</td><td>1048576</td><td>234.66 ms</td><td>9.735 ms</td><td>28.398 ms</td><td>234.97 ms</td><td>0.98</td><td>0.14</td><td>1000.0000</td><td>9.88 MB</td><td>1.00</td>
+</tr><tr><td>CSharp</td><td>True</td><td>8</td><td>65536</td><td>25.88 ms</td><td>1.137 ms</td><td>3.244 ms</td><td>26.80 ms</td><td>1.00</td><td>0.00</td><td>-</td><td>1.26 MB</td><td>1.00</td>
+</tr><tr><td>FSharp</td><td>True</td><td>8</td><td>65536</td><td>27.30 ms</td><td>1.174 ms</td><td>3.406 ms</td><td>26.37 ms</td><td>1.07</td><td>0.19</td><td>-</td><td>1.26 MB</td><td>1.00</td>
+</tr><tr><td>CSharp</td><td>True</td><td>8</td><td>1048576</td><td>37.73 ms</td><td>1.710 ms</td><td>4.960 ms</td><td>37.44 ms</td><td>1.00</td><td>0.00</td><td>-</td><td>1.27 MB</td><td>1.00</td>
+</tr><tr><td>FSharp</td><td>True</td><td>8</td><td>1048576</td><td>31.94 ms</td><td>1.988 ms</td><td>5.735 ms</td><td>30.91 ms</td><td>0.86</td><td>0.19</td><td>-</td><td>1.27 MB</td><td>1.00</td>
+</tr><tr><td>CSharp</td><td>True</td><td>64</td><td>65536</td><td>174.53 ms</td><td>9.147 ms</td><td>26.538 ms</td><td>173.60 ms</td><td>1.00</td><td>0.00</td><td>1000.0000</td><td>9.84 MB</td><td>1.00</td>
+</tr><tr><td>FSharp</td><td>True</td><td>64</td><td>65536</td><td>225.81 ms</td><td>19.232 ms</td><td>53.929 ms</td><td>220.60 ms</td><td>1.32</td><td>0.37</td><td>1000.0000</td><td>9.86 MB</td><td>1.00</td>
+</tr><tr><td>CSharp</td><td>True</td><td>64</td><td>1048576</td><td>265.25 ms</td><td>17.739 ms</td><td>51.463 ms</td><td>264.02 ms</td><td>1.00</td><td>0.00</td><td>1000.0000</td><td>9.89 MB</td><td>1.00</td>
+</tr><tr><td>FSharp</td><td>True</td><td>64</td><td>1048576</td><td>258.71 ms</td><td>12.658 ms</td><td>36.723 ms</td><td>258.67 ms</td><td>1.02</td><td>0.28</td><td>1000.0000</td><td>9.93 MB</td><td>1.00</td>
+</tr></tbody></table>
+</body>
+</html>
