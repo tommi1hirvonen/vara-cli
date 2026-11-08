@@ -14,7 +14,7 @@ Design and tasks for this change are written by `fsharp-profile-management`'s fi
 
   Users see no change: the executable, commands, output, configuration and on-disk format are the same.
 - Decide what happens to the parity suite, which references the C# projects: remove it, or replace it with a recorded corpus of expected outputs. Scenario and property tests remain the long-term suite.
-- Move the benchmarks to the F# implementation and record a new reference baseline. Remove `LanguageComparisonBenchmarks` and the `benchmarks/Vara.Benchmarks.FSharp` adapter, which exist only to compare the two builds, and decide whether `benchmarks/Measure-GateB.ps1` stays as a release check. Update `benchmarks/baselines/README.md`.
+- Move the benchmarks to the F# implementation and record a new reference baseline. Remove `LanguageComparisonBenchmarks` and the `benchmarks/Vara.Benchmarks.FSharp` adapter, which exist only to compare the two builds, and decide whether `benchmarks/Measure-GateB.ps1` stays as an optional manual release check (its CPU-time, memory and size rules can be asserted; its wall-clock numbers are advisory). Update `benchmarks/baselines/README.md`.
 - Update `README.md` and the build and publish instructions.
 - Archive the series' changes as needed, and end the C# behavior freeze.
 
