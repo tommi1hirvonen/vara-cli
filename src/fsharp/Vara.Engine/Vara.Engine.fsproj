@@ -7,6 +7,13 @@
 
   <ItemGroup>
     <Compile Include="Flow.fs" />
+    <Compile Include="YamlConfig.fs" />
+    <Compile Include="ConfigFile.fs" />
+    <Compile Include="ProfileResolution.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="YamlDotNet" />
   </ItemGroup>
 
   <ItemGroup>

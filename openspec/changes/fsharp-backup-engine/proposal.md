@@ -52,6 +52,13 @@ This change is idiomatic F#, not a translation of the C# code. C# type and metho
 - The hot loops are where mutation is allowed. Every `mutable` is local to one function and justified by the allocation budget (design D6); the pure fold is the default until the benchmark says otherwise.
 - Do not port the C# executor's counters, callbacks or planner-reads-files structure, and do not reuse the spike's code.
 
+**Conventions established by `fsharp-profile-config`** (Gate A passed; its F# code was about 125% of the C# lines because the domain carries the rules)
+- Result flows use the `result { }` builder, `Result.traverse` and `Result.ofOption` from `Vara.Domain`. The builder's four `member`s are the one accepted `member` hit in Domain, because .NET requires them.
+- A value with a rule is a single-case union with a private constructor and a `tryCreate` (`AbsolutePath`, `RetentionCount`, `ConcurrencyLimit`). `Profile` is a private record and `Profile.create` is its only constructor; consumers read it through accessor functions (`Profile.name`, `Profile.target`, ...).
+- Failures are one union (`ConfigError`) with one `render` function. The messages keep the C# wording, except for the `(Parameter 'x')` suffix that C# `ArgumentException` appends.
+- Domain modules are one per concept, in dependency order. Engine modules (`YamlConfig`, `ConfigFile`, `ProfileResolution`) are functions that take their inputs as parameters. Resolution for browsing returns `Resolution.Configured | Discovered`.
+- Tests are named after the scenario, inside a module named after the requirement. `Vara.Testing.SpecCoverage.missingTests` takes the scenarios owned elsewhere, the test assemblies and the spec text.
+
 ## Capabilities
 
 ### New Capabilities

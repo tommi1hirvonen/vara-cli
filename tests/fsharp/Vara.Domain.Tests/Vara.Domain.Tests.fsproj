@@ -2,6 +2,10 @@
 
   <ItemGroup>
     <Compile Include="OutcomeTests.fs" />
+    <Compile Include="ResultTests.fs" />
+    <Compile Include="ConfigErrorTests.fs" />
+    <Compile Include="ProfileValidationTests.fs" />
+    <Compile Include="ProfilePropertyTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

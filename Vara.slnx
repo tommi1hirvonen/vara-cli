@@ -17,5 +17,6 @@
     <Project Path="tests/fsharp/Vara.Domain.Tests/Vara.Domain.Tests.fsproj" />
     <Project Path="tests/fsharp/Vara.Engine.Tests/Vara.Engine.Tests.fsproj" />
     <Project Path="tests/fsharp/Vara.Cli.Tests/Vara.Cli.Tests.fsproj" />
+    <Project Path="tests/fsharp/Vara.Testing/Vara.Testing.fsproj" />
   </Folder>
 </Solution>

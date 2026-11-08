@@ -2,10 +2,17 @@
 
   <ItemGroup>
     <Compile Include="FlowTests.fs" />
+    <Compile Include="ConfigurationTests.fs" />
+    <Compile Include="ParityTests.fs" />
+    <Compile Include="SpecCoverageTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\fsharp\Vara.Engine\Vara.Engine.fsproj" />
+    <ProjectReference Include="..\..\..\src\Vara.Infrastructure\Vara.Infrastructure.csproj" />
+    <ProjectReference Include="..\Vara.Testing\Vara.Testing.fsproj" />
+    <!-- The coverage test also reads the domain tests, which own the validation scenarios. -->
+    <ProjectReference Include="..\Vara.Domain.Tests\Vara.Domain.Tests.fsproj" />
   </ItemGroup>
 
 </Project>

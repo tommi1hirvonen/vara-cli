@@ -90,6 +90,8 @@ Effects that tests need to vary (hard-link creation, the clock, the checkpoint i
 - **Per-operation I/O failures** (`IOException`, `UnauthorizedAccessException`, or a mirror path that escapes the target root): turned into the domain's per-operation failure values at the shell boundary, exactly where C# catches them.
 - **Anything else** (SQLite failures, programming errors): stays an exception. It is recorded as a failed snapshot and then rethrown with its original stack through `ExceptionDispatchInfo`. `reraise()` is not allowed inside `task {}`, and that restriction holds even with `LangVersion preview`.
 
+Profile and configuration failures follow the same shape in `fsharp-profile-config`: one `ConfigError` union and one function that renders it. The refusal type here should do the same.
+
 Railway-oriented `Result` chaining through all I/O was rejected. It would wrap every file call without adding information that the per-operation failure values do not already carry.
 
 ### D6. Data and performance rules, with an allocation budget
@@ -107,6 +109,7 @@ Coding rules:
 - Avoid closures that capture locals in per-entry or per-chunk paths.
 - Use interpolated strings only; no `printf` family functions.
 - Mutation is allowed only as a local inside one function (a loop counter, a pooled buffer, interop), and only where the allocation budget or the API needs it. It never lives in a field and never crosses a function boundary. The pure fold is the default, and a local `mutable` needs a measured reason that is recorded in the commit message.
+- Two things learned under `--reflectionfree`: `ToString` on a `Result` prints only its type name, so tests that compare results need their own `show` function; and a `let mutable` cannot be captured by a closure, so tests use a `ref` cell or a fold.
 - These rules change a value's representation, not the architecture. They never justify classes, shared state or an object that holds the engine's dependencies.
 
 Budget: every `LanguageComparisonBenchmarks` case may allocate at most 5% more than C#. Time is advisory on this machine; an AOT time comparison on a quiet machine is part of `fsharp-backup-presentation` (Gate B).
