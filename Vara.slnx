@@ -10,4 +10,12 @@
   <Project Path="tests/Vara.Infrastructure.Tests/Vara.Infrastructure.Tests.csproj" />
   <Project Path="tests/Vara.IntegrationTests/Vara.IntegrationTests.csproj" />
   <Project Path="tests/Vara.TestSupport/Vara.TestSupport.csproj" />
+  <Folder Name="/fsharp/">
+    <Project Path="src/fsharp/Vara.Domain/Vara.Domain.fsproj" />
+    <Project Path="src/fsharp/Vara.Engine/Vara.Engine.fsproj" />
+    <Project Path="src/fsharp/Vara.Cli/Vara.Cli.fsproj" />
+    <Project Path="tests/fsharp/Vara.Domain.Tests/Vara.Domain.Tests.fsproj" />
+    <Project Path="tests/fsharp/Vara.Engine.Tests/Vara.Engine.Tests.fsproj" />
+    <Project Path="tests/fsharp/Vara.Cli.Tests/Vara.Cli.Tests.fsproj" />
+  </Folder>
 </Solution>

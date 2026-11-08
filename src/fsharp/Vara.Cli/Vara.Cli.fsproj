@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Host and presentation: command tree, console output, Ctrl+C. Published as a single Native AOT vara.exe. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>vara</AssemblyName>
+    <RootNamespace>Vara.Cli</RootNamespace>
+    <PublishAot>true</PublishAot>
+    <TrimmerSingleWarn>false</TrimmerSingleWarn>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Terminal.fs" />
+    <Compile Include="ErrorReporting.fs" />
+    <Compile Include="GracefulCancellation.fs" />
+    <Compile Include="CommandAction.fs" />
+    <Compile Include="Composition.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+    <PackageReference Include="Spectre.Console" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Vara.Domain\Vara.Domain.fsproj" />
+    <ProjectReference Include="..\Vara.Engine\Vara.Engine.fsproj" />
+  </ItemGroup>
+
+</Project>

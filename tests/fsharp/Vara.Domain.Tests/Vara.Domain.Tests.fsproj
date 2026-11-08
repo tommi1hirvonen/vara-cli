@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <Compile Include="OutcomeTests.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FsCheck.Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\fsharp\Vara.Domain\Vara.Domain.fsproj" />
+  </ItemGroup>
+
+</Project>

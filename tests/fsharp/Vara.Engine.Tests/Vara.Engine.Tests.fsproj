@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <Compile Include="FlowTests.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\fsharp\Vara.Engine\Vara.Engine.fsproj" />
+  </ItemGroup>
+
+</Project>

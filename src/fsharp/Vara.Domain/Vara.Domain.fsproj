@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Functional core: domain types and pure decisions. References nothing but FSharp.Core. -->
+  <PropertyGroup>
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Outcome.fs" />
+  </ItemGroup>
+
+</Project>
