@@ -4,6 +4,7 @@
 module Vara.Cli.RunProgress
 
 open System
+open System.Threading
 open System.Threading.Tasks
 open Vara.Domain
 open Vara.Engine
@@ -27,7 +28,7 @@ type Screen =
       Heartbeat: TimeSpan }
 
 /// Calls `tick` each time the timer fires, until the timer is disposed.
-let private heartbeat (timer: System.Threading.PeriodicTimer) (tick: unit -> unit) : Task =
+let private heartbeat (timer: PeriodicTimer) (tick: unit -> unit) : Task =
     task {
         // A loop over awaits: a recursive task would chain one task per tick for the length of the run.
         let mutable running = true
@@ -42,7 +43,7 @@ let private shown (screen: Screen) (run: (ProgressEvent -> unit) -> Task<'a>) (o
     task {
         // One lock serializes the observers (the engine's recorder), the heartbeat and the final draw. The cell is
         // local to this bracket and read only through these functions.
-        let gate = obj ()
+        let gate = Lock()
         let cell = ref screen.Initial
         let closed = ref false
         let lastSequence = ref ""
@@ -91,7 +92,7 @@ let private shown (screen: Screen) (run: (ProgressEvent -> unit) -> Task<'a>) (o
         if live then
             lock gate (fun () -> drawLive (screen.Clock()) cell.Value)
 
-        let timer = new System.Threading.PeriodicTimer(screen.Heartbeat)
+        let timer = new PeriodicTimer(screen.Heartbeat)
         let beating = if live then heartbeat timer tick else Task.CompletedTask
 
         // A run that throws before it returns a task is a failed run like any other.

@@ -4,6 +4,7 @@ open System
 open System.Collections.Generic
 open System.IO
 open System.Text
+open System.Threading
 open Xunit
 open Vara.Domain
 open Vara.Engine
@@ -81,7 +82,7 @@ let private candidates (entries: (MirrorPath * FileContent) list) : MoveCandidat
 /// Runs the read, returning the hashes and how many bytes were read from each file name.
 let private run (adds: ScannedFile list) (entries: (MirrorPath * FileContent) list) =
     let reads = Dictionary<string, int>()
-    let sync = obj ()
+    let sync = Lock()
 
     let openRead (path: string) : Stream =
         new CountingStream(
