@@ -17,14 +17,27 @@ open Vara.Engine
 /// plain mode nothing is coloured.
 let private writeSummary (env: CliEnv) (mode: OutputMode) (display: Display) : unit =
     match mode with
-    | OutputMode.Live ->
-        for line in display do
-            match line with
-            | Line.Text(tone, text) -> Terminal.writeLine env.Console (Terminal.styleOfTone tone) text
-            | Line.Bar _
-            | Line.Row _ -> PlainRenderer.write env.Console [ line ]
+    | OutputMode.Live -> LiveRenderer.print env.Console display
     | OutputMode.Plain
     | OutputMode.Json -> PlainRenderer.write env.Console display
+
+/// The engine's observers, publishing what they hear as progress events. A JSON run has none, and only a live display
+/// shows the scan's running count.
+let observersFor (mode: OutputMode) (publish: ProgressEvent -> unit) : Observers =
+    match mode with
+    | OutputMode.Json -> Observers.none
+    | OutputMode.Live
+    | OutputMode.Plain ->
+        { ScanProgress =
+            match mode with
+            | OutputMode.Live -> ValueSome(fun entries -> publish (ProgressEvent.ScanCounted entries))
+            | OutputMode.Plain
+            | OutputMode.Json -> ValueNone
+          TransferPhaseStarting = fun totals -> publish (ProgressEvent.TransferStarting(totals.Bytes, totals.Files))
+          BytesCopied = ValueSome(fun delta -> publish (ProgressEvent.BytesCopied delta))
+          FileStarted = fun path -> publish (ProgressEvent.FileStarted path)
+          FileFinished = fun path -> publish (ProgressEvent.FileFinished path)
+          FileTransferred = fun () -> publish ProgressEvent.FileTransferred }
 
 let private refused (env: CliEnv) (refusal: BackupRefusal) : Outcome =
     ErrorReporting.report env.ErrorConsole (BackupRefusal.render refusal)
@@ -42,7 +55,7 @@ let private dryRun (env: CliEnv) (mode: OutputMode) (json: bool) (backupEnv: Bac
                 env
                 mode
                 backupEnv.Clock
-                (fun observers -> Task.Run(fun () -> BackupRun.dryRun { backupEnv with Observers = observers } profile))
+                (fun publish -> Task.Run(fun () -> BackupRun.dryRun { backupEnv with Observers = observersFor mode publish } profile))
                 (function
                 | Ok summary -> Display.planOutcome summary
                 | Error _ -> Outcome.HardError)
@@ -69,7 +82,7 @@ let private realRun (env: CliEnv) (mode: OutputMode) (json: bool) (backupEnv: Ba
                     env
                     mode
                     backupEnv.Clock
-                    (fun observers -> BackupRun.run { backupEnv with Observers = observers } profile)
+                    (fun publish -> BackupRun.run { backupEnv with Observers = observersFor mode publish } profile)
                     (function
                     | Ok result -> Run.outcome result
                     | Error _ -> Outcome.HardError))

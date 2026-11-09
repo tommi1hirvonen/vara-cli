@@ -23,9 +23,14 @@
     <Compile Include="Planning.fs" />
     <Compile Include="Run.fs" />
     <Compile Include="Refusal.fs" />
+    <Compile Include="History.fs" />
+    <Compile Include="Restore.fs" />
+    <Compile Include="DateInput.fs" />
+    <Compile Include="PathInput.fs" />
     <Compile Include="PathLabel.fs" />
     <Compile Include="Tracker.fs" />
     <Compile Include="Display.fs" />
+    <Compile Include="HistoryView.fs" />
     <Compile Include="OutputMode.fs" />
     <Compile Include="RunJson.fs" />
   </ItemGroup>

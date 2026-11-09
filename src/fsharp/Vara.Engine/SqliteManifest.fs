@@ -370,3 +370,151 @@ module SqliteManifest =
 
     /// The manifest's view of every tracked path as of the latest snapshot.
     let currentState (handle: ManifestHandle) : TrackedPaths = readCurrentState handle ValueNone
+
+    // ---- Read-only queries for the history commands --------------------------------------------------------------
+    // Each returns rows (or a reduction a database does better than the domain), and decides nothing: which version
+    // was live, how a move chains and what a restore writes are the domain's. None of them writes.
+
+    /// Opens the manifest for reading only: no pragma, no table creation, no migration, so the file is left exactly
+    /// as it was (an empty handle when there is none). A reader never creates a `profile.db`.
+    let openReadOnly (databasePath: string) : ManifestHandle =
+        if not (File.Exists databasePath) then
+            { Connection = ValueNone }
+        else
+            let connection = new SqliteConnection($"Data Source={databasePath};Mode=ReadOnly")
+            connection.Open()
+            { Connection = ValueSome connection }
+
+    let private kindOf (name: string) : ChangeKind =
+        match name with
+        | "Added" -> ChangeKind.Added
+        | "Changed" -> ChangeKind.Changed
+        | "Moved" -> ChangeKind.Moved
+        | "Deleted" -> ChangeKind.Deleted
+        | "Linked" -> ChangeKind.Linked
+        | other -> raise (InvalidDataException $"The manifest holds an unknown change kind '{other}'.")
+
+    let private statusOf (name: string) : SnapshotStatus =
+        match name with
+        | "Running" -> SnapshotStatus.Running
+        | "Complete" -> SnapshotStatus.Complete
+        | "Failed" -> SnapshotStatus.Failed
+        | "Cancelled" -> SnapshotStatus.Cancelled
+        | other -> raise (InvalidDataException $"The manifest holds an unknown snapshot status '{other}'.")
+
+    let private versionColumns =
+        """
+        id, snapshot_id, relative_path, previous_relative_path, content_hash, size,
+        source_modified_at, change_kind, recorded_at, quick_hash, quick_hash_scheme, link_target
+        """
+
+    let private readVersion (reader: SqliteDataReader) : FileVersion =
+        let text (index: int) : string voption = if reader.IsDBNull index then ValueNone else ValueSome(reader.GetString index)
+
+        let content =
+            match text 4 |> ValueOption.bind ContentHash.tryCreate with
+            | ValueSome hash ->
+                RowContent.Regular
+                    { Hash = hash
+                      Size = reader.GetInt64 5
+                      SourceModifiedAt = parseIso (reader.GetString 6)
+                      Quick =
+                        if reader.IsDBNull 9 || reader.IsDBNull 10 then
+                            ValueNone
+                        else
+                            ValueSome
+                                { QuickHash = reader.GetString 9
+                                  QuickScheme = reader.GetInt32 10 } }
+            | ValueNone -> RowContent.Linked(text 11)
+
+        { VersionId = reader.GetInt64 0
+          InSnapshot = reader.GetInt64 1
+          Row =
+            { RowPath = MirrorPath.ofString (reader.GetString 2)
+              PreviousPath = text 3 |> ValueOption.map MirrorPath.ofString
+              Content = content
+              Kind = kindOf (reader.GetString 7)
+              RecordedAt = parseIso (reader.GetString 8) } }
+
+    /// Runs the query and yields each row; the reader and the command live as long as the sequence is enumerated.
+    let private rowsOf (handle: ManifestHandle) (sql: string) (bind: SqliteCommand -> unit) : FileVersion seq =
+        match handle.Connection with
+        | ValueNone -> Seq.empty
+        | ValueSome connection ->
+            seq {
+                use command = connection.CreateCommand()
+                command.CommandText <- sql
+                bind command
+                use reader = command.ExecuteReader()
+
+                while reader.Read() do
+                    yield readVersion reader
+            }
+
+    /// Every row of the manifest, oldest first. Lazy: a fold over it holds one row at a time.
+    let allVersions (handle: ManifestHandle) : FileVersion seq =
+        rowsOf handle $"SELECT {versionColumns} FROM file_versions ORDER BY id" ignore
+
+    /// The rows recorded for one path (letter case ignored by the column's collation), newest first.
+    let versionsOfPath (handle: ManifestHandle) (path: MirrorPath) : FileVersion list =
+        rowsOf handle $"SELECT {versionColumns} FROM file_versions WHERE relative_path = $path ORDER BY id DESC" (fun command ->
+            addText command "$path" (MirrorPath.value path))
+        |> List.ofSeq
+
+    /// The rows one snapshot recorded.
+    let snapshotVersions (handle: ManifestHandle) (snapshotId: int64) : FileVersion seq =
+        rowsOf handle $"SELECT {versionColumns} FROM file_versions WHERE snapshot_id = $id ORDER BY id DESC" (fun command ->
+            command.Parameters.AddWithValue("$id", snapshotId) |> ignore)
+
+    /// Whether any row is recorded for the path.
+    let hasPath (handle: ManifestHandle) (path: string) : bool =
+        match handle.Connection with
+        | ValueNone -> false
+        | ValueSome connection ->
+            use command = connection.CreateCommand()
+            command.CommandText <- "SELECT 1 FROM file_versions WHERE relative_path = $path LIMIT 1"
+            addText command "$path" path
+            not (isNull (command.ExecuteScalar()))
+
+    /// Whether any row is recorded under the directory prefix (which ends in a separator).
+    let hasPrefix (handle: ManifestHandle) (prefix: string) : bool =
+        match handle.Connection with
+        | ValueNone -> false
+        | ValueSome connection ->
+            use command = connection.CreateCommand()
+
+            command.CommandText <-
+                "SELECT 1 FROM file_versions WHERE substr(relative_path, 1, length($prefix)) = $prefix COLLATE NOCASE LIMIT 1"
+
+            addText command "$prefix" prefix
+            not (isNull (command.ExecuteScalar()))
+
+    /// Every snapshot, newest first.
+    let snapshots (handle: ManifestHandle) : SnapshotInfo list =
+        match handle.Connection with
+        | ValueNone -> []
+        | ValueSome connection ->
+            use command = connection.CreateCommand()
+
+            command.CommandText <-
+                """
+                SELECT id, started_at, completed_at, status, bytes_transferred, files_added, files_changed,
+                       files_moved, files_deleted, files_failed
+                FROM snapshots ORDER BY id DESC
+                """
+
+            use reader = command.ExecuteReader()
+
+            [ while reader.Read() do
+                  yield
+                      { SnapshotId = reader.GetInt64 0
+                        StartedAt = parseIso (reader.GetString 1)
+                        CompletedAt = if reader.IsDBNull 2 then ValueNone else ValueSome(parseIso (reader.GetString 2))
+                        Status = statusOf (reader.GetString 3)
+                        Stats =
+                          { BytesTransferred = reader.GetInt64 4
+                            FilesAdded = reader.GetInt32 5
+                            FilesChanged = reader.GetInt32 6
+                            FilesMoved = reader.GetInt32 7
+                            FilesDeleted = reader.GetInt32 8
+                            FilesFailed = reader.GetInt32 9 } } ]

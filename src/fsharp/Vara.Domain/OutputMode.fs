@@ -7,7 +7,9 @@ type Capabilities =
     { IsTerminal: bool
       SupportsColor: bool
       /// The `NO_COLOR` convention is set.
-      NoColorRequested: bool }
+      NoColorRequested: bool
+      /// Standard input is not redirected, so a prompt can be answered.
+      InputIsInteractive: bool }
 
 /// How a command writes its output (cli-presentation: "Non-interactive or color-incapable output falls back to plain
 /// text", "Machine-readable JSON output for the backup command").

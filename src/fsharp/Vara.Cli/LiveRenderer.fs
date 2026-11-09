@@ -40,14 +40,65 @@ let private barLine (frame: int) (bar: BarRow) : IRenderable =
     line.Append(bar.Trailing, Style.Plain) |> ignore
     line :> IRenderable
 
-let private renderLine (frame: int) (line: Line) : IRenderable =
+/// A line of spans, each in its own style.
+let private spansLine (spans: Span list) : IRenderable =
+    let line = Paragraph()
+
+    for span in spans do
+        line.Append(span.Text, Terminal.styleOfTone span.Tone) |> ignore
+
+    line :> IRenderable
+
+/// A table with the rounded border every bordered widget uses, its numeric columns right-aligned.
+let private tableOf (table: Table) : IRenderable =
+    let widget = Spectre.Console.Table().Border(TableBorder.Rounded)
+
+    for column in table.Columns do
+        let spectreColumn = TableColumn(Text(column.Header))
+
+        match column.Align with
+        | Align.Right -> spectreColumn.RightAligned() |> ignore
+        | Align.Left -> ()
+
+        widget.AddColumn spectreColumn |> ignore
+
+    for row in table.Rows do
+        widget.AddRow(row |> List.map (fun span -> Text(span.Text, Terminal.styleOfTone span.Tone) :> IRenderable) |> Array.ofList)
+        |> ignore
+
+    widget :> IRenderable
+
+let rec private renderLine (frame: int) (line: Line) : IRenderable =
     match line with
     | Line.Bar bar -> barLine frame bar
     | Line.Row cells -> Paragraph(cells |> List.map (fun cell -> cell.Text) |> String.concat "", Style.Plain) :> IRenderable
     | Line.Text(tone, text) -> Text(text, Terminal.styleOfTone tone) :> IRenderable
+    | Line.Spans spans -> spansLine spans
+    | Line.Table table -> tableOf table
+    | Line.Box(title, lines) ->
+        let panel = Panel(Rows(lines |> List.map (renderLine frame)))
+        panel.Border <- BoxBorder.Rounded
+        if title.Length > 0 then panel.Header <- PanelHeader(title)
+        panel :> IRenderable
 
 let private render (frame: int) (display: Display) : IRenderable =
     Rows(display |> List.map (renderLine frame)) :> IRenderable
+
+/// Prints a display once, in colour, below what is already on the console. A table or a box ends its own line; any
+/// other widget is given a line break.
+let print (console: IAnsiConsole) (display: Display) : unit =
+    let shown = if console.Profile.Capabilities.Unicode then display else Display.mapTexts Display.toAscii display
+
+    for line in shown do
+        console.Write(renderLine 0 line)
+
+        match line with
+        | Line.Table _
+        | Line.Box _ -> ()
+        | Line.Bar _
+        | Line.Row _
+        | Line.Text _
+        | Line.Spans _ -> console.WriteLine()
 
 /// The columns a bar line may use: one fewer than the console's, so a full line never wraps.
 let width (console: IAnsiConsole) : int = console.Profile.Width - 1

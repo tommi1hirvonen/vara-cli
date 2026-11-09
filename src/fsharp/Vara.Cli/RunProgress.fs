@@ -19,20 +19,12 @@ type Screen =
       /// Writes a terminal-indicator sequence; absent unless the host terminal shows one.
       WriteIndicator: (string -> unit) voption
       Clock: unit -> DateTimeOffset
+      /// The labels of the two phases.
+      Wording: Display.Wording
+      /// Where the display starts: a backup starts in its scan, a restore already knows its totals.
+      Initial: Tracker
       /// The time between two heartbeat redraws.
       Heartbeat: TimeSpan }
-
-let private observersFor (mode: OutputMode) (publish: ProgressEvent -> unit) : Observers =
-    { ScanProgress =
-        match mode with
-        | OutputMode.Live -> ValueSome(fun entries -> publish (ProgressEvent.ScanCounted entries))
-        | OutputMode.Plain
-        | OutputMode.Json -> ValueNone
-      TransferPhaseStarting = fun totals -> publish (ProgressEvent.TransferStarting(totals.Bytes, totals.Files))
-      BytesCopied = ValueSome(fun delta -> publish (ProgressEvent.BytesCopied delta))
-      FileStarted = fun path -> publish (ProgressEvent.FileStarted path)
-      FileFinished = fun path -> publish (ProgressEvent.FileFinished path)
-      FileTransferred = fun () -> publish ProgressEvent.FileTransferred }
 
 /// Calls `tick` each time the timer fires, until the timer is disposed.
 let private heartbeat (timer: System.Threading.PeriodicTimer) (tick: unit -> unit) : Task =
@@ -46,12 +38,12 @@ let private heartbeat (timer: System.Threading.PeriodicTimer) (tick: unit -> uni
             if fired then tick () else running <- false
     }
 
-let private shown (screen: Screen) (run: Observers -> Task<'a>) (outcomeOf: 'a -> Outcome) : Task<'a> =
+let private shown (screen: Screen) (run: (ProgressEvent -> unit) -> Task<'a>) (outcomeOf: 'a -> Outcome) : Task<'a> =
     task {
         // One lock serializes the observers (the engine's recorder), the heartbeat and the final draw. The cell is
         // local to this bracket and read only through these functions.
         let gate = obj ()
-        let cell = ref Tracker.initial
+        let cell = ref screen.Initial
         let closed = ref false
         let lastSequence = ref ""
         let live = (screen.Mode = OutputMode.Live)
@@ -67,7 +59,7 @@ let private shown (screen: Screen) (run: Observers -> Task<'a>) (outcomeOf: 'a -
                     write sequence
 
         let drawLive (now: DateTimeOffset) (tracker: Tracker) : unit =
-            screen.Draw(Display.view (screen.Width()) now tracker)
+            screen.Draw(Display.viewWith screen.Wording (screen.Width()) now tracker)
             writeIndicator tracker
 
         // What the screen shows for a change from `before` to `after`.
@@ -103,7 +95,7 @@ let private shown (screen: Screen) (run: Observers -> Task<'a>) (outcomeOf: 'a -
         let beating = if live then heartbeat timer tick else Task.CompletedTask
 
         // A run that throws before it returns a task is a failed run like any other.
-        let! attempted = Flow.attempt (task { return! run (observersFor screen.Mode publish) })
+        let! attempted = Flow.attempt (task { return! run publish })
 
         // The heartbeat stops before the final screen, so nothing redraws after it.
         timer.Dispose()
@@ -135,10 +127,12 @@ let private shown (screen: Screen) (run: Observers -> Task<'a>) (outcomeOf: 'a -
         | Error failure -> return Flow.rethrow failure
     }
 
-/// Runs `run` with its progress shown as `screen` says. JSON output shows nothing and installs no observers. A run that
-/// throws is shown as a hard error before the exception continues.
-let withProgress (screen: Screen) (run: Observers -> Task<'a>) (outcomeOf: 'a -> Outcome) : Task<'a> =
+/// Runs `run` with its progress shown as `screen` says. `run` is given the function that publishes a `ProgressEvent`;
+/// what it does with it (the backup maps events to the engine's observers, a restore publishes them itself) is its
+/// own. JSON output shows nothing and publishes to nowhere. A run that throws is shown as a hard error before the
+/// exception continues.
+let withProgress (screen: Screen) (run: (ProgressEvent -> unit) -> Task<'a>) (outcomeOf: 'a -> Outcome) : Task<'a> =
     match screen.Mode with
-    | OutputMode.Json -> run Observers.none
+    | OutputMode.Json -> run ignore
     | OutputMode.Live
     | OutputMode.Plain -> shown screen run outcomeOf

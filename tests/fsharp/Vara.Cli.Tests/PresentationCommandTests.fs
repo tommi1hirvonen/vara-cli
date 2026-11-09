@@ -15,7 +15,7 @@ open Vara.Cli.Tests.BackupCommandTests
 open Vara.Domain
 open Vara.Engine
 
-let private live: Capabilities = { IsTerminal = true; SupportsColor = true; NoColorRequested = false }
+let private live: Capabilities = { IsTerminal = true; SupportsColor = true; NoColorRequested = false; InputIsInteractive = true }
 
 /// A console that draws live regions, on a terminal as far as the command can tell.
 let private liveEnv (env: CliEnv) : CliEnv =

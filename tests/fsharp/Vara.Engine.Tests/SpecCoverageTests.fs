@@ -53,19 +53,21 @@ let private ofRequirements (names: string list) (scenarios: SpecCoverage.Scenari
 let private exceptRequirements (names: string list) (scenarios: SpecCoverage.ScenarioId list) : SpecCoverage.ScenarioId list =
     scenarios |> List.filter (fun scenario -> not (List.contains scenario.Requirement names))
 
-/// The `progress-reporting` requirements that later changes own, excluded by name.
+/// The `progress-reporting` requirements that a later change owns, excluded by name.
 let private progressOwnedElsewhere: string list =
-    [ "Count-based progress indication for non-byte-transfer operations" // fsharp-retention-and-integrity
-      "Aggregate progress across a multi-file directory restore" // fsharp-snapshot-history
-      "Restore task labels are bounded to a fixed width" ] // fsharp-snapshot-history
+    [ "Count-based progress indication for non-byte-transfer operations" ] // fsharp-retention-and-integrity
 
-/// The `cli-presentation` requirements this change owns; the others belong to the commands that need them.
+/// The `cli-presentation` requirements this change and the one before it own; the others belong to the commands that
+/// need them.
 let private cliPresentationOwned: string list =
     [ "Outcome severity is visually distinct"
       "Outcome severity determines process exit code"
       "Non-interactive or color-incapable output falls back to plain text"
       "Unclassified exceptions are rendered in the hard-error style"
-      "Machine-readable JSON output for the backup command" ]
+      "Machine-readable JSON output for the backup command"
+      "Bordered widgets use a consistent rounded-corner style"
+      "Invalid date/time option input produces a friendly error"
+      "Date/time options document an example value in their help text" ]
 
 let private show (missing: string list) : string =
     "Scenarios without a test: " + String.Join(" | ", missing)
@@ -83,4 +85,14 @@ let ``every owned progress-reporting scenario has a test`` () =
 [<Fact>]
 let ``every owned cli-presentation scenario has a test`` () =
     let missing = missingIn "cli-presentation" (exceptRequirements cliPresentationOwned)
+    Assert.True(missing.IsEmpty, show missing)
+
+[<Fact>]
+let ``every owned snapshot-history scenario has a test`` () =
+    let missing = missingIn "snapshot-history" (fun _ -> [])
+    Assert.True(missing.IsEmpty, show missing)
+
+[<Fact>]
+let ``every owned backup-browsing scenario has a test`` () =
+    let missing = missingIn "backup-browsing" (fun _ -> [])
     Assert.True(missing.IsEmpty, show missing)

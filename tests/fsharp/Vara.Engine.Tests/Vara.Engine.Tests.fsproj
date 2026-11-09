@@ -15,6 +15,7 @@
     <Compile Include="EngineParityTests.fs" />
     <Compile Include="ConfigurationTests.fs" />
     <Compile Include="ParityTests.fs" />
+    <Compile Include="HistoryEngineTests.fs" />
     <Compile Include="SpecCoverageTests.fs" />
   </ItemGroup>
 

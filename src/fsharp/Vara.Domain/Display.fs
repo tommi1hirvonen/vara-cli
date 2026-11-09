@@ -16,6 +16,12 @@ type Tone =
     /// Also the colour of a transfer bar that has not reached its outcome.
     | PartialFailure
     | Error
+    /// The colours of the kinds of change a snapshot records, shared by every view that shows one.
+    | Added
+    | Changed
+    | Moved
+    | Deleted
+    | Linked
 
 [<RequireQualifiedAccess>]
 type BarFill =
@@ -33,11 +39,29 @@ type BarRow =
       Trailing: string
       Tone: Tone }
 
+/// A run of text in one tone, in a line that mixes tones.
+type Span = { Tone: Tone; Text: string }
+
+[<RequireQualifiedAccess>]
+type Align =
+    | Left
+    | Right
+
+type Column = { Header: string; Align: Align }
+
+/// An aligned table with column headers; every row has one span per column. The renderer draws its border.
+type Table = { Columns: Column list; Rows: Span list list }
+
 [<RequireQualifiedAccess>]
 type Line =
     | Bar of bar: BarRow
     | Row of cells: Cell list
     | Text of tone: Tone * text: string
+    /// One line made of spans in different tones.
+    | Spans of spans: Span list
+    | Table of table: Table
+    /// A titled frame around other lines, drawn with rounded corners.
+    | Box of title: string * lines: Line list
 
 /// What a screen shows, as plain data: the interactive renderer draws it, the plain renderer prints it.
 type Display = Line list
@@ -71,6 +95,12 @@ module Display =
     let private transferLabel = " Backing up..."
     /// The label column is as wide as the longer label, so the bar is the same length in both phases.
     let labelWidth = max scanLabel.Length transferLabel.Length
+
+    /// The two labels a progress screen shows: during the scan, and during the transfer. Each starts with a space.
+    type Wording = { Scanning: string; Transferring: string }
+
+    /// What the backup says.
+    let backupWording: Wording = { Scanning = scanLabel; Transferring = transferLabel }
     /// " 100.0%": the percentage field is five characters wide, so the trailing column never changes width.
     let private percentText (percent: float) : string =
         " " + percent.ToString("0.0", CultureInfo.InvariantCulture).PadLeft 5 + "%"
@@ -121,11 +151,11 @@ module Display =
 
     /// The progress screen for a terminal `width` wide at clock value `now`. The numbers are the last admitted ones;
     /// throughput and ETA come from `now`, so a later value with no new bytes shows a stall.
-    let view (width: int) (now: DateTimeOffset) (tracker: Tracker) : Display =
+    let viewWith (wording: Wording) (width: int) (now: DateTimeOffset) (tracker: Tracker) : Display =
         match tracker.Phase with
         | Phase.Scanning _ ->
             let tone = tracker.Ended |> ValueOption.map toneOf |> ValueOption.defaultValue Tone.Neutral
-            [ bar width scanLabel BarFill.Indeterminate "" tone ]
+            [ bar width wording.Scanning BarFill.Indeterminate "" tone ]
         | Phase.Transferring ->
             let percent, tone =
                 match tracker.Ended with
@@ -134,7 +164,7 @@ module Display =
 
             let rate = Tracker.throughput now tracker |> int64
 
-            [ bar width transferLabel (BarFill.Filled percent) (percentText percent) tone
+            [ bar width wording.Transferring (BarFill.Filled percent) (percentText percent) tone
               Line.Row
                   [ cell leftWidth (ratio tracker.Shown.Bytes tracker.TotalBytes)
                     cell rightWidth $"Files {tracker.Shown.Files} / {tracker.TotalFiles}" ]
@@ -142,6 +172,9 @@ module Display =
                   [ cell leftWidth (ByteSize.format rate + "/s")
                     cell rightWidth ("ETA " + etaText (Tracker.remaining now tracker)) ] ]
             @ (if tracker.Ended.IsSome then [] else activeLines tracker)
+
+    /// The backup's progress screen.
+    let view (width: int) (now: DateTimeOffset) (tracker: Tracker) : Display = viewWith backupWording width now tracker
 
     /// One appended line of progress, for output that cannot redraw in place.
     let plainProgress (now: DateTimeOffset) (tracker: Tracker) : string =
@@ -192,3 +225,127 @@ module Display =
           count "Deleted:     " summary.Deleted
           Line.Text(Tone.Plain, "  To transfer: " + ByteSize.format summary.PlannedBytes) ]
         @ failedLines summary.Unscanned
+
+    /// The characters a border is drawn with.
+    type Glyphs =
+        { TopLeft: string
+          TopRight: string
+          BottomLeft: string
+          BottomRight: string
+          Horizontal: string
+          Vertical: string
+          TeeDown: string
+          TeeUp: string
+          TeeLeft: string
+          TeeRight: string
+          Cross: string }
+
+    /// The rounded border of the live renderer, so that a table or a box reads the same in the live region and in plain output
+    /// (cli-presentation: "Bordered widgets use a consistent rounded-corner style").
+    let roundedGlyphs: Glyphs =
+        { TopLeft = "╭"
+          TopRight = "╮"
+          BottomLeft = "╰"
+          BottomRight = "╯"
+          Horizontal = "─"
+          Vertical = "│"
+          TeeDown = "┬"
+          TeeUp = "┴"
+          TeeLeft = "┤"
+          TeeRight = "├"
+          Cross = "┼" }
+
+    /// What a terminal that cannot show the box-drawing characters gets instead: the same shape in ASCII.
+    let asciiGlyphs: Glyphs =
+        { TopLeft = "+"
+          TopRight = "+"
+          BottomLeft = "+"
+          BottomRight = "+"
+          Horizontal = "-"
+          Vertical = "|"
+          TeeDown = "+"
+          TeeUp = "+"
+          TeeLeft = "+"
+          TeeRight = "+"
+          Cross = "+" }
+
+    let private pad (align: Align) (width: int) (text: string) : string =
+        match align with
+        | Align.Left -> text.PadRight width
+        | Align.Right -> text.PadLeft width
+
+    /// The text of a table, drawn with a border: a header row, a rule, then the rows. Each column is as wide as its
+    /// widest cell, and a right-aligned column lines its digits up.
+    let tableLinesWith (glyphs: Glyphs) (table: Table) : string list =
+        let cells = table.Rows |> List.map (List.map (fun span -> span.Text))
+
+        let widths =
+            table.Columns
+            |> List.mapi (fun index column ->
+                cells
+                |> List.fold (fun width row -> max width (List.tryItem index row |> Option.map String.length |> Option.defaultValue 0)) column.Header.Length)
+
+        let rule (left: string) (middle: string) (right: string) : string =
+            left + (widths |> List.map (fun width -> String.replicate (width + 2) glyphs.Horizontal) |> String.concat middle) + right
+
+        let line (texts: string list) : string =
+            glyphs.Vertical
+            + (List.zip3 table.Columns widths texts
+               |> List.map (fun (column, width, text) -> " " + pad column.Align width text + " ")
+               |> String.concat glyphs.Vertical)
+            + glyphs.Vertical
+
+        [ rule glyphs.TopLeft glyphs.TeeDown glyphs.TopRight
+          line (table.Columns |> List.map (fun column -> column.Header))
+          rule glyphs.TeeRight glyphs.Cross glyphs.TeeLeft ]
+        @ (cells |> List.map (fun row -> line (table.Columns |> List.mapi (fun index _ -> List.tryItem index row |> Option.defaultValue ""))))
+        @ [ rule glyphs.BottomLeft glyphs.TeeUp glyphs.BottomRight ]
+
+    /// The text of a box: the lines inside it between borders, under the title.
+    let boxLinesWith (glyphs: Glyphs) (title: string) (inner: string list) : string list =
+        let width = inner |> List.fold (fun width text -> max width text.Length) (title.Length + 2)
+
+        let heading =
+            if title.Length = 0 then
+                String.replicate (width + 2) glyphs.Horizontal
+            else
+                glyphs.Horizontal + " " + title + " " + String.replicate (width - title.Length - 1) glyphs.Horizontal
+
+        [ glyphs.TopLeft + heading + glyphs.TopRight ]
+        @ (inner |> List.map (fun text -> glyphs.Vertical + " " + text.PadRight width + " " + glyphs.Vertical))
+        @ [ glyphs.BottomLeft + String.replicate (width + 2) glyphs.Horizontal + glyphs.BottomRight ]
+
+    /// The unstyled text of a display, one string per output line, its borders drawn with the given glyphs.
+    let rec plainLinesWith (glyphs: Glyphs) (display: Display) : string list =
+        display
+        |> List.collect (fun line ->
+            match line with
+            | Line.Text(_, text) -> [ text ]
+            | Line.Row cells -> [ (cells |> List.map (fun cell -> cell.Text) |> String.concat "").TrimEnd() ]
+            | Line.Bar bar -> [ (bar.Label + bar.Trailing).TrimEnd() ]
+            | Line.Spans spans -> [ spans |> List.map (fun span -> span.Text) |> String.concat "" ]
+            | Line.Table table -> tableLinesWith glyphs table
+            | Line.Box(title, lines) -> boxLinesWith glyphs title (plainLinesWith glyphs lines))
+
+    /// The unstyled text of a display with rounded borders: what tests read.
+    let plainLines (display: Display) : string list = plainLinesWith roundedGlyphs display
+
+    /// The text with the characters a legacy console cannot show replaced by ASCII: the guides of a tree, and the
+    /// arrow of a picker entry.
+    let toAscii (text: string) : string =
+        text.Replace("├──", "|--").Replace("└──", "`--").Replace("│", "|").Replace("→", ">")
+
+    /// The display with the function applied to every text in it: what a console that cannot show Unicode is given.
+    let rec mapTexts (change: string -> string) (display: Display) : Display =
+        display
+        |> List.map (fun line ->
+            match line with
+            | Line.Bar _
+            | Line.Row _ -> line
+            | Line.Text(tone, text) -> Line.Text(tone, change text)
+            | Line.Spans spans -> Line.Spans(spans |> List.map (fun span -> { span with Text = change span.Text }))
+            | Line.Table table ->
+                Line.Table
+                    { table with
+                        Rows = table.Rows |> List.map (List.map (fun span -> { span with Text = change span.Text })) }
+            | Line.Box(title, lines) -> Line.Box(change title, mapTexts change lines))

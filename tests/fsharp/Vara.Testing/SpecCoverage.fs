@@ -7,10 +7,11 @@ open System.Reflection
 
 type ScenarioId = { Requirement: string; Scenario: string }
 
-/// F# cannot spell some characters in a module name (a `+`, as in "Ctrl+C"), so names are compared without them.
+/// F# cannot spell some characters in a module name (a `+`, as in "Ctrl+C", or a `/`, as in "date/time"), so names are
+/// compared without them. A backtick, as in "`--snapshot`", cannot be spelled either.
 /// The runtime also escapes a comma in a type's name as `\,`, which is read back as the comma it stands for.
 let private comparable (id: ScenarioId) : ScenarioId =
-    let normalize (name: string) = name.Replace(@"\,", ",").Replace("+", "")
+    let normalize (name: string) = name.Replace(@"\,", ",").Replace("+", "").Replace("/", "").Replace("`", "")
 
     { Requirement = normalize id.Requirement
       Scenario = normalize id.Scenario }

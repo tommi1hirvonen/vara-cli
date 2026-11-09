@@ -5,7 +5,13 @@
     <Compile Include="BackupCommandTests.fs" />
     <Compile Include="PresentationCommandTests.fs" />
     <Compile Include="RunProgressTests.fs" />
+    <Compile Include="RestorePresentationTests.fs" />
+    <Compile Include="HistoryCommandTests.fs" />
+    <Compile Include="ShowDiffCommandTests.fs" />
+    <Compile Include="BrowsingCommandTests.fs" />
+    <Compile Include="RestoreCommandTests.fs" />
     <Compile Include="CommandParityTests.fs" />
+    <Compile Include="HistoryParityTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

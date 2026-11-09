@@ -30,6 +30,9 @@ let private lines (display: Display) : string list =
     |> List.map (function
         | Line.Bar bar -> bar.Label + "|" + bar.Trailing
         | Line.Row cells -> cells |> List.map (fun cell -> cell.Text) |> String.concat ""
+        | Line.Spans _
+        | Line.Table _
+        | Line.Box _ -> failwith "progress has no spans, table or box"
         | Line.Text(_, text) -> text)
 
 let private barOf (display: Display) : BarRow =
@@ -74,7 +77,7 @@ module ``Scan-phase progress indication`` =
         Assert.Equal(2, rowsOf (shown tracker) |> List.length)
 
 module ``Dry-run scan progress indication`` =
-    let private live = { IsTerminal = true; SupportsColor = true; NoColorRequested = false }
+    let private live = { IsTerminal = true; SupportsColor = true; NoColorRequested = false; InputIsInteractive = true }
 
     [<Fact>]
     let ``Dry-run planning in a live terminal`` () =
@@ -120,7 +123,7 @@ module ``Progress bar occupies a dedicated, width-sized line`` =
     [<Fact>]
     let ``Terminal width cannot be determined`` () =
         // Redirected output has no width: the mode is plain, which never draws a bar.
-        let redirected = { IsTerminal = false; SupportsColor = true; NoColorRequested = false }
+        let redirected = { IsTerminal = false; SupportsColor = true; NoColorRequested = false; InputIsInteractive = true }
         Assert.Equal(OutputMode.Plain, OutputMode.choose false redirected)
 
 module ``Progress bar row includes a leading phase description`` =

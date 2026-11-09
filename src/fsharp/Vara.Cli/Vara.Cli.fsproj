@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <Compile Include="Terminal.fs" />
+    <Compile Include="Prompts.fs" />
     <Compile Include="PlainRenderer.fs" />
     <Compile Include="LiveRenderer.fs" />
     <Compile Include="RunProgress.fs" />
@@ -22,6 +23,15 @@
     <Compile Include="GracefulCancellation.fs" />
     <Compile Include="CommandAction.fs" />
     <Compile Include="BackupCommand.fs" />
+    <Compile Include="HistorySession.fs" />
+    <Compile Include="SnapshotsCommand.fs" />
+    <Compile Include="SnapshotCommand.fs" />
+    <Compile Include="HistoryCommand.fs" />
+    <Compile Include="BrowseCommand.fs" />
+    <Compile Include="DeletedCommand.fs" />
+    <Compile Include="ShowCommand.fs" />
+    <Compile Include="DiffCommand.fs" />
+    <Compile Include="RestoreCommand.fs" />
     <Compile Include="Composition.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
@@ -29,6 +39,7 @@
   <ItemGroup>
     <PackageReference Include="System.CommandLine" />
     <PackageReference Include="Spectre.Console" />
+    <PackageReference Include="DiffPlex" />
   </ItemGroup>
 
   <ItemGroup>

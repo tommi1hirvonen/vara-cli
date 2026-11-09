@@ -56,6 +56,11 @@ type Invocation =
       Json: string
       Syntax: string }
 
+/// Prompts for a test that expects no question: asking one is a failure.
+let noPrompts: Prompts =
+    { Select = fun title _ _ -> failwith $"unexpected selection prompt: {title}"
+      Confirm = fun question -> failwith $"unexpected confirmation prompt: {question}" }
+
 /// Power calls that succeed and count their requests, so that no test keeps the machine awake.
 let countingPower (requests: int ref) : PowerCalls =
     { Create =
@@ -84,6 +89,10 @@ let invokeEnv (customize: CliEnv -> CliEnv) (token: CancellationToken) (args: st
               Capabilities = Terminal.capabilitiesOf console
               ErrorConsole = errorConsole
               JsonOut = json
+              Prompts = noPrompts
+              CurrentDirectory = Environment.CurrentDirectory
+              UtcOffsetAt = fun _ -> TimeSpan.Zero
+              OpenStandardOutput = fun () -> Stream.Null
               MakeBackupEnv = BackupRun.live
               Power = countingPower (ref 0)
               TerminalSession = null }

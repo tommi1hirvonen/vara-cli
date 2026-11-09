@@ -13,6 +13,7 @@
     <Compile Include="RunTests.fs" />
     <Compile Include="ProgressTests.fs" />
     <Compile Include="PresentationTests.fs" />
+    <Compile Include="HistoryTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

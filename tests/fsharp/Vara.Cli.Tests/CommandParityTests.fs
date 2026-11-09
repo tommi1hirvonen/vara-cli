@@ -22,15 +22,15 @@ let private repositoryRoot: string =
 let private configuration: string =
     DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar)).Parent |> nonNull |> fun parent -> parent.Name
 
-let private csharpDll = Path.Combine(repositoryRoot, "src", "Vara.Cli", "bin", configuration, "net11.0", "vara.dll")
-let private fsharpDll = Path.Combine(AppContext.BaseDirectory, "vara.dll")
+let csharpDll = Path.Combine(repositoryRoot, "src", "Vara.Cli", "bin", configuration, "net11.0", "vara.dll")
+let fsharpDll = Path.Combine(AppContext.BaseDirectory, "vara.dll")
 
-type private Run =
+type Run =
     { ExitCode: int
       Out: string
       Err: string }
 
-let private start (dll: string) (arguments: string list) : Run =
+let start (dll: string) (arguments: string list) : Run =
     let info = ProcessStartInfo("dotnet")
     info.ArgumentList.Add dll
 

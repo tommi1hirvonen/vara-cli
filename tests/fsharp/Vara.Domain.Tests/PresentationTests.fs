@@ -34,7 +34,10 @@ module ``Outcome severity is visually distinct`` =
                 match line with
                 | Line.Text(tone, _) -> Assert.Equal(Tone.Plain, tone)
                 | Line.Bar _
-                | Line.Row _ -> failwith "a summary has no bar or row"
+                | Line.Row _
+                | Line.Spans _
+                | Line.Table _
+                | Line.Box _ -> failwith "a summary has only text lines"
         | _ -> failwith "no headline"
 
     [<Fact>]
@@ -56,7 +59,7 @@ module ``Outcome severity determines process exit code`` =
     let ``Command reports a hard error`` () = Assert.Equal(1, Outcome.exitCode Outcome.HardError)
 
 module ``Non-interactive or color-incapable output falls back to plain text`` =
-    let private capable = { IsTerminal = true; SupportsColor = true; NoColorRequested = false }
+    let private capable = { IsTerminal = true; SupportsColor = true; NoColorRequested = false; InputIsInteractive = true }
 
     [<Fact>]
     let ``Output redirected to a file or pipe`` () =

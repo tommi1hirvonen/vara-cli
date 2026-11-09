@@ -34,6 +34,8 @@ let private rigAndScreen (mode: OutputMode) (indicator: bool) (heartbeat: TimeSp
       WriteLine = rig.Lines.Add
       WriteIndicator = if indicator then ValueSome rig.Indicators.Add else ValueNone
       Clock = clock
+      Wording = Display.backupWording
+      Initial = Tracker.initial
       Heartbeat = heartbeat }
 
 let private succeed (_: 'a) : Outcome = Outcome.Success
@@ -42,6 +44,10 @@ let private wait (task: Task<'a>) : 'a = task.GetAwaiter().GetResult()
 
 let private barOf (display: Display) : BarRow =
     display |> List.pick (function Line.Bar bar -> Some bar | _ -> None)
+
+/// The backup's way of running with progress: the events a run publishes reach it as the engine's observers.
+let private withObservers (screen: RunProgress.Screen) (run: Observers -> Task<'a>) (outcomeOf: 'a -> Outcome) : Task<'a> =
+    RunProgress.withProgress screen (fun publish -> run (BackupCommand.observersFor screen.Mode publish)) outcomeOf
 
 let private totals (bytes: int64) (files: int) : PlanTotals = { Bytes = bytes; Files = files }
 
@@ -52,7 +58,7 @@ module ``Progress delivery completes before display teardown`` =
         let captured = ref Observers.none
 
         let result =
-            RunProgress.withProgress
+            withObservers
                 screen
                 (fun observers ->
                     captured.Value <- observers
@@ -79,7 +85,7 @@ module ``Progress delivery completes before display teardown`` =
     let ``every report made before the run returns is drawn before the final screen`` () =
         let rig, screen = rigAndScreen OutputMode.Live false (TimeSpan.FromSeconds 60.0)
 
-        RunProgress.withProgress
+        withObservers
             screen
             (fun observers ->
                 observers.TransferPhaseStarting(totals 100L 1)
@@ -98,7 +104,7 @@ module ``Progress heartbeat during stalled transfers`` =
     let ``Heartbeat stops once the run completes`` () =
         let rig, screen = rigAndScreen OutputMode.Live false (TimeSpan.FromMilliseconds 20.0)
 
-        RunProgress.withProgress
+        withObservers
             screen
             (fun observers ->
                 observers.TransferPhaseStarting(totals 100L 1)
@@ -120,7 +126,7 @@ module ``Progress heartbeat during stalled transfers`` =
     let ``Transfer stalls with no new bytes reported`` () =
         let rig, screen = rigAndScreen OutputMode.Live false (TimeSpan.FromMilliseconds 20.0)
 
-        RunProgress.withProgress
+        withObservers
             screen
             (fun observers ->
                 observers.TransferPhaseStarting(totals 100L 1)
@@ -157,7 +163,7 @@ module ``Progress bar reflects run outcome severity`` =
 
         let failure =
             Assert.Throws<InvalidOperationException>(fun () ->
-                RunProgress.withProgress
+                withObservers
                     screen
                     (fun observers ->
                         observers.TransferPhaseStarting(totals 100L 1)
@@ -173,7 +179,7 @@ module ``Progress bar reflects run outcome severity`` =
     let ``Run completes with one or more failed files`` () =
         let rig, screen = rigAndScreen OutputMode.Live false (TimeSpan.FromSeconds 60.0)
 
-        RunProgress.withProgress
+        withObservers
             screen
             (fun observers ->
                 observers.TransferPhaseStarting(totals 100L 2)
@@ -200,7 +206,7 @@ module ``Windows Terminal progress indicator`` =
             let rig, screen = rigAndScreen OutputMode.Live true (TimeSpan.FromSeconds 60.0)
 
             try
-                RunProgress.withProgress screen body succeed |> wait |> ignore
+                withObservers screen body succeed |> wait |> ignore
             with _ ->
                 ()
 
@@ -209,14 +215,14 @@ module ``Windows Terminal progress indicator`` =
     [<Fact>]
     let ``Indeterminate phase`` () =
         let rig, screen = rigAndScreen OutputMode.Live true (TimeSpan.FromSeconds 60.0)
-        RunProgress.withProgress screen (fun _ -> Task.FromResult 0) succeed |> wait |> ignore
+        withObservers screen (fun _ -> Task.FromResult 0) succeed |> wait |> ignore
         Assert.Equal(TerminalProgress.sequence Indicator.Indeterminate, Seq.head rig.Indicators)
 
     [<Fact>]
     let ``Determinate phase`` () =
         let rig, screen = rigAndScreen OutputMode.Live true (TimeSpan.FromSeconds 60.0)
 
-        RunProgress.withProgress
+        withObservers
             screen
             (fun observers ->
                 observers.TransferPhaseStarting(totals 200L 1)
@@ -235,9 +241,13 @@ module ``Terminal progress compatibility`` =
 
         let env: CliEnv =
             { Console = console
-              Capabilities = { IsTerminal = true; SupportsColor = true; NoColorRequested = false }
+              Capabilities = { IsTerminal = true; SupportsColor = true; NoColorRequested = false; InputIsInteractive = true }
               ErrorConsole = new TestConsole()
               JsonOut = new IO.StringWriter()
+              Prompts = BackupCommandTests.noPrompts
+              CurrentDirectory = Environment.CurrentDirectory
+              UtcOffsetAt = fun _ -> TimeSpan.Zero
+              OpenStandardOutput = fun () -> IO.Stream.Null
               MakeBackupEnv = BackupRun.live
               Power = PowerRequest.win32
               TerminalSession = session }
@@ -246,7 +256,8 @@ module ``Terminal progress compatibility`` =
             env
             mode
             clock
-            (fun observers ->
+            (fun publish ->
+                let observers = BackupCommand.observersFor mode publish
                 observers.TransferPhaseStarting(totals 100L 1)
 
                 match observers.BytesCopied with
@@ -318,7 +329,7 @@ module ``Plain progress output`` =
     let ``Non-interactive transfer output`` () =
         let rig, screen = rigAndScreen OutputMode.Plain false (TimeSpan.FromSeconds 60.0)
 
-        RunProgress.withProgress
+        withObservers
             screen
             (fun observers ->
                 observers.TransferPhaseStarting(totals 100L 2)
@@ -339,7 +350,7 @@ module ``Plain progress output`` =
         let rig, screen = rigAndScreen OutputMode.Json true (TimeSpan.FromSeconds 60.0)
         let seen = ref Observers.none
 
-        RunProgress.withProgress
+        withObservers
             screen
             (fun observers ->
                 seen.Value <- observers
