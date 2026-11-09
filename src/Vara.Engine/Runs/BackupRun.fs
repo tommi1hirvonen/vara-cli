@@ -1,6 +1,7 @@
 namespace Vara.Engine
 
 open System
+open System.Collections.Generic
 open System.IO
 open System.Threading.Tasks
 open Vara.Domain
@@ -70,8 +71,12 @@ module BackupRun =
     let private planFor (env: BackupEnv) (profile: Profile) (tracked: TrackedPaths) : struct (BackupPlan * ScanFailure list) =
         let diff = Diff.run tracked (counted env.Observers (Scanner.scan (Profile.sources profile)))
         let candidates = Planning.moveCandidates diff.Deleted
-        let adds = Planning.sizeMatchedAdds candidates diff.Pending
-        let hashes = Signatures.readFullHashes env.OpenRead (scanConcurrency profile) candidates adds
+        let hashes =
+            if candidates.Count = 0 then
+                Dictionary<string, ContentHash>()
+            else
+                let adds = Planning.sizeMatchedAdds candidates diff.Pending
+                Signatures.readFullHashes env.OpenRead (scanConcurrency profile) candidates adds
         struct (Planning.plan tracked diff candidates hashes, diff.Failures)
 
     /// Records a run's failure and commits it, so that history shows the failed run and not a snapshot left `Running`.

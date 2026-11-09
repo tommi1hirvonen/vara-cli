@@ -75,12 +75,16 @@ module Diff =
         let failures = List.rev failures
         let covered = failures |> List.map (fun failure -> forward (MirrorPath.value failure.Covers))
 
+        let isDeleted =
+            if covered.IsEmpty then
+                fun (path: string) -> not (seen.Contains path)
+            else
+                fun (path: string) -> not (seen.Contains path || isCovered (forward path) covered)
+
         let deleted =
-            tracked
-            |> Seq.filter (fun (KeyValue(path, _)) ->
-                not (seen.Contains path || not covered.IsEmpty && isCovered (forward path) covered))
-            |> Seq.map (fun (KeyValue(path, state)) -> struct (MirrorPath.ofString path, state))
-            |> Seq.toList
+            [ for KeyValue(path, state) in tracked do
+                  if isDeleted path then
+                      struct (MirrorPath.ofString path, state) ]
 
         { Pending = List.rev pending
           Deleted = deleted

@@ -11,27 +11,33 @@ type MoveCandidates = Dictionary<int64, (MirrorPath * FileContent) list>
 /// function here reads a file.
 module Planning =
     let moveCandidates (deleted: struct (MirrorPath * TrackedState) list) : MoveCandidates =
-        let grouped = MoveCandidates()
+        if deleted.IsEmpty then
+            MoveCandidates()
+        else
+            let grouped = MoveCandidates()
 
-        // `deleted` is walked backwards so that consing keeps each size's candidates in deleted-path order.
-        for struct (path, state) in List.rev deleted do
-            match state with
-            | TrackedState.Regular content ->
-                match grouped.TryGetValue content.Size with
-                | true, existing -> grouped[content.Size] <- (path, content) :: existing
-                | false, _ -> grouped[content.Size] <- [ (path, content) ]
-            | TrackedState.Linked _ -> ()
+            // `deleted` is walked backwards so that consing keeps each size's candidates in deleted-path order.
+            for struct (path, state) in List.rev deleted do
+                match state with
+                | TrackedState.Regular content ->
+                    match grouped.TryGetValue content.Size with
+                    | true, existing -> grouped[content.Size] <- (path, content) :: existing
+                    | false, _ -> grouped[content.Size] <- [ (path, content) ]
+                | TrackedState.Linked _ -> ()
 
-        grouped
+            grouped
 
     /// The added files that share a size with a deleted candidate. Only these need their content read.
     /// A changed file is an edit, never a move, and a link has no content.
     let sizeMatchedAdds (candidates: MoveCandidates) (pending: PendingChange list) : ScannedFile list =
-        pending
-        |> List.choose (fun change ->
-            match change with
-            | PendingChange.Add file when candidates.ContainsKey file.Size -> Some file
-            | _ -> None)
+        if candidates.Count = 0 then
+            []
+        else
+            pending
+            |> List.choose (fun change ->
+                match change with
+                | PendingChange.Add file when candidates.ContainsKey file.Size -> Some file
+                | _ -> None)
 
     /// Whether the rest of the added file must be read after its bounded prefix was hashed.
     /// False only when every candidate has a usable recorded signature and none equals the prefix hash, which
