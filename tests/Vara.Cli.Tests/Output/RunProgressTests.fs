@@ -326,6 +326,74 @@ module ``Live and plain renderers`` =
         Assert.Contains("first-update", console.Output)
         Assert.Contains("last-update", console.Output)
 
+    let private scanBar: Display =
+        [ Line.Bar
+              { Label = " Scanning files..."
+                Width = 30
+                Fill = BarFill.Indeterminate
+                Trailing = "       "
+                Tone = Tone.Neutral } ]
+
+    let private printed (display: Display) : string =
+        let console = (new TestConsole()).EmitAnsiSequences().Interactive()
+        console.Profile.Width <- 80
+        LiveRenderer.print console display
+        console.Output
+
+    [<Fact>]
+    let ``an indeterminate bar keeps the label, the bar and the trailing field on one line`` () =
+        let console = (new TestConsole()).Interactive()
+        console.Profile.Width <- 80
+        LiveRenderer.print console scanBar
+
+        let lines = console.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+        Assert.Single lines |> ignore
+        Assert.StartsWith(" Scanning files...", lines[0])
+        // The label, a bar of exactly Width characters and the trailing field.
+        Assert.Equal(" Scanning files...".Length + 30 + 7, lines[0].TrimEnd('\r').Length)
+
+    let private filledBar (percent: float) (tone: Tone) : Display =
+        [ Line.Bar
+              { Label = " Backing up...     "
+                Width = 30
+                Fill = BarFill.Filled percent
+                Trailing = "  50.0%"
+                Tone = tone } ]
+
+    [<Theory>]
+    [<InlineData(0.0)>]
+    [<InlineData(33.3)>]
+    [<InlineData(50.0)>]
+    [<InlineData(100.0)>]
+    let ``a filled bar is exactly as wide as its row says at any percentage`` (percent: float) =
+        let console = (new TestConsole()).Interactive()
+        console.Profile.Width <- 80
+        LiveRenderer.print console (filledBar percent Tone.PartialFailure)
+
+        let line = console.Output.TrimEnd('\r', '\n')
+        Assert.Equal(" Backing up...     ".Length + 30 + 7, line.Length)
+        Assert.EndsWith("  50.0%", line)
+
+    [<Fact>]
+    let ``a filled bar draws its completed part in the row's tone and the rest in grey`` () =
+        let half = printed (filledBar 50.0 Tone.Success)
+        let none = printed (filledBar 0.0 Tone.Success)
+        let full = printed (filledBar 100.0 Tone.Success)
+
+        Assert.NotEqual<string>(none, half)
+        Assert.NotEqual<string>(half, full)
+        // The finished bar is one colour: no grey remains.
+        Assert.DoesNotContain("38;5;8m", full)
+        Assert.Contains("38;5;8m", none)
+
+    [<Fact>]
+    let ``an indeterminate bar animates between redraws`` () =
+        let first = printed scanBar
+        System.Threading.Thread.Sleep 400
+        let later = printed scanBar
+
+        Assert.NotEqual<string>(first, later)
+
 module ``Plain progress output`` =
     [<Fact>]
     let ``Non-interactive transfer output`` () =

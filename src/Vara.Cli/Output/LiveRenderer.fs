@@ -8,37 +8,41 @@ open Spectre.Console
 open Spectre.Console.Rendering
 open Vara.Domain
 
-let private barGlyph = '━'
 let private remainingStyle = Style Color.Grey
-/// How long the moving segment of an indeterminate bar is.
-let private pulseLength = 8
 
-/// One bar line drawn from characters of a single style each, so its length is exactly `Width`.
-let private barLine (frame: int) (bar: BarRow) : IRenderable =
+/// The bar of a bar line: Spectre's own `ProgressBarColumn`, rendered for a task of its own. An indeterminate fill is a
+/// task with no known total, so the pulse animates itself from the clock at each redraw; a filled bar is a task at its
+/// percentage of 100, completed and finished in the row's tone, as the C# build draws it. The column is the only public
+/// way to reach the native widget.
+let private nativeBar (bar: BarRow) : IRenderable =
     let tone = Terminal.styleOfTone bar.Tone
-    let line = Paragraph()
-    line.Append(bar.Label, Style.Plain) |> ignore
+    let column = ProgressBarColumn()
+    column.Width <- Nullable bar.Width
+    column.CompletedStyle <- tone
+    column.FinishedStyle <- tone
+    column.IndeterminateStyle <- tone
+    column.RemainingStyle <- remainingStyle
 
-    let segment (length: int) (style: Style) =
-        line.Append(String(barGlyph, max 0 length), style) |> ignore
+    let task = ProgressTask(0, "bar", 100.0)
 
     match bar.Fill with
-    | BarFill.Filled percent ->
-        let filled = int (Math.Round(float bar.Width * percent / 100.0))
-        segment filled tone
-        segment (bar.Width - filled) remainingStyle
-    | BarFill.Indeterminate ->
-        // A segment that travels along the bar, one step per frame.
-        let length = min pulseLength bar.Width
-        let position = frame % (bar.Width + length) - length
-        let from = max 0 position
-        let until = min bar.Width (position + length)
-        segment from remainingStyle
-        segment (until - from) tone
-        segment (bar.Width - until) remainingStyle
+    | BarFill.Filled percent -> task.Value <- Math.Clamp(percent, 0.0, 100.0)
+    | BarFill.Indeterminate -> task.IsIndeterminate <- true
 
-    line.Append(bar.Trailing, Style.Plain) |> ignore
-    line :> IRenderable
+    { new IRenderable with
+        member _.Measure(_, maxWidth) = Measurement(bar.Width, min bar.Width maxWidth)
+
+        member _.Render(options, maxWidth) =
+            (column.Render(options, task, TimeSpan.Zero)).Render(options, maxWidth) }
+
+/// A bar line: the label, the native bar and the trailing field side by side, each in a column of its own width. A
+/// `Grid` places them on one line where `Columns` would stack the greedy bar onto its own row.
+let private barLine (bar: BarRow) : IRenderable =
+    let column (width: int) = GridColumn(Width = width, NoWrap = true, Padding = Padding 0)
+    let grid = Grid()
+    grid.AddColumn(column bar.Label.Length).AddColumn(column bar.Width).AddColumn(column bar.Trailing.Length) |> ignore
+    grid.AddRow(Text bar.Label, nativeBar bar, Text bar.Trailing) |> ignore
+    grid :> IRenderable
 
 /// A line of spans, each in its own style.
 let private spansLine (spans: Span list) : IRenderable =
@@ -68,21 +72,21 @@ let private tableOf (table: Table) : IRenderable =
 
     widget :> IRenderable
 
-let rec private renderLine (frame: int) (line: Line) : IRenderable =
+let rec private renderLine (line: Line) : IRenderable =
     match line with
-    | Line.Bar bar -> barLine frame bar
+    | Line.Bar bar -> barLine bar
     | Line.Row cells -> Paragraph(cells |> List.map _.Text |> String.concat "", Style.Plain) :> IRenderable
     | Line.Text(tone, text) -> Text(text, Terminal.styleOfTone tone) :> IRenderable
     | Line.Spans spans -> spansLine spans
     | Line.Table table -> tableOf table
     | Line.Box(title, lines) ->
-        let panel = Panel(Rows(lines |> List.map (renderLine frame)))
+        let panel = Panel(Rows(lines |> List.map renderLine))
         panel.Border <- BoxBorder.Rounded
         if title.Length > 0 then panel.Header <- PanelHeader title
         panel :> IRenderable
 
-let private render (frame: int) (display: Display) : IRenderable =
-    Rows(display |> List.map (renderLine frame)) :> IRenderable
+let private render (display: Display) : IRenderable =
+    Rows(display |> List.map renderLine) :> IRenderable
 
 /// Prints a display once, in colour, below what is already on the console. A table or a box ends its own line; any
 /// other widget is given a line break.
@@ -90,7 +94,7 @@ let print (console: IAnsiConsole) (display: Display) : unit =
     let shown = if console.Profile.Capabilities.Unicode then display else Display.mapTexts Display.toAscii display
 
     for line in shown do
-        console.Write(renderLine 0 line)
+        console.Write(renderLine line)
 
         match line with
         | Line.Table _
@@ -132,11 +136,8 @@ let run (console: IAnsiConsole) (body: (Display -> unit) -> Task<'a>) : Task<'a>
 
     live.StartAsync(
         Func<LiveDisplayContext, Task<'a>>(fun context ->
-            let frame = ref 0
-
             let draw (display: Display) : unit =
-                frame.Value <- frame.Value + 1
-                context.UpdateTarget(render frame.Value display)
+                context.UpdateTarget(render display)
                 context.Refresh()
 
             body draw)
