@@ -1,0 +1,7 @@
+#! case: similar sources do not overlap
+ok
+profile p target C:\t
+source C:\Data recursive True exclude [] include [] exclude-globs []
+source C:\Database recursive True exclude [] include [] exclude-globs []
+retention none
+concurrency none

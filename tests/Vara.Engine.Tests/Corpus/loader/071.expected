@@ -1,0 +1,3 @@
+#! case: concurrency scalar
+error
+Profile 'p' is invalid: 'concurrency' must be a mapping

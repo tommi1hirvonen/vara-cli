@@ -1,0 +1,4 @@
+profiles:
+  - name: p
+    sources:
+      - path: C:\s

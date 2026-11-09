@@ -1,0 +1,3 @@
+#! case: identical sources
+error
+Profile 'p' is invalid: Source path 'C:\Data' overlaps source path 'C:\Data'. A profile's sources must not be the same as, contain, or be contained by any of its own other sources.

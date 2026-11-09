@@ -1,0 +1,3 @@
+#! case: relative dotted source
+error
+Profile 'p' is invalid: Source path '.\src' must be a fully-qualified, absolute path.

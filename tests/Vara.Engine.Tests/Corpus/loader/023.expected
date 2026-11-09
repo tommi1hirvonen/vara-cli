@@ -1,0 +1,3 @@
+#! case: missing target
+error
+Profile 'p' is invalid: missing required field 'target'

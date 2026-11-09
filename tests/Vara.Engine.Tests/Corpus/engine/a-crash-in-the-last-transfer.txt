@@ -1,0 +1,13 @@
+run 1: threw boom
+snapshots: 1
+  Failed|0|0|0|0|0|0
+versions: 2
+  1|<root>\source\a.txt|~|3da56ec08de5da93af92a1f85e52d146|5|2026-01-01T00:00:01.0000000+00:00|Added|3da56ec08de5da93af92a1f85e52d146|1|~
+  1|<root>\source\b.txt|~|f19f3895086da42f5e80feea399a2d8b|4|2026-01-01T00:00:02.0000000+00:00|Added|f19f3895086da42f5e80feea399a2d8b|1|~
+mirror: 2
+  <root>\source\a.txt|8ED3F6AD685B959EAD7022518E1AF76CD816F8E8EC7CCDDA1ED4018E8F2223F8|readonly=True
+  <root>\source\b.txt|F44E64E75F3948E9F73F8DFA94721C4CE8CBB4F265C4790C702B2D41CFBF2753|readonly=True
+blobs: 2
+  3da56ec08de5da93af92a1f85e52d146|5|readonly=True
+  f19f3895086da42f5e80feea399a2d8b|4|readonly=True
+staging: 0

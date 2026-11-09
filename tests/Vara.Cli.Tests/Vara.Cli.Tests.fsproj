@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <Compile Include="HostTests.fs" />
+    <Compile Include="BackupCommandTests.fs" />
+    <Compile Include="PresentationCommandTests.fs" />
+    <Compile Include="RunProgressTests.fs" />
+    <Compile Include="RestorePresentationTests.fs" />
+    <Compile Include="HistoryCommandTests.fs" />
+    <Compile Include="ShowDiffCommandTests.fs" />
+    <Compile Include="BrowsingCommandTests.fs" />
+    <Compile Include="RestoreCommandTests.fs" />
+    <Compile Include="PruneCommandTests.fs" />
+    <Compile Include="CheckCommandTests.fs" />
+    <Compile Include="ProfilesCommandTests.fs" />
+    <Compile Include="PortableDistributionTests.fs" />
+    <Compile Include="ProcessCorpus.fs" />
+    <Compile Include="BackupCorpus.fs" />
+    <Compile Include="HistoryCorpus.fs" />
+    <Compile Include="MaintenanceCorpus.fs" />
+    <Compile Include="ProcessCorpusTests.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Corpus\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Spectre.Console.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Vara.Testing\Vara.Testing.fsproj" />
+    <ProjectReference Include="..\..\src\Vara.Cli\Vara.Cli.fsproj" />
+  </ItemGroup>
+
+</Project>

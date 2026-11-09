@@ -1,0 +1,3 @@
+#! case: retention not an integer
+error
+Profile 'p' is invalid: retention field 'keep_weekly' has an invalid value 'abc' (expected a non-negative whole number)

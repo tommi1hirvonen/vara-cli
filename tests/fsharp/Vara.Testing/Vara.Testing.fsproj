@@ -1,9 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-
-  <!-- Test support: the spec-coverage check every change in the F# series uses, with its own tests. -->
-  <ItemGroup>
-    <Compile Include="SpecCoverage.fs" />
-    <Compile Include="SpecCoverageTests.fs" />
-  </ItemGroup>
-
-</Project>

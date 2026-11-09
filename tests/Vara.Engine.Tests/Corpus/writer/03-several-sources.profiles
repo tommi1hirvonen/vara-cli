@@ -1,0 +1,7 @@
+ok
+profile many target C:\backup\many
+source C:\data\a recursive True exclude [] include [] exclude-globs []
+source C:\data\b recursive True exclude [] include [] exclude-globs []
+source C:\data\c recursive True exclude [] include [] exclude-globs []
+retention none
+concurrency none

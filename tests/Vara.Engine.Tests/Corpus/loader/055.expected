@@ -1,0 +1,3 @@
+#! case: duplicate names after an invalid-looking later entry
+error
+Profile 'a' is invalid: Target root 'relative' must be a fully-qualified, absolute path.

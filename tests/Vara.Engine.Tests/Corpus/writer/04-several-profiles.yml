@@ -1,0 +1,34 @@
+profiles:
+- name: one
+  target: C:\backup\one
+  sources:
+  - path: C:\data\one
+    recursive: true
+- name: all
+  target: C:\backup\all
+  sources:
+  - path: C:\data\one
+    recursive: false
+    exclude:
+    - tmp
+    - a b
+    include_globs:
+    - '**/*.md'
+    exclude_globs:
+    - '*.bak'
+  - path: C:\data\two
+    recursive: true
+  retention:
+    keep_daily: 7
+    keep_weekly: 4
+    keep_monthly: 12
+    keep_yearly: 3
+  concurrency:
+    scan_concurrency: 4
+    transfer_concurrency: 8
+- name: two
+  target: C:\backup\two
+  sources:
+  - path: C:\data\two
+    recursive: true
+...

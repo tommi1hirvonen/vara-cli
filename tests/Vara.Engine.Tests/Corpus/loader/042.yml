@@ -1,0 +1,7 @@
+profiles:
+  - name: p
+    target: C:\Backups\p
+    sources:
+      - path: C:\Data\p
+        exclude: &x [a, b]
+        exclude_globs: *x

@@ -1,0 +1,22 @@
+profiles:
+  - name: Documents
+    target: C:/Backups/Docs/
+    sources:
+      - path: C:/Users/me/Documents
+        recursive: false
+        exclude: [C:\Users\me\Documents\tmp]
+        include_globs: ["*.docx", "*.xlsx"]
+        exclude_globs: ["~$*"]
+      - path: C:\Users\me\Pictures\
+    retention:
+      keep_daily: 7
+      keep_weekly: 4
+      keep_monthly: 12
+      keep_yearly: 3
+    concurrency:
+      scan_concurrency: 4
+      transfer_concurrency: 8
+  - name: Second
+    target: D:\Mirror
+    sources:
+      - path: E:\Data\.\x\..\y

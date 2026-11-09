@@ -1,0 +1,7 @@
+run 1: returned cancelled=True added=0 changed=0 moved=0 deleted=0 failed=0 bytes=0 failed-paths=[]
+snapshots: 1
+  Cancelled|0|0|0|0|0|0
+versions: 0
+mirror: 0
+blobs: 0
+staging: 0

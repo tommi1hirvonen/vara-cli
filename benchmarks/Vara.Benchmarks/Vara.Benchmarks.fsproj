@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- BenchmarkDotNet scenarios over Vara.Engine. BenchmarkDotNet needs classes with settable parameters; they hold fixtures
+       and nothing else, and the timed calls are the engine's own functions. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="BenchmarkFiles.fs" />
+    <Compile Include="EngineFixtures.fs" />
+    <Compile Include="DirectoryScanBenchmarks.fs" />
+    <Compile Include="BackupStageBenchmarks.fs" />
+    <Compile Include="BackupTransferBenchmarks.fs" />
+    <Compile Include="ContentStoreBufferBenchmarks.fs" />
+    <Compile Include="StreamingSignatureBenchmarks.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Vara.Engine\Vara.Engine.fsproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,3 @@
+#! case: relative target
+error
+Profile 'p' is invalid: Target root 'backup\' must be a fully-qualified, absolute path.

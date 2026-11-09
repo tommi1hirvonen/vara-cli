@@ -1,0 +1,24 @@
+profiles:
+- name: "it's: a #name, [x]"
+  target: C:\backup\café {b}\a#b
+  sources:
+  - path: C:\data\k=v, a b
+    recursive: false
+    exclude:
+    - '*.tmp'
+    - '[ab]*'
+    - '#note'
+    - 'k: v'
+    include_globs:
+    - '**/*.md'
+    - "'q'"
+    - '"dq"'
+    exclude_globs:
+    - '- x'
+    - yes
+    - 123
+    - true
+    - null
+  - path: C:\data\a,bé
+    recursive: true
+...

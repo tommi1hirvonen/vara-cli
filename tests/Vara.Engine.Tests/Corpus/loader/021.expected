@@ -1,0 +1,3 @@
+#! case: blank name
+error
+Profile '  ' is invalid: missing required field 'name'

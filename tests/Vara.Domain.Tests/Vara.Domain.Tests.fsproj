@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <Compile Include="OutcomeTests.fs" />
+    <Compile Include="ResultTests.fs" />
+    <Compile Include="ConfigErrorTests.fs" />
+    <Compile Include="ProfileValidationTests.fs" />
+    <Compile Include="ProfilePropertyTests.fs" />
+    <Compile Include="ProfileEditorTests.fs" />
+    <Compile Include="ProfileEditorPropertyTests.fs" />
+    <Compile Include="Fixtures.fs" />
+    <Compile Include="ScanRulesTests.fs" />
+    <Compile Include="DiffTests.fs" />
+    <Compile Include="PlanningTests.fs" />
+    <Compile Include="RunTests.fs" />
+    <Compile Include="ProgressTests.fs" />
+    <Compile Include="PresentationTests.fs" />
+    <Compile Include="HistoryTests.fs" />
+    <Compile Include="RetentionTests.fs" />
+    <Compile Include="IntegrityTests.fs" />
+    <Compile Include="CountProgressTests.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FsCheck.Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Vara.Domain\Vara.Domain.fsproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,3 @@
+#! case: order: source error before missing target path
+error
+Profile 'p' is invalid: Source path 'relative' must be a fully-qualified, absolute path.

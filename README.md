@@ -72,33 +72,30 @@ to be a general-purpose, multi-client backup platform.
 
 ## Architecture and technology
 
-Vara follows a **clean/onion architecture**, split into four projects with a strict
-dependency direction (`Cli` → `Application`/`Infrastructure` → `Core`):
+Vara is written in **F#**, as three projects with a strict dependency direction
+(`Cli` → `Engine` → `Domain`). Behavior is functions in modules and data is records and
+unions; there are no interfaces, service classes or dependency-injection container.
 
 | Project | Role |
 |---|---|
-| `Vara.Core` | Domain model and ports: `Profile`/`Source`/`RetentionPolicy` config types, file-system/snapshot/version records, and interfaces (`IContentStore`, `IFileSystemScanner`, `IHasher`, `ISnapshotRepository`, `IManifestBatch`, `IRunLock`, `IProfileConfigLoader`). No dependency on any concrete storage or I/O technology. |
-| `Vara.Application` | Use-case orchestration: the backup pipeline (`Backup`), snapshot/version browsing and restore (`History`), retention evaluation (`Retention`), profile resolution (`Profiles`), and progress-calculation logic (`Reporting`) - all written against `Vara.Core`'s ports, with no knowledge of the CLI or concrete infrastructure. |
-| `Vara.Infrastructure` | Concrete implementations: a SQLite-backed manifest and content store (`Storage`, `Snapshots`), a directory-tree filesystem scanner (`FileSystem`), a YAML profile loader (`Configuration`), content hashing (`Hashing`), the per-profile run lock (`Concurrency`), and Win32 P/Invoke interop for hardlink creation (`Interop`). Bounded parallelism for the scan and transfer stages is implemented directly in `Vara.Application` (via .NET's `Parallel.ForEach`), not here. |
-| `Vara.Cli` | The composition root and command surface: a `Microsoft.Extensions.DependencyInjection` `ServiceCollection` wires ports to implementations, and `System.CommandLine` defines each subcommand (`Commands`), rendered through `Spectre.Console` (`Presentation`). |
+| `Vara.Domain` | The pure core: the profile and configuration model and its validation, scan, diff and move-planning decisions, run state, retention evaluation, history and integrity queries over manifest rows, and the views that describe a command's output as plain data (`Display`, `Tracker`, the history, prune and check views, the profile editor's state machine). It touches no file system, clock, randomness or console. |
+| `Vara.Engine` | The effect shell: the directory scanner, the SQLite manifest (`SqliteManifest`), the content store and hard links, content hashing, the per-profile run lock, the YAML configuration file, and the runs that apply the domain's decisions (`BackupRun`, `RestoreRun`, `PruneRun`, `CheckRun`). Effects are passed in as functions or small records of functions, so a test replaces one with a function that fails. |
+| `Vara.Cli` | The composition root and command surface: `Composition` assembles the functions once, `System.CommandLine` defines each subcommand, and `Spectre.Console` renders a `Display` live, as plain text, or as JSON. Spectre.Console types appear only in the renderers, the prompts and the console environment. |
 
-Each layer has its own mirrored xUnit test project under `tests/` (`Vara.Core.Tests`,
-`Vara.Application.Tests`, `Vara.Infrastructure.Tests`, `Vara.Cli.Tests`), plus
-`Vara.IntegrationTests` for cross-layer, real-filesystem scenarios.
+Each project has a mirrored xUnit test project under `tests/` (`Vara.Domain.Tests`,
+`Vara.Engine.Tests`, `Vara.Cli.Tests`), plus `Vara.Testing`, which holds the spec-coverage
+check and the helpers of the recorded corpus. Tests are named after the scenarios of
+[the specifications](openspec/specs/), and a test fails when a scenario has no test.
 
 **Key technology choices, and why:**
 
 - **.NET 11 / Native AOT** (`PublishAot=true`) - `vara.exe` publishes to a single,
   self-contained native executable with fast startup and no separate runtime install,
   in service of the "just copy one .exe" distribution goal.
-- **`System.CommandLine`** for argument parsing/routing, and
-  **`Microsoft.Extensions.DependencyInjection`** as a lightweight DI container for the
-  composition root. The generic host (`Microsoft.Extensions.Hosting`) is deliberately not
-  used: its service-oriented defaults (loading `appsettings.json` from the working
-  directory, `DOTNET_*` environment variables, stdout console logging) don't suit a CLI.
-  Dropping it also cut about 0.84 MB from the AOT binary and about 12 ms from startup.
-  Configuration or logging, if needed, should be added explicitly with CLI-appropriate
-  sources and sinks.
+- **`System.CommandLine`** for argument parsing/routing. The generic host
+  (`Microsoft.Extensions.Hosting`) is deliberately not used: its service-oriented defaults
+  (loading `appsettings.json` from the working directory, `DOTNET_*` environment variables,
+  stdout console logging) don't suit a CLI.
 - **`Microsoft.Data.Sqlite` over `winsqlite3.dll`** (the SQLite library built into
   Windows 10 1903+/11/Server 2022+) instead of `Microsoft.Data.Sqlite`'s usual bundled
   native binary - this keeps the publish output to just `vara.exe`, with no companion
@@ -110,10 +107,8 @@ Each layer has its own mirrored xUnit test project under `tests/` (`Vara.Core.Te
 - **`System.IO.Hashing` (XxHash128)** for content addressing - fast, non-cryptographic,
   and wide enough that accidental collisions are not a practical concern for
   change-detection/dedup (this is not a security boundary).
-- **A hand-written `LibraryImport` P/Invoke wrapper around Win32 `CreateHardLinkW`** -
-  `File.CreateHardLink` isn't available on the `net11.0` target, and `LibraryImport`'s
-  source-generated marshalling keeps hardlink creation Native AOT/trimming safe (unlike
-  reflection-driven classic `DllImport` stubs).
+- **A hand-written `DllImport` wrapper around Win32 `CreateHardLinkW`** (in
+  `Kernel32.fs`) - `File.CreateHardLink` isn't available on the `net11.0` target.
 - **`YamlDotNet`** for the human-editable `~/.vara/profiles.yml` profile format, and
   **`Microsoft.Extensions.FileSystemGlobbing`** for a source's optional glob
   include/exclude patterns.
@@ -128,10 +123,10 @@ fully portable: copy the single `vara.exe` file to any location and run it - no
 other files or native libraries are required alongside it.
 
 ```
-dotnet publish src/Vara.Cli/Vara.Cli.csproj -c Release -r win-x64
+dotnet publish src/Vara.Cli -c Release -r win-x64 -o artifacts/cli
 ```
 
-The publish output contains only `vara.exe` (plus optional `.pdb` symbol files) - no
+The publish output (`artifacts/cli`) contains only `vara.exe` (plus optional `.pdb` symbol files) - no
 `e_sqlite3.dll` or other native SQLite binary is produced or required, since `vara.exe`
 uses the SQLite library built into Windows (`winsqlite3.dll`) instead of shipping its
 own copy.
@@ -349,29 +344,111 @@ live mirror.
 
 ## Development
 
-The solution targets **.NET 11** (`net11.0`) and uses preview C# language features;
-install the .NET 11 SDK to build, test, or publish it.
+The solution targets **.NET 11** (`net11.0`) and **F# 11**; install the .NET 11 SDK to
+build, test, or publish it. Every command below runs from the repository root.
 
 ```
+dotnet restore Vara.slnx
 dotnet build Vara.slnx
 dotnet test Vara.slnx
+dotnet publish src/Vara.Cli -c Release -r win-x64 -o artifacts/cli
 ```
 
-Tests are split per architectural layer plus one cross-layer suite:
-`Vara.Core.Tests`, `Vara.Application.Tests`, `Vara.Infrastructure.Tests`,
-`Vara.Cli.Tests`, and `Vara.IntegrationTests`.
+The published `artifacts/cli/vara.exe` is the Native AOT build described under
+[Installation](#installation). `dotnet build` is expected to report no warnings; the F#
+projects treat an incomplete match, a nullness error and a task that is not compiled to a
+state machine as errors.
 
-Run the BenchmarkDotNet benchmarks in Release mode:
+Layout:
+
+```
+src/
+  Vara.Domain/        pure decisions, data and views
+  Vara.Engine/        file system, SQLite, hashing, YAML, the runs
+  Vara.Cli/           composition root, commands, rendering (publishes vara.exe)
+tests/
+  Vara.Domain.Tests/  scenario and property tests of the domain
+  Vara.Engine.Tests/  engine, configuration and corpus tests
+  Vara.Cli.Tests/     command tests, in process and as processes
+  Vara.Testing/       spec-coverage check, corpus and anonymizing helpers
+benchmarks/           BenchmarkDotNet scenarios, baselines, release check script
+openspec/             specifications and the history of the changes that made them
+```
+
+Tests are named after the specification: a module is named after a requirement and a test
+after one of its scenarios, and the spec-coverage tests fail when a scenario of any spec in
+`openspec/specs` has no test.
+
+**Recorded corpus.** `tests/Vara.Engine.Tests/Corpus` and `tests/Vara.Cli.Tests/Corpus`
+hold results that the earlier C# build gave for the configuration loader, the retention
+boundaries, the configuration writer, the backup engine and the command line. They are
+data (marked `-text` in `.gitattributes`, so their bytes are never converted) and are
+compared with the F# results by plain functions. The C# build is no longer in the
+repository, so a corpus file is changed only when the behavior it records is changed on
+purpose, in the same change as the code.
+
+**Benchmarks.** Run the BenchmarkDotNet scenarios in Release mode:
 
 ```
 dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --list flat
 dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*StreamingSignatureBenchmarks*'
+dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*' --job short
 ```
 
-See [the benchmark project guide](benchmarks/Vara.Benchmarks/README.md) for benchmark
-coverage, scenario selection, and measurement guidance. BenchmarkDotNet runs the
-benchmarks out-of-process by default; use `--job Dry` only for a quick smoke test, not
-for performance comparisons.
+See [the benchmark guide](benchmarks/Vara.Benchmarks/README.md) for scenario coverage and
+measurement guidance, and [the recorded baselines](benchmarks/baselines/README.md) for the
+reference results. Allocations and CPU time are the figures to trust; wall-clock time on a
+developer machine is noisy. `benchmarks/Measure-GateB.ps1` is an optional release check of
+the published `vara.exe` against the recorded baseline.
+
+### Code conventions
+
+The code is idiomatic F#, designed from the specifications. These rules apply to new code:
+
+- **Modules and data, not classes.** Behavior is functions in modules; data is records and
+  unions. No interfaces, inheritance, service classes or dependency injection. A class is
+  allowed only where .NET requires one: handle wrappers, `IDisposable` resources, streams,
+  and types that a host library demands (such as a BenchmarkDotNet scenario).
+- **Dependencies are parameters.** A function takes the functions it needs, not an object
+  that holds them. Effects that travel together may be grouped as a record of functions,
+  when three or more are used together (`Links`, `ExecutionEnv`, `BackupEnv`, `CliEnv`).
+  Everything is assembled once, by partial application, in `Vara.Cli`'s `Composition`.
+- **Compose, don't sequence.** Build behavior from small functions joined with `|>`,
+  `Result`, `Option` and `Seq` combinators, and a computation expression where a flow
+  reads in order. Put the data argument last, so that partial application works.
+- **Types carry the rules.** Unions for alternatives, `[<RequireQualifiedAccess>]` on
+  them, records with named fields, single-case unions or units of measure for values that
+  could be confused. Matches on the code's own unions are exhaustive, with no wildcard; no
+  `null`; invalid states are unrepresentable.
+- **Expected outcomes are values.** Use `Result` or `option` for them. Failures have three
+  levels: a refusal to start is a `Result` error, a per-operation I/O failure is a value
+  that the run records and continues past, and anything else is an exception that is
+  recorded and rethrown with its stack (`ExceptionDispatchInfo` in `task {}`) and handled
+  at the host boundary.
+- **Pure core, effect shell.** Decisions in `Vara.Domain` never touch the file system, the
+  clock, randomness or the console. The shell passes in values and performs the effects.
+  A destructive operation is a plan, computed by a pure function, and then an execution.
+- **Presentation is a pure view.** A command builds a `Display` (plain data: lines,
+  fixed-width cells, tones) in `Vara.Domain`; one interpreter per output (`LiveRenderer`,
+  `PlainRenderer`, JSON) writes it. Spectre.Console types appear only in the renderers,
+  `Prompts`, `Terminal`, `CliEnv`, `CommandAction` and `ErrorReporting`.
+- **Interactive commands are Elm-style loops.** State and input are unions, `update` and
+  `view` are pure, and the thin loop around them asks, calls `update` and performs the
+  effects it returns (`ProfileEditor`).
+- **Mutation stays inside one function.** It is allowed in a hot loop, a pooled buffer or
+  interop, when a benchmark or the API requires it, with the reason in the commit message.
+  It never lives in a field, is never shared between functions, and does not appear in
+  `Vara.Domain`. Allocation rules (struct unions, `voption`) change a value's
+  representation, not the architecture.
+- **No catch-all modules.** No `Helper`, `Manager`, `Service`, `Util` or `I`-prefixed
+  names. One module per concept, with files in dependency order.
+- **Native AOT.** `Seq.init` and `Seq.initInfinite` raise IL2091 from FSharp.Core; use an
+  array range (`[| 0 .. n - 1 |]`). The publish must report no IL2xxx or IL3xxx warnings.
+- **Tests.** Test names follow the specification. A test replaces an effect with a function
+  (a scripted prompt, a field of `CliEnv`, a function that raises), never a console type.
+  Every SQLite user in a test clears the connection pool when it closes. The tests run in
+  parallel; if one of them fails only under load (a SQLite `ObjectDisposedException` on a
+  disposed handle is the known case), rerun it alone and report the flake.
 
 This project's specifications and design decisions are tracked with
 [OpenSpec](openspec/) under `openspec/specs/` (current, authoritative capability specs)

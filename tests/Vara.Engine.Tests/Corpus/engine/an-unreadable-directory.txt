@@ -1,0 +1,27 @@
+run 1: returned cancelled=False added=2 changed=0 moved=0 deleted=0 failed=0 bytes=13 failed-paths=[]
+snapshots: 1
+  Complete|13|2|0|0|0|0
+versions: 2
+  1|<root>\source\other.txt|~|f1a1ded183edeef2cabd112d58b4f1e9|5|2026-01-01T00:00:02.0000000+00:00|Added|f1a1ded183edeef2cabd112d58b4f1e9|1|~
+  1|<root>\source\sub\recorded.txt|~|9c528ec8bb5bae6a65c6359f1127d39e|8|2026-01-01T00:00:01.0000000+00:00|Added|9c528ec8bb5bae6a65c6359f1127d39e|1|~
+mirror: 2
+  <root>\source\other.txt|D9298A10D1B0735837DC4BD85DAC641B0F3CEF27A47E5D53A54F2F3F5B2FCFFA|readonly=True
+  <root>\source\sub\recorded.txt|3D96A458120E68868CCCA6BAD66BE3FC8DF4627A6B7372D69B98D3BA7688774D|readonly=True
+blobs: 2
+  9c528ec8bb5bae6a65c6359f1127d39e|8|readonly=True
+  f1a1ded183edeef2cabd112d58b4f1e9|5|readonly=True
+staging: 0
+run 2: returned cancelled=False added=0 changed=0 moved=0 deleted=0 failed=1 bytes=0 failed-paths=[sub]
+snapshots: 2
+  Complete|13|2|0|0|0|0
+  Complete|0|0|0|0|0|1
+versions: 2
+  1|<root>\source\other.txt|~|f1a1ded183edeef2cabd112d58b4f1e9|5|2026-01-01T00:00:02.0000000+00:00|Added|f1a1ded183edeef2cabd112d58b4f1e9|1|~
+  1|<root>\source\sub\recorded.txt|~|9c528ec8bb5bae6a65c6359f1127d39e|8|2026-01-01T00:00:01.0000000+00:00|Added|9c528ec8bb5bae6a65c6359f1127d39e|1|~
+mirror: 2
+  <root>\source\other.txt|D9298A10D1B0735837DC4BD85DAC641B0F3CEF27A47E5D53A54F2F3F5B2FCFFA|readonly=True
+  <root>\source\sub\recorded.txt|3D96A458120E68868CCCA6BAD66BE3FC8DF4627A6B7372D69B98D3BA7688774D|readonly=True
+blobs: 2
+  9c528ec8bb5bae6a65c6359f1127d39e|8|readonly=True
+  f1a1ded183edeef2cabd112d58b4f1e9|5|readonly=True
+staging: 0

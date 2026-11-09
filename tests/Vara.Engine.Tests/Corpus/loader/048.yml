@@ -1,0 +1,9 @@
+profiles:
+  - name: a
+    target: C:\Data\t
+    sources:
+      - path: C:\s
+  - name: b
+    target: C:\u
+    sources:
+      - path: C:\Data

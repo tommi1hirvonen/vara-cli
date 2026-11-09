@@ -1,0 +1,3 @@
+#! case: drive relative target
+error
+Profile 'p' is invalid: Target root 'C:backup' must be a fully-qualified, absolute path.

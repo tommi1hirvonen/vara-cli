@@ -1,0 +1,10 @@
+Profiles:
+  - NAME: p
+    Target: C:\t
+    SOURCES:
+      - PATH: C:\s
+        Recursive: FALSE
+        EXCLUDE: [a]
+        Include_Globs: [b]
+    Retention: {KEEP_DAILY: 3}
+    CONCURRENCY: {Scan_Concurrency: 2}

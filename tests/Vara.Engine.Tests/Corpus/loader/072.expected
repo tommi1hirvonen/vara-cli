@@ -1,0 +1,3 @@
+#! case: order: concurrency error before relative target
+error
+Profile 'p' is invalid: concurrency field 'scan_concurrency' has an invalid value 'abc' (expected a positive whole number)

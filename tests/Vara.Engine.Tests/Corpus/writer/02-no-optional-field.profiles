@@ -1,0 +1,5 @@
+ok
+profile bare target C:\backup\bare
+source C:\data\bare recursive True exclude [] include [] exclude-globs []
+retention none
+concurrency none

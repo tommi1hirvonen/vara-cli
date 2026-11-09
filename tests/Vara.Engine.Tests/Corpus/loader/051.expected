@@ -1,0 +1,3 @@
+#! case: nested sources reversed
+error
+Profile 'p' is invalid: Source path 'C:\Users\me\Documents' overlaps source path 'C:\Users\me'. A profile's sources must not be the same as, contain, or be contained by any of its own other sources.

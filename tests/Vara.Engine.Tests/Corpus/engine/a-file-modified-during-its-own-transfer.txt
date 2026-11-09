@@ -1,0 +1,11 @@
+run 1: returned cancelled=False added=1 changed=0 moved=0 deleted=0 failed=1 bytes=4 failed-paths=[<root>\source\torn.txt]
+snapshots: 1
+  Complete|4|1|0|0|0|1
+versions: 1
+  1|<root>\source\fine.txt|~|64497e1501e4c700935f75ce25648248|4|2026-01-01T00:00:02.0000000+00:00|Added|64497e1501e4c700935f75ce25648248|1|~
+mirror: 1
+  <root>\source\fine.txt|D14A58BAE804A2B80B5B76A010239C88FFCA1FC7951A90F8E9131BEDA1E23C1B|readonly=True
+blobs: 2
+  182edc72f6cdd254425f3623d2ed6692|12|readonly=False
+  64497e1501e4c700935f75ce25648248|4|readonly=True
+staging: 0

@@ -1,23 +1,10 @@
 <Solution>
-  <Project Path="src/Vara.Application/Vara.Application.csproj" />
-  <Project Path="src/Vara.Cli/Vara.Cli.csproj" />
-  <Project Path="src/Vara.Core/Vara.Core.csproj" />
-  <Project Path="src/Vara.Infrastructure/Vara.Infrastructure.csproj" />
-  <Project Path="benchmarks/Vara.Benchmarks/Vara.Benchmarks.csproj" />
-  <Project Path="tests/Vara.Core.Tests/Vara.Core.Tests.csproj" />
-  <Project Path="tests/Vara.Application.Tests/Vara.Application.Tests.csproj" />
-  <Project Path="tests/Vara.Cli.Tests/Vara.Cli.Tests.csproj" />
-  <Project Path="tests/Vara.Infrastructure.Tests/Vara.Infrastructure.Tests.csproj" />
-  <Project Path="tests/Vara.IntegrationTests/Vara.IntegrationTests.csproj" />
-  <Project Path="tests/Vara.TestSupport/Vara.TestSupport.csproj" />
-  <Folder Name="/fsharp/">
-    <Project Path="src/fsharp/Vara.Domain/Vara.Domain.fsproj" />
-    <Project Path="src/fsharp/Vara.Engine/Vara.Engine.fsproj" />
-    <Project Path="src/fsharp/Vara.Cli/Vara.Cli.fsproj" />
-    <Project Path="benchmarks/Vara.Benchmarks.FSharp/Vara.Benchmarks.FSharp.fsproj" />
-    <Project Path="tests/fsharp/Vara.Domain.Tests/Vara.Domain.Tests.fsproj" />
-    <Project Path="tests/fsharp/Vara.Engine.Tests/Vara.Engine.Tests.fsproj" />
-    <Project Path="tests/fsharp/Vara.Cli.Tests/Vara.Cli.Tests.fsproj" />
-    <Project Path="tests/fsharp/Vara.Testing/Vara.Testing.fsproj" />
-  </Folder>
+  <Project Path="src/Vara.Domain/Vara.Domain.fsproj" />
+  <Project Path="src/Vara.Engine/Vara.Engine.fsproj" />
+  <Project Path="src/Vara.Cli/Vara.Cli.fsproj" />
+  <Project Path="benchmarks/Vara.Benchmarks/Vara.Benchmarks.fsproj" />
+  <Project Path="tests/Vara.Domain.Tests/Vara.Domain.Tests.fsproj" />
+  <Project Path="tests/Vara.Engine.Tests/Vara.Engine.Tests.fsproj" />
+  <Project Path="tests/Vara.Cli.Tests/Vara.Cli.Tests.fsproj" />
+  <Project Path="tests/Vara.Testing/Vara.Testing.fsproj" />
 </Solution>

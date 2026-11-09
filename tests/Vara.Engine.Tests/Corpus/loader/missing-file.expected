@@ -1,0 +1,3 @@
+#! case: missing file
+error
+Profile configuration file not found at '<config>'.

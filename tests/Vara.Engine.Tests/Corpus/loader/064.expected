@@ -1,0 +1,3 @@
+#! case: retention value too large
+error
+Profile 'p' is invalid: retention field 'keep_daily' has an invalid value '99999999999' (expected a non-negative whole number)

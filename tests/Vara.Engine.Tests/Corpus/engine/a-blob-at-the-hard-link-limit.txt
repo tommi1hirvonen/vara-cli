@@ -1,0 +1,15 @@
+run 1: returned cancelled=False added=3 changed=0 moved=0 deleted=0 failed=0 bytes=15 failed-paths=[]
+snapshots: 1
+  Complete|15|3|0|0|0|0
+versions: 3
+  1|<root>\source\a.txt|~|3da56ec08de5da93af92a1f85e52d146|5|2026-01-01T00:00:01.0000000+00:00|Added|3da56ec08de5da93af92a1f85e52d146|1|~
+  1|<root>\source\b.txt|~|3da56ec08de5da93af92a1f85e52d146|5|2026-01-01T00:00:02.0000000+00:00|Added|3da56ec08de5da93af92a1f85e52d146|1|~
+  1|<root>\source\c.txt|~|b51c66afc4b8321f06c25215ca9812ca|5|2026-01-01T00:00:03.0000000+00:00|Added|b51c66afc4b8321f06c25215ca9812ca|1|~
+mirror: 3
+  <root>\source\a.txt|8ED3F6AD685B959EAD7022518E1AF76CD816F8E8EC7CCDDA1ED4018E8F2223F8|readonly=False
+  <root>\source\b.txt|8ED3F6AD685B959EAD7022518E1AF76CD816F8E8EC7CCDDA1ED4018E8F2223F8|readonly=True
+  <root>\source\c.txt|BE9D587DEFA1F0C09EF49EB17E206983A5F8F8289E4281860BD0EE5A19592C67|readonly=True
+blobs: 2
+  3da56ec08de5da93af92a1f85e52d146|5|readonly=True
+  b51c66afc4b8321f06c25215ca9812ca|5|readonly=True
+staging: 0

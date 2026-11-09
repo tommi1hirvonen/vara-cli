@@ -1,8 +1,18 @@
-﻿<Project>
+<Project>
     <PropertyGroup>
         <TargetFramework>net11.0</TargetFramework>
         <Nullable>enable</Nullable>
-        <LangVersion>preview</LangVersion>
-        <WarningsAsErrors>$(WarningsAsErrors);CS8509</WarningsAsErrors>
+        <!-- Stable F# 11. -->
+        <LangVersion>11</LangVersion>
+        <!-- No reflection-based printf/%A; records and unions still get a generated ToString. -->
+        <OtherFlags>$(OtherFlags) --reflectionfree</OtherFlags>
+        <!-- FS0025 incomplete match, FS3261 nullness, FS3511 task not compiled to a state machine. -->
+        <WarningsAsErrors>$(WarningsAsErrors);FS0025;FS3261;FS3511</WarningsAsErrors>
+        <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     </PropertyGroup>
+
+    <ItemGroup>
+        <!-- Central package management disables the SDK's implicit FSharp.Core reference. -->
+        <PackageReference Include="FSharp.Core" />
+    </ItemGroup>
 </Project>

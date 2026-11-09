@@ -1,0 +1,3 @@
+#! case: profiles mapping
+error
+Profile configuration file '<config>' is malformed: 'profiles' must be a list

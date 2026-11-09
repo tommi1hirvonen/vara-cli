@@ -1,0 +1,6 @@
+profiles:
+  - name: p
+    target: C:\t
+    sources:
+      - path: C:\Users\me\Documents
+      - path: C:\Users\me

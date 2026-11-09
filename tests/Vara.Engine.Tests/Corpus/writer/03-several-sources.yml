@@ -1,0 +1,11 @@
+profiles:
+- name: many
+  target: C:\backup\many
+  sources:
+  - path: C:\data\a
+    recursive: true
+  - path: C:\data\b
+    recursive: true
+  - path: C:\data\c
+    recursive: true
+...

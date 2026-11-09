@@ -1,0 +1,3 @@
+#! case: sources scalar
+error
+Profile 'p' is invalid: must define at least one source under 'sources'

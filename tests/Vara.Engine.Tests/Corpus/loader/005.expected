@@ -1,0 +1,3 @@
+#! case: recursive 1
+error
+Profile 'p' is invalid: source 'C:\Data\p' has an invalid 'recursive' value '1' (expected true/false)

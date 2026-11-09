@@ -1,0 +1,4 @@
+exit: 2
+findings: Checked6blob(s):1missing,1corrupt,0orphaned.Missing:3aa2748d897ba118692aab5b5a262f40-<root>\source\a.txtCorrupt:f9b24d13d40a309b7b26b7769044960e-<root>\source\a.txt
+lists missing: True
+lists corrupt: True

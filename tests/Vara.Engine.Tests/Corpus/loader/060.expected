@@ -1,0 +1,3 @@
+#! case: retention scalar
+error
+Profile 'p' is invalid: 'retention' must be a mapping

@@ -1,0 +1,9 @@
+browse exit: 0
+browse rows: 2
+  kept.txt File Live
+  later.txt File Live
+browse deleted exit: 0
+browse deleted rows: 3
+  gone.txt File Deleted
+  kept.txt File Live
+  later.txt File Live

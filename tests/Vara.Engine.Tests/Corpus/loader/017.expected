@@ -1,0 +1,3 @@
+#! case: yaml bad indentation
+error
+Profile configuration file '<config>' is malformed: could not be parsed as YAML - While parsing a block collection, did not find expected '-' indicator.

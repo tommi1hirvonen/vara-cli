@@ -1,0 +1,3 @@
+#! case: exclude_globs mapping
+error
+Profile 'p' is invalid: source 'C:\Data\p' field 'exclude_globs' must be a list, but found a mapping

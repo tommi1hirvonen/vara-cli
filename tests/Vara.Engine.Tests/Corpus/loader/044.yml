@@ -1,0 +1,5 @@
+profiles:
+  - name: p
+    target: C:\Users\me\backup
+    sources:
+      - path: C:\Users\me\

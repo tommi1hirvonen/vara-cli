@@ -1,0 +1,10 @@
+#! case: overlap with another profile's source
+ok
+profile a target C:\Data\t
+source C:\s recursive True exclude [] include [] exclude-globs []
+retention none
+concurrency none
+profile b target C:\u
+source C:\Data recursive True exclude [] include [] exclude-globs []
+retention none
+concurrency none

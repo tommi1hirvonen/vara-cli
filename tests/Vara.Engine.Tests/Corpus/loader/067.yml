@@ -1,0 +1,7 @@
+profiles:
+  - name: p
+    target: C:\Backups\p
+    sources:
+      - path: C:\Data\p
+    concurrency:
+      scan_concurrency: -3

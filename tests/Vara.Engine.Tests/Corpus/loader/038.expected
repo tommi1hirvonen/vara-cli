@@ -1,0 +1,3 @@
+#! case: exclude entry mapping
+error
+Profile 'p' is invalid: source 'C:\Data\p' field 'exclude' contains an entry that is a mapping instead of a string

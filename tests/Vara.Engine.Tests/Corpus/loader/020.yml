@@ -1,0 +1,4 @@
+profiles:
+  - target: C:\t
+    sources:
+      - path: C:\s

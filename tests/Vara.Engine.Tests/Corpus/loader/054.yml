@@ -1,0 +1,9 @@
+profiles:
+  - name: Work
+    target: C:\t1
+    sources:
+      - path: C:\a
+  - name: work
+    target: C:\t2
+    sources:
+      - path: C:\b

@@ -1,0 +1,3 @@
+#! case: entry is a scalar
+error
+Profile '<unnamed>' is invalid: each entry under 'profiles' must be a mapping

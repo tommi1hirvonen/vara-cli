@@ -1,0 +1,5 @@
+profiles:
+  - name: {a: b}
+    target: C:\t
+    sources:
+      - path: C:\s

@@ -1,0 +1,3 @@
+#! case: include_globs scalar
+error
+Profile 'p' is invalid: source 'C:\Data\p' field 'include_globs' must be a list, but found a scalar

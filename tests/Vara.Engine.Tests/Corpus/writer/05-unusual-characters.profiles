@@ -1,0 +1,6 @@
+ok
+profile it's: a #name, [x] target C:\backup\café {b}\a#b
+source C:\data\k=v, a b recursive False exclude [*.tmp|[ab]*|#note|k: v] include [**/*.md|'q'|"dq"] exclude-globs [- x|yes|123|true|null]
+source C:\data\a,bé recursive True exclude [] include [] exclude-globs []
+retention none
+concurrency none

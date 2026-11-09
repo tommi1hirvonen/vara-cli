@@ -1,0 +1,3 @@
+#! case: duplicate names
+error
+Profile name 'work' is defined more than once in the configuration file.

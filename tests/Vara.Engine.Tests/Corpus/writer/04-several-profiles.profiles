@@ -1,0 +1,14 @@
+ok
+profile one target C:\backup\one
+source C:\data\one recursive True exclude [] include [] exclude-globs []
+retention none
+concurrency none
+profile all target C:\backup\all
+source C:\data\one recursive False exclude [tmp|a b] include [**/*.md] exclude-globs [*.bak]
+source C:\data\two recursive True exclude [] include [] exclude-globs []
+retention 7 4 12 3
+concurrency 4 8
+profile two target C:\backup\two
+source C:\data\two recursive True exclude [] include [] exclude-globs []
+retention none
+concurrency none

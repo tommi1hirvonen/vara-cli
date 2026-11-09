@@ -1,0 +1,3 @@
+#! case: concurrency negative
+error
+Profile 'p' is invalid: concurrency field 'scan_concurrency' has an invalid value '-3' (expected a positive whole number)

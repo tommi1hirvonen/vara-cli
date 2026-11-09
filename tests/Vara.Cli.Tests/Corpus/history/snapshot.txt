@@ -1,0 +1,5 @@
+snapshot 1 files exit: 0
+snapshot 1 files stream: Snapshot#1<time>CompleteChanges.3~0>0041Btransferred.(3~0>00link0)source[source](3~0>00link0)dir(2~0>00link0)gone.txtAddedkept.txtAddeda.txtAdded
+snapshot 2 depth exit: 0
+snapshot 2 depth stream: Snapshot#2<time>CompleteChanges.1~1>0135Btransferred.(1~1>01link0)source[source](1~1>01link0)...1deeperdirectorynotshown
+snapshot 99 exit: 1

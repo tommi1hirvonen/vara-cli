@@ -1,0 +1,6 @@
+#! case: concurrency scan only
+ok
+profile p target C:\Backups\p
+source C:\Data\p recursive True exclude [] include [] exclude-globs []
+retention none
+concurrency 4 -

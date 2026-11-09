@@ -1,0 +1,44 @@
+{
+  "Date": "2026-11-09 11:24:12Z",
+  "Machine": "AMD Ryzen AI 9 HX PRO 375 w/ Radeon 890M       ; Microsoft Windows 11 Enterprise; 63 GB RAM",
+  "Antimalware": "real-time protection True, antimalware service True",
+  "RunCount": 5,
+  "SmallFileCount": 2000,
+  "LargeFileCount": 4000,
+  "ExecutableBytes": 9631232,
+  "Scenarios": [
+    {
+      "Scenario": "1 first backup, 2,000 files",
+      "Large": false,
+      "Samples": 4,
+      "CpuMedianMs": 5437.5,
+      "CpuBestMs": 4968.75,
+      "CpuIqrPercent": 14.583333333333334,
+      "WallMedianMs": 5361.37065,
+      "WallBestMs": 4916.5153,
+      "PeakMB": 29.115234375
+    },
+    {
+      "Scenario": "2 nothing changed",
+      "Large": false,
+      "Samples": 4,
+      "CpuMedianMs": 101.5625,
+      "CpuBestMs": 93.75,
+      "CpuIqrPercent": 15.384615384615385,
+      "WallMedianMs": 133.76839999999999,
+      "WallBestMs": 130.2506,
+      "PeakMB": 17.921875
+    },
+    {
+      "Scenario": "3 large tree first backup",
+      "Large": true,
+      "Samples": 4,
+      "CpuMedianMs": 12742.1875,
+      "CpuBestMs": 12546.875,
+      "CpuIqrPercent": 3.3108522378908645,
+      "WallMedianMs": 12732.37735,
+      "WallBestMs": 12625.6568,
+      "PeakMB": 31.845703125
+    }
+  ]
+}

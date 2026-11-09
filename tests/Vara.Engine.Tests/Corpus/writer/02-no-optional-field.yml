@@ -1,0 +1,7 @@
+profiles:
+- name: bare
+  target: C:\backup\bare
+  sources:
+  - path: C:\data\bare
+    recursive: true
+...

@@ -1,0 +1,27 @@
+run 1: returned cancelled=False added=1 changed=0 moved=0 deleted=0 failed=0 bytes=4 failed-paths=[]
+snapshots: 1
+  Complete|4|1|0|0|0|0
+versions: 1
+  1|<root>\source\keep.txt|~|cc89314a015db027110d3bfbfbf9529d|4|2026-01-01T00:00:01.0000000+00:00|Added|cc89314a015db027110d3bfbfbf9529d|1|~
+mirror: 1
+  <root>\source\keep.txt|6CA7EA2FEEFC88ECB5ED6356ED963F47DC9137F82526FDD25D618EA626D0803F|readonly=True
+blobs: 1
+  cc89314a015db027110d3bfbfbf9529d|4|readonly=True
+staging: 0
+run 2: returned cancelled=False added=2 changed=0 moved=0 deleted=0 failed=0 bytes=9 failed-paths=[]
+snapshots: 2
+  Complete|4|1|0|0|0|0
+  Complete|9|2|0|0|0|0
+versions: 3
+  1|<root>\source\keep.txt|~|cc89314a015db027110d3bfbfbf9529d|4|2026-01-01T00:00:01.0000000+00:00|Added|cc89314a015db027110d3bfbfbf9529d|1|~
+  2|<root>\source\build\cache\skip.txt|~|d82e9a7e1d4bd537c20c17b4cd4bd030|4|2026-01-01T00:00:03.0000000+00:00|Added|d82e9a7e1d4bd537c20c17b4cd4bd030|1|~
+  2|<root>\source\extra.txt|~|d8ca378b7ea773a4f29683ed556c4a30|5|2026-01-01T00:00:05.0000000+00:00|Added|d8ca378b7ea773a4f29683ed556c4a30|1|~
+mirror: 3
+  <root>\source\build\cache\skip.txt|42E93B9BB77D8A73E8412111B8F3D6BEFAB66BF48FDCDEFA80BB111819AA0CB1|readonly=True
+  <root>\source\extra.txt|C8DEE78F8C7B466C881847ACCC196998BAD00E2B96C5EF913DFBE454D3807C96|readonly=True
+  <root>\source\keep.txt|6CA7EA2FEEFC88ECB5ED6356ED963F47DC9137F82526FDD25D618EA626D0803F|readonly=True
+blobs: 3
+  cc89314a015db027110d3bfbfbf9529d|4|readonly=True
+  d82e9a7e1d4bd537c20c17b4cd4bd030|4|readonly=True
+  d8ca378b7ea773a4f29683ed556c4a30|5|readonly=True
+staging: 0

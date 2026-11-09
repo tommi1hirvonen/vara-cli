@@ -1,0 +1,3 @@
+#! case: missing name
+error
+Profile '<unnamed>' is invalid: missing required field 'name'

@@ -1,0 +1,7 @@
+profiles:
+  - name: p
+    target: C:\Backups\p
+    sources:
+      - path: C:\Data\p
+    retention:
+      keep_yearly: -1

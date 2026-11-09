@@ -1,0 +1,3 @@
+#! case: name is a mapping
+error
+Profile '<unnamed>' is invalid: missing required field 'name'

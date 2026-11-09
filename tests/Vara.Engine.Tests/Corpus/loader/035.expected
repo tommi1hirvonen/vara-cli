@@ -1,0 +1,3 @@
+#! case: exclude scalar
+error
+Profile 'p' is invalid: source 'C:\Data\p' field 'exclude' must be a list, but found a scalar

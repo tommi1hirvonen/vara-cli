@@ -1,0 +1,6 @@
+#! case: key casing
+ok
+profile p target C:\t
+source C:\s recursive False exclude [a] include [b] exclude-globs []
+retention 3 0 0 0
+concurrency 2 -

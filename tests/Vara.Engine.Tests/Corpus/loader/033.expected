@@ -1,0 +1,3 @@
+#! case: relative source
+error
+Profile 'p' is invalid: Source path 'Documents' must be a fully-qualified, absolute path.

@@ -1,0 +1,7 @@
+profiles:
+  - name: p
+    target: relative
+    concurrency:
+      scan_concurrency: abc
+    sources:
+      - path: C:\s

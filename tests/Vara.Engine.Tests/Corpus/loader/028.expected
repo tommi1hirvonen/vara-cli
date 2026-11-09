@@ -1,0 +1,3 @@
+#! case: source entry scalar
+error
+Profile 'p' is invalid: each entry under 'sources' must be a mapping

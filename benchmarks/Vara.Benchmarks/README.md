@@ -1,6 +1,6 @@
 # Vara benchmarks
 
-The benchmark executable uses BenchmarkDotNet to measure production code without
+The benchmark executable uses BenchmarkDotNet to measure the engine (`Vara.Engine`) without
 including fixture creation or reset work in the timed methods. Build and run it in
 Release mode:
 
@@ -12,6 +12,7 @@ dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*Directo
 dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*ContentStoreBufferBenchmarks*'
 dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*BackupExecutorBenchmarks*'
 dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*BackupPipelineBenchmarks*'
+dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*StreamingSignatureBenchmarks*'
 ```
 
 The project pins BenchmarkDotNet `0.16.0-preview.2`, which supports this solution's
@@ -21,21 +22,28 @@ comparisons. Add `--job Dry` for a fast smoke test only; its single short iterat
 not suitable for performance comparisons. Do not add `--inProcess` when collecting
 baseline results.
 
+The scenarios are classes because BenchmarkDotNet needs them to hold parameters and
+fixtures. They contain no logic of their own: the timed method calls the engine's
+functions (`Scanner.scan`, `Diff.run`, `Planning.plan`, `Execution.run`, `BackupRun.run`,
+`Hashing.hashStream`, `Signatures`). The scenario, class and method names are the same
+as in the C# benchmark project that the earlier baselines were recorded from, so a result
+file of an older run compares with a new one by name.
+
 ## Coverage and interpretation
 
 - `StreamingSignatureBenchmarks` isolates prefix replay and measures quick-hash-only
   and quick-plus-full-hash flows using deterministic in-memory content and the real
-  `XxHash128Hasher`.
+  hasher.
 - `BackupDifferBenchmarks` covers unchanged, added, changed, deleted, and mixed
   file-state distributions with prepared inputs.
-- `BackupPlannerBenchmarks` measures the planner's real file reads and hashing for a
+- `BackupPlannerBenchmarks` measures move detection's real file reads and hashing for a
   same-size move candidate, both when the contents match and when the quick hash rules
   out a match. Its I/O is part of the measured operation.
-- `ContentStoreBufferBenchmarks` measures the existing buffered source-to-temp-file
+- `ContentStoreBufferBenchmarks` measures the buffered source-to-temp-file
   tee-and-hash path across buffer sizes, including the current 1 MiB setting. It uses
   prepared source files and measures the real file read, write, and hash work.
 - `DirectoryScanBenchmarks` scans and fully enumerates deterministic temporary trees;
-  scan enumeration is lazy, so consuming `Entries` is required for a complete timing.
+  scan enumeration is lazy, so consuming the entries is required for a complete timing.
 - `BackupExecutorBenchmarks` measures source reads, hashing, content-store writes,
   mirror placement, and manifest writes for a prepared all-added plan.
 - `BackupPipelineBenchmarks` measures a first backup of an all-added source tree using
@@ -55,4 +63,6 @@ storage-backed benchmarks when investigating CPU or allocation changes.
 
 BenchmarkDotNet writes reports under `BenchmarkDotNet.Artifacts/`, which is ignored by
 git. Results are for local investigation and are not enforced as CI regression
-thresholds.
+thresholds. See [the recorded baselines](../baselines/README.md) for the reference
+results, and `benchmarks/Measure-GateB.ps1` for the optional release check of the
+published `vara.exe`.

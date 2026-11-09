@@ -1,0 +1,11 @@
+#! case: documented sample
+ok
+profile Documents target C:\Backups\Docs\
+source C:\Users\me\Documents recursive False exclude [C:\Users\me\Documents\tmp] include [*.docx|*.xlsx] exclude-globs [~$*]
+source C:\Users\me\Pictures\ recursive True exclude [] include [] exclude-globs []
+retention 7 4 12 3
+concurrency 4 8
+profile Second target D:\Mirror
+source E:\Data\y recursive True exclude [] include [] exclude-globs []
+retention none
+concurrency none

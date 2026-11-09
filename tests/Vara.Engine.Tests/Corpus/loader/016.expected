@@ -1,0 +1,3 @@
+#! case: yaml syntax error
+error
+Profile configuration file '<config>' is malformed: could not be parsed as YAML - While scanning a quoted scalar, found unexpected end of stream.

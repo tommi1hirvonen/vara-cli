@@ -1,0 +1,9 @@
+json exit: 2
+json: {"mode":"executed","profile":"docs","cancelled":false,"added":1,"changed":0,"moved":0,"deleted":0,"failed":1,"failedPaths":["<root>\\source\\locked.txt"],"bytesTransferred":4}
+text exit: 2
+text counts: 5
+  Added=0
+  Changed=0
+  Moved=0
+  Deleted=0
+  Transferred=0 B

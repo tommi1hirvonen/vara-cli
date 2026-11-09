@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <Compile Include="TempDir.fs" />
+    <Compile Include="ProfileDescription.fs" />
+    <Compile Include="FlowTests.fs" />
+    <Compile Include="InteropTests.fs" />
+    <Compile Include="ContentStoreTests.fs" />
+    <Compile Include="SqliteManifestTests.fs" />
+    <Compile Include="ScannerTests.fs" />
+    <Compile Include="SignatureTests.fs" />
+    <Compile Include="PowerRequestTests.fs" />
+    <Compile Include="ExecutionTests.fs" />
+    <Compile Include="BackupRunTests.fs" />
+    <Compile Include="BackupScenarioTests.fs" />
+    <Compile Include="ConfigurationTests.fs" />
+    <Compile Include="ProfileWriterTests.fs" />
+    <Compile Include="HistoryEngineTests.fs" />
+    <Compile Include="MaintenanceEngineTests.fs" />
+    <Compile Include="EngineScenarios.fs" />
+    <Compile Include="LegacyTarget.fs" />
+    <Compile Include="EngineCorpusTests.fs" />
+    <Compile Include="LoaderCorpusTests.fs" />
+    <Compile Include="RetentionCorpusTests.fs" />
+    <Compile Include="WriterCorpusTests.fs" />
+    <Compile Include="SpecCoverageTests.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Corpus\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Vara.Engine\Vara.Engine.fsproj" />
+    <ProjectReference Include="..\Vara.Testing\Vara.Testing.fsproj" />
+    <!-- The coverage test also reads the domain tests, which own the validation scenarios. -->
+    <ProjectReference Include="..\Vara.Domain.Tests\Vara.Domain.Tests.fsproj" />
+    <!-- ... and the command tests, which own the scenarios of `vara backup`. -->
+    <ProjectReference Include="..\Vara.Cli.Tests\Vara.Cli.Tests.fsproj" />
+  </ItemGroup>
+
+</Project>

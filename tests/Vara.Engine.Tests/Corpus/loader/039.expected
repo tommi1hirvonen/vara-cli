@@ -1,0 +1,3 @@
+#! case: exclude entry sequence
+error
+Profile 'p' is invalid: source 'C:\Data\p' field 'exclude_globs' contains an entry that is a nested list instead of a string

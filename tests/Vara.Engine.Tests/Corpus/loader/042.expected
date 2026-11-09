@@ -1,0 +1,6 @@
+#! case: anchor and alias
+ok
+profile p target C:\Backups\p
+source C:\Data\p recursive True exclude [a|b] include [] exclude-globs [a|b]
+retention none
+concurrency none
