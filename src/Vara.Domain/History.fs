@@ -293,7 +293,7 @@ module History =
                     match rows with
                     | [] -> ValueNone
                     | _ ->
-                        let earliest = rows |> List.minBy (fun version -> version.VersionId)
+                        let earliest = rows |> List.minBy _.VersionId
 
                         match earliest.Row.Kind with
                         | ChangeKind.Moved -> earliest.Row.PreviousPath
@@ -304,7 +304,7 @@ module History =
 
                 walk next (rows @ collected)
 
-        walk (ValueSome path) [] |> List.sortByDescending (fun version -> version.VersionId)
+        walk (ValueSome path) [] |> List.sortByDescending _.VersionId
 
     /// The version a selector names in a file's history (newest first). A deleted version is not one a user can
     /// name, and an `AsOf` time that falls on a deletion names nothing.
@@ -456,7 +456,7 @@ module History =
                 match version.Row.Content with
                 | RowContent.Regular content -> content.Size
                 | RowContent.Linked _ -> 0L })
-        |> Seq.sortByDescending (fun entry -> entry.DeletedAt)
+        |> Seq.sortByDescending _.DeletedAt
         |> List.ofSeq
 
     let private normalizedScope (directory: string) : string =
@@ -548,7 +548,7 @@ module History =
         let underPrefix =
             versions
             |> Seq.filter (fun version -> (Prefix.subPath prefix (pathOf version)).IsSome)
-            |> Seq.sortBy (fun version -> version.VersionId)
+            |> Seq.sortBy _.VersionId
             |> Array.ofSeq
 
         let state = Dictionary<string, FileVersion>(StringComparer.OrdinalIgnoreCase)
@@ -563,7 +563,7 @@ module History =
         let byId = snapshots |> List.map (fun snapshot -> snapshot.SnapshotId, snapshot) |> Map.ofList
 
         underPrefix
-        |> Array.groupBy (fun version -> version.InSnapshot)
+        |> Array.groupBy _.InSnapshot
         |> Array.sortBy fst
         |> Array.choose (fun (snapshotId, rows) ->
             // What the snapshot changed here: counts of added, changed, moved and deleted rows, and the net bytes.
@@ -626,7 +626,7 @@ module History =
 
     /// The stored content of a version; a link has none.
     let contentHash (version: FileVersion) : ContentHash voption =
-        contentOf version |> ValueOption.map (fun content -> content.Hash)
+        contentOf version |> ValueOption.map _.Hash
 
     /// The content to show for a version: a link has none.
     let showable (path: string) (version: FileVersion) : Result<ContentHash, HistoryError> =

@@ -325,7 +325,7 @@ module ``A profile is managed from start to finish`` =
             | [ profile ] ->
                 Assert.Equal("documents", Profile.name profile)
                 Assert.Equal(Some 5, Profile.retention profile |> Option.map (fun policy -> RetentionCount.value policy.KeepDaily))
-                Assert.Equal(Some 3, Profile.concurrency profile |> Option.bind (fun settings -> settings.Scan) |> Option.map ConcurrencyLimit.value)
+                Assert.Equal(Some 3, Profile.concurrency profile |> Option.bind _.Scan |> Option.map ConcurrencyLimit.value)
             | other -> failwith $"unexpected profiles {names other}")
 
     [<Fact>]

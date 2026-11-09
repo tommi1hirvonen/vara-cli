@@ -1,6 +1,5 @@
 module Vara.Domain.Tests.ProfilePropertyTests
 
-open Xunit
 open FsCheck
 open FsCheck.FSharp
 open FsCheck.Xunit
@@ -60,7 +59,7 @@ let ``overlap ignores a trailing separator`` () =
 [<Property>]
 let ``a validated profile never has overlapping sources or a target that overlaps a source`` () =
     let source path =
-        ConfigNode.Mapping [ "path", ConfigNode.Scalar path ]
+        ConfigNode.Mapping [ ("path", ConfigNode.Scalar path) ]
 
     let entry =
         gen {
@@ -81,7 +80,7 @@ let ``a validated profile never has overlapping sources or a target that overlap
         | Ok profiles ->
             profiles
             |> List.forall (fun profile ->
-                let sources = Profile.sources profile |> List.map (fun source -> source.Path)
+                let sources = Profile.sources profile |> List.map _.Path
 
                 let targetClear =
                     sources |> List.forall (fun path -> not (AbsolutePath.overlaps (Profile.target profile) path))

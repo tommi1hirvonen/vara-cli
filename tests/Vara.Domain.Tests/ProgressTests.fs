@@ -4,11 +4,9 @@ module Vara.Domain.Tests.ProgressTests
 
 open System
 open Xunit
-open FsCheck
 open FsCheck.FSharp
 open FsCheck.Xunit
 open Vara.Domain
-open Vara.Domain.Tests.Fixtures
 
 let private start = DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero)
 let private after (milliseconds: int) : DateTimeOffset = start.AddMilliseconds(float milliseconds)
@@ -18,7 +16,7 @@ let private feed (steps: (int * ProgressEvent) list) : Tracker =
     steps |> List.fold (fun tracker (ms, event) -> Tracker.update interval (after ms) event tracker) Tracker.initial
 
 /// A tracker whose transfer phase has begun with the given totals at time zero.
-let private transferring (bytes: int64) (files: int) : Tracker = feed [ 0, TransferStarting(bytes, files) ]
+let private transferring (bytes: int64) (files: int) : Tracker = feed [ (0, TransferStarting(bytes, files)) ]
 
 let private step (ms: int) (event: ProgressEvent) (tracker: Tracker) : Tracker =
     Tracker.update interval (after ms) event tracker
@@ -29,7 +27,7 @@ let private lines (display: Display) : string list =
     display
     |> List.map (function
         | Line.Bar bar -> bar.Label + "|" + bar.Trailing
-        | Line.Row cells -> cells |> List.map (fun cell -> cell.Text) |> String.concat ""
+        | Line.Row cells -> cells |> List.map _.Text |> String.concat ""
         | Line.Spans _
         | Line.Table _
         | Line.Box _ -> failwith "progress has no spans, table or box"
@@ -58,13 +56,13 @@ module ``Upfront work estimation`` =
     [<Fact>]
     let ``Progress shown at start of transfer`` () =
         let display = shown (transferring 2048L 3)
-        Assert.Contains("0 B / 2 KB", textLines display @ (rowsOf display |> List.map (List.map (fun c -> c.Text) >> String.concat "")) |> String.concat "\n")
+        Assert.Contains("0 B / 2 KB", textLines display @ (rowsOf display |> List.map (List.map _.Text >> String.concat "")) |> String.concat "\n")
         Assert.Contains("ETA calculating...", lines display |> String.concat "\n")
 
 module ``Scan-phase progress indication`` =
     [<Fact>]
     let ``Scanning and hashing before transfer begins`` () =
-        let tracker = feed [ 0, ScanCounted 300 ]
+        let tracker = feed [ (0, ScanCounted 300) ]
         let bar = barOf (shown tracker)
         Assert.Equal(BarFill.Indeterminate, bar.Fill)
         Assert.Equal(Tone.Neutral, bar.Tone)
@@ -82,7 +80,7 @@ module ``Dry-run scan progress indication`` =
     [<Fact>]
     let ``Dry-run planning in a live terminal`` () =
         Assert.Equal(OutputMode.Live, OutputMode.choose false live)
-        Assert.Equal(BarFill.Indeterminate, (barOf (shown (feed [ 0, ScanCounted 5 ]))).Fill)
+        Assert.Equal(BarFill.Indeterminate, (barOf (shown (feed [ (0, ScanCounted 5) ]))).Fill)
         // Once planning is over the screen is the summary, which has no bar.
         let summary =
             Display.ofPlan { Added = 1; Changed = 0; Moved = 0; Deleted = 0; PlannedBytes = 5L; Unscanned = [] }
@@ -103,11 +101,11 @@ module ``Throughput and ETA reporting`` =
     let ``Long-running transfer`` () =
         let tracker = transferring 1000L 1 |> step 1000 (BytesCopied 250L)
         let display = Display.view width (after 1000) tracker
-        let second = rowsOf display |> List.item 1 |> List.map (fun cell -> cell.Text.TrimEnd())
+        let second = rowsOf display |> List.item 1 |> List.map _.Text.TrimEnd()
         Assert.Equal<string list>([ "250 B/s"; "ETA 3s" ], second)
         // Later, with more bytes, both figures move.
         let later = tracker |> step 2000 (BytesCopied 500L)
-        let rowLater = rowsOf (Display.view width (after 2000) later) |> List.item 1 |> List.map (fun cell -> cell.Text.TrimEnd())
+        let rowLater = rowsOf (Display.view width (after 2000) later) |> List.item 1 |> List.map _.Text.TrimEnd()
         Assert.Equal<string list>([ "375 B/s"; "ETA 0.7s" ], rowLater)
 
 module ``Progress bar occupies a dedicated, width-sized line`` =
@@ -129,7 +127,7 @@ module ``Progress bar occupies a dedicated, width-sized line`` =
 module ``Progress bar row includes a leading phase description`` =
     [<Fact>]
     let ``Scan phase in progress`` () =
-        let bar = barOf (shown (feed [ 0, ScanCounted 1 ]))
+        let bar = barOf (shown (feed [ (0, ScanCounted 1) ]))
         Assert.StartsWith(" Scanning files...", bar.Label)
         Assert.Equal(Display.trailingWidth, bar.Trailing.Length)
         Assert.Equal("", bar.Trailing.Trim())
@@ -142,7 +140,7 @@ module ``Progress bar row includes a leading phase description`` =
 
     [<Fact>]
     let ``Bar length is consistent across phases`` () =
-        let scan = barOf (shown (feed [ 0, ScanCounted 1 ]))
+        let scan = barOf (shown (feed [ (0, ScanCounted 1) ]))
         let transfer = barOf (shown (transferring 100L 1))
         Assert.Equal(scan.Width, transfer.Width)
         Assert.Equal(scan.Label.Length, transfer.Label.Length)
@@ -241,7 +239,7 @@ module ``Progress bar reflects run outcome severity`` =
 
     [<Fact>]
     let ``Scan phase in progress`` () =
-        Assert.Equal(Tone.Neutral, (barOf (shown (feed [ 0, ScanCounted 1 ]))).Tone)
+        Assert.Equal(Tone.Neutral, (barOf (shown (feed [ (0, ScanCounted 1) ]))).Tone)
 
     [<Fact>]
     let ``Transfer phase in progress`` () =
@@ -263,7 +261,7 @@ module ``Progress bar reflects run outcome severity`` =
     [<Fact>]
     let ``Run terminates with a hard error`` () =
         // During the scan the indicator that was showing turns red; during the transfer the bar does.
-        let scanning = barOf (shown (feed [ 0, ScanCounted 1 ] |> ended Outcome.HardError))
+        let scanning = barOf (shown (feed [ (0, ScanCounted 1) ] |> ended Outcome.HardError))
         Assert.Equal(Tone.Error, scanning.Tone)
         Assert.Equal(BarFill.Indeterminate, scanning.Fill)
         Assert.Equal(Tone.Error, (barOf (shown (transferring 100L 1 |> ended Outcome.HardError))).Tone)
@@ -277,7 +275,7 @@ module ``Progress display never regresses to a stale value`` =
             deltas
             |> List.mapi (fun index delta -> (index + 1) * 150, BytesCopied delta)
             |> List.scan (fun (previous: Tracker) (ms, event) -> step ms event previous) (transferring 800L 3)
-            |> List.map (fun tracker -> tracker.Shown.Bytes)
+            |> List.map _.Shown.Bytes
 
         let ascending = deliver [ 100L; 300L; 400L ]
         let scrambled = deliver [ 400L; 100L; 300L ]
@@ -394,7 +392,7 @@ module ``Backup transfer statistics use two aligned interactive rows`` =
         let before = rowsOf (shown (transferring 9_999L 9 |> step 200 (BytesCopied 9L)))
         let afterwards = rowsOf (shown (transferring 99_999L 99 |> step 200 (BytesCopied 99_000L)))
 
-        let positions (rows: Cell list list) = rows |> List.map (List.map (fun cell -> cell.Width))
+        let positions (rows: Cell list list) = rows |> List.map (List.map _.Width)
         Assert.Equal<int list list>(positions before, positions afterwards)
 
     [<Fact>]

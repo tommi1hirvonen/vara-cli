@@ -10,7 +10,6 @@ open Vara.Cli
 open Vara.Cli.Tests.BackupCommandTests
 open Vara.Cli.Tests.HistoryCommandTests
 open Vara.Domain
-open Vara.Engine
 
 /// Runs `show` with standard output captured as bytes; `terminal` says whether that output is an interactive terminal.
 let private showOutput (terminal: bool) (setup: Scratch) (parts: string list) : Invocation * byte[] =
@@ -18,7 +17,7 @@ let private showOutput (terminal: bool) (setup: Scratch) (parts: string list) : 
 
     let customize (env: CliEnv) : CliEnv =
         { env with
-            Capabilities = { env.Capabilities with IsTerminal = terminal }
+            CliEnv.Capabilities.IsTerminal = terminal
             OpenStandardOutput = fun () -> new NonClosingStream(captured) :> Stream }
 
     let result = runEnv customize setup ([ "show" ] @ parts)

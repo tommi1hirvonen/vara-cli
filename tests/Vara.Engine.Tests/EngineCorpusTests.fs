@@ -12,7 +12,7 @@ let private area = "engine"
 [<Fact>]
 let ``every engine scenario is recorded`` () =
     let recorded = Corpus.names area |> List.map Path.GetFileNameWithoutExtension |> List.sort
-    Assert.Equal<string list>(scenarios |> List.map (fun scenario -> scenario.Name) |> List.sort, recorded)
+    Assert.Equal<string list>(scenarios |> List.map _.Name |> List.sort, recorded)
 
 [<Fact>]
 let ``the F# engine leaves the recorded manifest, mirror and blobs in every scenario`` () =

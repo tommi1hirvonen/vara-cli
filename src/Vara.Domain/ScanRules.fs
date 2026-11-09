@@ -9,7 +9,7 @@ module ScanRules =
     /// Prepares a source's literal exclude entries once per source: trimmed, without trailing separators,
     /// with `/` as the separator. An entry written with either separator then matches the same paths.
     let normalizeExcludes (excludes: string list) : string list =
-        excludes |> List.map (fun exclude -> (exclude.Trim().TrimEnd('\\', '/')) |> forward)
+        excludes |> List.map (fun exclude -> exclude.Trim().TrimEnd('\\', '/') |> forward)
 
     /// True when the source-relative path is an excluded entry or lies beneath one.
     /// `normalizedExcludes` comes from `normalizeExcludes`. The path may use either separator.

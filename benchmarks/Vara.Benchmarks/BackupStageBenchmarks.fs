@@ -1,7 +1,6 @@
 namespace Vara.Benchmarks
 
 open System
-open System.Collections.Generic
 open System.IO
 open BenchmarkDotNet.Attributes
 open Vara.Domain
@@ -128,7 +127,7 @@ type BackupPlannerBenchmarks() =
 
         diff <-
             { Pending = [ PendingChange.Add scannedFile ]
-              Deleted = [ oldPath, state ]
+              Deleted = [ (oldPath, state) ]
               Failures = [] }
 
     [<GlobalCleanup>]

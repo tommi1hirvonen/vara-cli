@@ -152,7 +152,7 @@ module Run =
             { state.Counts with
                 FilesFailed = state.Counts.FilesFailed + scanFailureCount }
           FailedPaths =
-            (scanFailures |> List.map (fun failure -> failure.Reported))
+            (scanFailures |> List.map _.Reported)
             @ (state.FailedPaths |> List.rev |> List.map MirrorPath.value) }
 
     /// What a dry run reports: the plan's counts and bytes, and the paths a real run would skip. A link is neither
@@ -172,7 +172,7 @@ module Run =
           Moved = moved
           Deleted = deleted
           PlannedBytes = plan.TotalBytes
-          Unscanned = scanFailures |> List.map (fun failure -> failure.Reported) }
+          Unscanned = scanFailures |> List.map _.Reported }
 
     /// How a run that was not refused ends the command: failed paths or a cancellation give `PartialFailure`.
     let outcome (result: RunResult) : Outcome =

@@ -54,7 +54,7 @@ let private testsOf (declaringType: Type) : ScenarioId list =
 
 /// The requirement and scenario names that the assemblies' test methods spell out.
 let testedScenarios (assemblies: Assembly list) : Set<ScenarioId> =
-    assemblies |> Seq.collect (fun assembly -> assembly.GetTypes()) |> Seq.collect testsOf |> Set.ofSeq
+    assemblies |> Seq.collect _.GetTypes() |> Seq.collect testsOf |> Set.ofSeq
 
 /// The scenarios of the spec that have no test, leaving out the ones another change owns.
 let missingTests (excluded: ScenarioId list) (assemblies: Assembly list) (specText: string) : ScenarioId list =

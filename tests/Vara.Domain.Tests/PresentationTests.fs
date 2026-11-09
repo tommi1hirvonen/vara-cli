@@ -4,7 +4,6 @@ module Vara.Domain.Tests.PresentationTests
 
 open System
 open Xunit
-open FsCheck
 open FsCheck.FSharp
 open FsCheck.Xunit
 open Vara.Domain
@@ -95,7 +94,7 @@ module ``Windows Terminal progress indicator`` =
     let ``Determinate phase`` () =
         let tracker = feed [ TransferStarting(200L, 1); BytesCopied 50L ]
         // Redraws are rate-limited, so the first admitted update (no bytes yet) is what shows.
-        let tracker = { tracker with Shown = { tracker.Shown with Bytes = 50L } }
+        let tracker = { tracker with Shown.Bytes = 50L }
         Assert.Equal(Indicator.Percentage 25, TerminalProgress.indicator tracker)
         Assert.Equal("\u001b]9;4;1;25\u0007", TerminalProgress.sequence (Indicator.Percentage 25))
 
@@ -112,7 +111,7 @@ module ``Windows Terminal progress indicator`` =
         Prop.forAll (Arb.fromGen gen) (fun (total, copied) ->
             let tracker =
                 feed [ TransferStarting(int64 total, 1) ]
-                |> fun tracker -> { tracker with Shown = { tracker.Shown with Bytes = int64 copied } }
+                |> fun tracker -> { tracker with Shown.Bytes = int64 copied }
 
             match TerminalProgress.indicator tracker with
             | Indicator.Percentage percent -> percent >= 0 && percent <= 100

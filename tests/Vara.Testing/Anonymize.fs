@@ -26,7 +26,7 @@ let spellings (root: string) : string list =
         let mirror = path.Replace(":", "")
         [ path; path.Replace(@"\", @"\\"); mirror; mirror.Replace(@"\", @"\\") ])
     |> List.distinct
-    |> List.sortByDescending (fun spelling -> spelling.Length)
+    |> List.sortByDescending _.Length
 
 /// The text with the scratch directory taken out, so that two runs in two directories read the same. `flatten` is how the
 /// text was reduced before this (for example with its spaces taken out), applied to each spelling so that they match.

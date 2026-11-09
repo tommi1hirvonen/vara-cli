@@ -55,7 +55,7 @@ let private firstMatch (pattern: string) (line: string) : string option =
     let found = Regex.Match(line, pattern)
 
     if found.Success then
-        Some(String.Join(" ", found.Groups |> Seq.skip 1 |> Seq.map (fun group -> group.Value)))
+        Some(String.Join(" ", found.Groups |> Seq.skip 1 |> Seq.map _.Value))
     else
         None
 
@@ -91,7 +91,7 @@ let private stream (setup: Scratch) (run: Run) : string =
         // The longest name first and only at the start of a name, so that the last letter of one directory's name is never
         // taken for a directory of its own (a drive `C` against a name that ends in `c`).
         ancestors setup
-        |> List.sortByDescending (fun part -> part.Length)
+        |> List.sortByDescending _.Length
         |> List.fold (fun (text: string) (part: string) -> Regex.Replace(text, @"(?<![A-Za-z0-9])" + Regex.Escape(flat part) + @"\([^)]*\)", "")) text
 
     anonymizeFlat flat setup.Root (withoutAncestors (flat (withoutTimes run.Out)))

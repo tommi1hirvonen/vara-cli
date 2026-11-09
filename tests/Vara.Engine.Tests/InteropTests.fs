@@ -110,7 +110,7 @@ module ``Real path resolution`` =
             Assert.True(file.Length > 600)
             sameLocation file (Kernel32.resolveRealPath file))
 
-module ``Streams`` =
+module Streams =
     let private bytes (length: int) =
         let data = Array.zeroCreate<byte> length
         Random.Shared.NextBytes data

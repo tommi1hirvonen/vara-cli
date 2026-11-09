@@ -8,7 +8,6 @@ module Vara.Cli.PruneCommand
 
 open System
 open System.CommandLine
-open System.IO
 open System.Threading
 open System.Threading.Tasks
 open Vara.Domain

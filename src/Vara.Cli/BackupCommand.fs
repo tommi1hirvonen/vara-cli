@@ -6,7 +6,6 @@ module Vara.Cli.BackupCommand
 // GetValue<bool> is declared to return a nullable type, which F# cannot express for a value type; the value is never null.
 #nowarn "3265"
 
-open System
 open System.CommandLine
 open System.Threading
 open System.Threading.Tasks

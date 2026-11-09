@@ -9,7 +9,7 @@ module Node =
     let scalar text = ConfigNode.Scalar text
     let sequence items = ConfigNode.Sequence items
     let mapping fields = ConfigNode.Mapping fields
-    let source path = mapping [ "path", scalar path ]
+    let source path = mapping [ ("path", scalar path) ]
 
     let profile name target sources =
         mapping [ "name", scalar name; "target", scalar target; "sources", sequence sources ]
@@ -59,7 +59,7 @@ module ``Profile structure validation`` =
 
     [<Fact>]
     let ``Exclude list contains a non-string entry`` () =
-        let entry = Node.mapping [ "k", Node.scalar "v" ]
+        let entry = Node.mapping [ ("k", Node.scalar "v") ]
         let source = Node.mapping [ "path", Node.scalar @"C:\a"; "exclude", Node.sequence [ entry ] ]
 
         validate [ Node.profile "p" @"C:\t" [ source ] ]
@@ -226,24 +226,24 @@ module ``Duplicate profile names rejected`` =
 module ``Retention policy configuration`` =
     let private withRetention fields =
         Node.profile "p" @"C:\t" [ Node.source @"C:\a" ]
-        |> Node.withFields [ "retention", Node.mapping fields ]
+        |> Node.withFields [ ("retention", Node.mapping fields) ]
 
     [<Fact>]
     let ``Retention count is not a valid integer`` () =
         for key in [ "keep_daily"; "keep_weekly"; "keep_monthly"; "keep_yearly" ] do
-            validate [ withRetention [ key, Node.scalar "abc" ] ]
+            validate [ withRetention [ (key, Node.scalar "abc") ] ]
             |> expectInvalid "p" $"retention field '{key}' has an invalid value 'abc' (expected a non-negative whole number)"
 
     [<Fact>]
     let ``Retention count is negative`` () =
         for key in [ "keep_daily"; "keep_weekly"; "keep_monthly"; "keep_yearly" ] do
-            validate [ withRetention [ key, Node.scalar "-1" ] ]
+            validate [ withRetention [ (key, Node.scalar "-1") ] ]
             |> expectInvalid "p" $"retention field '{key}' has an invalid value '-1' (expected a non-negative whole number)"
 
 module ``Concurrency configuration`` =
     let private withConcurrency fields =
         Node.profile "p" @"C:\t" [ Node.source @"C:\a" ]
-        |> Node.withFields [ "concurrency", Node.mapping fields ]
+        |> Node.withFields [ ("concurrency", Node.mapping fields) ]
 
     let private limits (profile: Profile) =
         Profile.concurrency profile
@@ -256,23 +256,23 @@ module ``Concurrency configuration`` =
 
     [<Fact>]
     let ``Scan concurrency configured`` () =
-        let profile = validate [ withConcurrency [ "scan_concurrency", Node.scalar "4" ] ] |> expectProfile
+        let profile = validate [ withConcurrency [ ("scan_concurrency", Node.scalar "4") ] ] |> expectProfile
         Assert.Equal(Some(Some 4, None), limits profile)
 
     [<Fact>]
     let ``Transfer concurrency configured`` () =
-        let profile = validate [ withConcurrency [ "transfer_concurrency", Node.scalar "8" ] ] |> expectProfile
+        let profile = validate [ withConcurrency [ ("transfer_concurrency", Node.scalar "8") ] ] |> expectProfile
         Assert.Equal(Some(None, Some 8), limits profile)
 
     [<Fact>]
     let ``Concurrency value is not a valid integer`` () =
         for key in [ "scan_concurrency"; "transfer_concurrency" ] do
-            validate [ withConcurrency [ key, Node.scalar "abc" ] ]
+            validate [ withConcurrency [ (key, Node.scalar "abc") ] ]
             |> expectInvalid "p" $"concurrency field '{key}' has an invalid value 'abc' (expected a positive whole number)"
 
     [<Fact>]
     let ``Concurrency value is zero or negative`` () =
         for key in [ "scan_concurrency"; "transfer_concurrency" ] do
             for value in [ "0"; "-3" ] do
-                validate [ withConcurrency [ key, Node.scalar value ] ]
+                validate [ withConcurrency [ (key, Node.scalar value) ] ]
                 |> expectInvalid "p" $"concurrency field '{key}' has an invalid value '{value}' (expected a positive whole number)"

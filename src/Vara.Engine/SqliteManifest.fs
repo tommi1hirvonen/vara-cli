@@ -555,7 +555,7 @@ module SqliteManifest =
         | _ ->
             let connection = requireConnection handle
             // The ids are numbers, so the list is spelled into the statement as the C# build does.
-            let idList = String.Join(",", snapshotIds |> List.map (fun id -> id.ToString(CultureInfo.InvariantCulture)))
+            let idList = String.Join(",", snapshotIds |> List.map _.ToString(CultureInfo.InvariantCulture))
             use transaction = connection.BeginTransaction()
 
             execute

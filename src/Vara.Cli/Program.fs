@@ -5,7 +5,7 @@ open System.CommandLine
 
 [<EntryPoint>]
 let main argv =
-    let cancellation = GracefulCancellation(fun exitCode -> Environment.Exit exitCode)
+    let cancellation = GracefulCancellation Environment.Exit
     Console.CancelKeyPress.Add(fun args -> args.Cancel <- cancellation.RequestCancellation())
 
     // A null termination timeout keeps System.CommandLine from installing a competing Ctrl+C handler.

@@ -32,11 +32,11 @@ let private pruneEnv (customize: CliEnv -> CliEnv) (setup: Scratch) (parts: stri
 let asking (prompts: Prompts) (env: CliEnv) : CliEnv =
     { env with
         Prompts = prompts
-        Capabilities = { env.Capabilities with InputIsInteractive = true } }
+        CliEnv.Capabilities.InputIsInteractive = true }
 
 /// A session that cannot be asked, whatever the test host's own input is.
 let notAsking (env: CliEnv) : CliEnv =
-    { env with Capabilities = { env.Capabilities with InputIsInteractive = false } }
+    { env with CliEnv.Capabilities.InputIsInteractive = false }
 
 /// Prompts that record each question and answer through the function; asking a selection fails the test.
 type Asked(answer: string -> bool) =
@@ -61,7 +61,7 @@ let threeSnapshots (setup: Scratch) : unit =
     backupOnce setup
 
 let snapshotIds (setup: Scratch) : int64 list =
-    snapshotsOf setup |> List.map (fun snapshot -> snapshot.SnapshotId) |> List.sort
+    snapshotsOf setup |> List.map _.SnapshotId |> List.sort
 
 let blobCount (setup: Scratch) : int =
     (ContentStore.storedHashes (ContentStore.layout setup.Target)).Count

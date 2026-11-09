@@ -67,7 +67,7 @@ module Planning =
         : (MirrorPath * FileContent) voption =
         match candidates with
         | [] -> ValueNone
-        | ((path, content) as candidate) :: rest ->
+        | path, content as candidate :: rest ->
             if not (consumed.Contains(MirrorPath.value path)) && content.Hash.Equals hash then
                 ValueSome candidate
             else

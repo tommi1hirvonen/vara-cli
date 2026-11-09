@@ -5,7 +5,6 @@ module Vara.Cli.ProgressDisplay
 open System
 open System.Threading.Tasks
 open Vara.Domain
-open Vara.Engine
 
 let private screenFor
     (env: CliEnv)

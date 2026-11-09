@@ -5,7 +5,6 @@ module Vara.Cli.Tests.RestorePresentationTests
 
 open System
 open System.Threading.Tasks
-open Spectre.Console
 open Spectre.Console.Testing
 open Xunit
 open Vara.Cli
@@ -27,7 +26,7 @@ let private planOf (writes: RestoreWrite list) (removals: string list) : Restore
     { Writes = writes
       Removals = removals
       Skipped = []
-      TotalBytes = writes |> List.sumBy (fun item -> item.Size) }
+      TotalBytes = writes |> List.sumBy _.Size }
 
 let private large = 64L * 1024L * 1024L
 

@@ -1,5 +1,5 @@
-/// The prompts a command asks for input with. The only module that calls Spectre.Console's prompts: a command is given
-/// the `Prompts` record and never sees a console type, so a test passes functions that answer in place of a user.
+// The prompts a command asks for input with. The only module that calls Spectre.Console's prompts: a command is given
+// the `Prompts` record and never sees a console type, so a test passes functions that answer in place of a user.
 namespace Vara.Cli
 
 open Spectre.Console

@@ -6,7 +6,6 @@ module Vara.Domain.Tests.HistoryTests
 open System
 open System.Text.RegularExpressions
 open Xunit
-open FsCheck
 open FsCheck.FSharp
 open FsCheck.Xunit
 open Vara.Domain
@@ -32,12 +31,12 @@ let row (id: int64) (snapshot: int64) (path: string) (kind: ChangeKind) (minutes
 let private moved (id: int64) (snapshot: int64) (path: string) (previous: string) (minutes: int) : FileVersion =
     let version = row id snapshot path ChangeKind.Moved minutes 5L
 
-    { version with Row = { version.Row with PreviousPath = ValueSome(mirror previous) } }
+    { version with Row.PreviousPath = ValueSome(mirror previous) }
 
 let private linked (id: int64) (snapshot: int64) (path: string) (minutes: int) : FileVersion =
     let version = row id snapshot path ChangeKind.Linked minutes 0L
 
-    { version with Row = { version.Row with Content = RowContent.Linked(ValueSome "C\\target") } }
+    { version with Row.Content = RowContent.Linked(ValueSome "C\\target") }
 
 let private snapshot (id: int64) (minutes: int) (status: SnapshotStatus) : SnapshotInfo =
     { SnapshotId = id
@@ -60,7 +59,7 @@ let private okOrFail (result: Result<'a, HistoryError>) : 'a =
 let private plain (display: Display) : string = Display.plainLines display |> String.concat "
 "
 
-let private names (entries: Entry list) : string list = entries |> List.map (fun entry -> entry.Name)
+let private names (entries: Entry list) : string list = entries |> List.map _.Name
 
 module ``List snapshots`` =
     let private withStats (info: SnapshotInfo) (added: int) (bytes: int64) : SnapshotInfo =
@@ -81,7 +80,7 @@ module ``List snapshots`` =
         Assert.Equal(4, rows.Length)
         // Newest first, with the id and the start time in the first columns.
         Assert.Equal("4", rows.Head.Head.Text)
-        Assert.Contains("2026-01-01 00:10:00", List.last rows |> List.map (fun span -> span.Text) |> String.concat " ")
+        Assert.Contains("2026-01-01 00:10:00", List.last rows |> List.map _.Text |> String.concat " ")
 
     [<Fact>]
     let ``No snapshots recorded`` () =
@@ -121,7 +120,7 @@ module ``File version history`` =
               row 3L 3L "C\\a.txt" ChangeKind.Changed 30 6L ]
 
         let history = History.versionsOf (rowsOf all) (mirror "C\\a.txt")
-        Assert.Equal<int64 list>([ 3L; 1L ], history |> List.map (fun version -> version.VersionId))
+        Assert.Equal<int64 list>([ 3L; 1L ], history |> List.map _.VersionId)
 
     [<Fact>]
     let ``the history follows the move chain back through earlier paths`` () =
@@ -132,7 +131,7 @@ module ``File version history`` =
               row 4L 3L "C\\new.txt" ChangeKind.Changed 30 6L ]
 
         let history = History.versionsOf (rowsOf all) (mirror "C\\new.txt")
-        Assert.Equal<int64 list>([ 4L; 3L; 2L; 1L ], history |> List.map (fun version -> version.VersionId))
+        Assert.Equal<int64 list>([ 4L; 3L; 2L; 1L ], history |> List.map _.VersionId)
 
     [<Fact>]
     let ``a path nothing was recorded for has no history`` () =
@@ -163,7 +162,7 @@ module ``File version history`` =
 
             let history = History.versionsOf lookup (mirror (pathAt 0))
             let distinct = asked |> Seq.distinct |> Seq.length
-            distinct = asked.Count && (history |> List.map (fun version -> version.VersionId) |> List.distinct |> List.length) = history.Length)
+            distinct = asked.Count && (history |> List.map _.VersionId |> List.distinct |> List.length) = history.Length)
 
     [<Fact>]
     let ``No version history remains for a previously tracked path`` () =
@@ -224,7 +223,7 @@ module ``Restore of a deleted file`` =
         let version = History.resolveVersion "C\\a.txt" (VersionSelector.AsOf(at 25)) history |> okOrFail
         let plan = Restore.planFile "C\\a.txt" (Destination.Explicit "D:\\out\\a.txt") version |> okOrFail
         Assert.Equal(2L, version.VersionId)
-        Assert.Equal<string list>([ "D:\\out\\a.txt" ], plan.Writes |> List.map (fun write -> write.Destination))
+        Assert.Equal<string list>([ "D:\\out\\a.txt" ], plan.Writes |> List.map _.Destination)
         Assert.Equal(7L, plan.TotalBytes)
 
     [<Fact>]
@@ -244,7 +243,7 @@ module ``Interactive version selection when restoring`` =
               row 2L 2L "C\\a.txt" ChangeKind.Changed 20 5L
               row 1L 1L "C\\a.txt" ChangeKind.Added 10 5L ]
 
-        Assert.Equal<int64 list>([ 2L; 1L ], History.restorableVersions history |> List.map (fun version -> version.VersionId))
+        Assert.Equal<int64 list>([ 2L; 1L ], History.restorableVersions history |> List.map _.VersionId)
 
 module ``Restore a file at a given version or date`` =
     [<Fact>]
@@ -273,7 +272,7 @@ module ``Restore to the original source location`` =
     let ``Restoring in place to a location that no longer exists`` () =
         let version = row 1L 1L "C\\Users\\me\\a.txt" ChangeKind.Added 10 5L
         let plan = Restore.planFile "C\\Users\\me\\a.txt" Destination.InPlace version |> okOrFail
-        Assert.Equal<string list>([ "C:\\Users\\me\\a.txt" ], plan.Writes |> List.map (fun write -> write.Destination))
+        Assert.Equal<string list>([ "C:\\Users\\me\\a.txt" ], plan.Writes |> List.map _.Destination)
 
     [<Fact>]
     let ``the original location maps the drive back`` () =
@@ -298,18 +297,18 @@ module ``Restore a directory at a given date`` =
 
         Assert.Equal<string list>(
             [ "D:\\out\\gone.txt"; "D:\\out\\kept.txt" ],
-            plan.Writes |> List.map (fun write -> write.Destination)
+            plan.Writes |> List.map _.Destination
         )
 
     [<Fact>]
     let ``Restoring a directory brings back since-deleted files`` () =
         let plan = plan (Moment.AtTime(at 15))
-        Assert.Contains("D:\\out\\gone.txt", plan.Writes |> List.map (fun write -> write.Destination))
+        Assert.Contains("D:\\out\\gone.txt", plan.Writes |> List.map _.Destination)
 
     [<Fact>]
     let ``Restoring a directory excludes files added afterward`` () =
         let plan = plan (Moment.AtTime(at 15))
-        Assert.DoesNotContain("D:\\out\\later.txt", plan.Writes |> List.map (fun write -> write.Destination))
+        Assert.DoesNotContain("D:\\out\\later.txt", plan.Writes |> List.map _.Destination)
 
     [<Fact>]
     let ``Restoring a directory removes tracked content that did not exist at that date`` () =
@@ -322,7 +321,7 @@ module ``Restore a directory at a given date`` =
 
         Assert.Equal<string list>(
             [ "C:\\d\\gone.txt"; "C:\\d\\kept.txt" ],
-            plan.Writes |> List.map (fun write -> write.Destination)
+            plan.Writes |> List.map _.Destination
         )
 
     [<Fact>]
@@ -343,7 +342,7 @@ module ``Restore a directory at a given date`` =
 
         Assert.Equal<string list>(
             [ "D:\\out\\kept.txt"; "D:\\out\\later.txt" ],
-            plan.Writes |> List.map (fun write -> write.Destination)
+            plan.Writes |> List.map _.Destination
         )
 
         Assert.Empty plan.Removals
@@ -351,7 +350,7 @@ module ``Restore a directory at a given date`` =
     [<Fact>]
     let ``a snapshot id names the state after that snapshot`` () =
         let plan = plan (Moment.AtSnapshot 1L)
-        Assert.Equal<string list>([ "D:\\out\\gone.txt"; "D:\\out\\kept.txt" ], plan.Writes |> List.map (fun write -> write.Destination))
+        Assert.Equal<string list>([ "D:\\out\\gone.txt"; "D:\\out\\kept.txt" ], plan.Writes |> List.map _.Destination)
 
     [<Fact>]
     let ``removals only count the files that exist`` () =
@@ -386,7 +385,7 @@ module ``Restore a directory at a given date`` =
                 let liveSizes = live |> Array.sumBy (fun version -> match version.Row.Content with RowContent.Regular c -> c.Size | RowContent.Linked _ -> 0L)
                 let liveNames = live |> Array.map (fun version -> MirrorPath.value version.Row.RowPath) |> Set.ofArray
 
-                plan.TotalBytes = (plan.Writes |> List.sumBy (fun write -> write.Size))
+                plan.TotalBytes = (plan.Writes |> List.sumBy _.Size)
                 && plan.TotalBytes = liveSizes
                 && plan.Writes |> List.forall (fun write -> Set.contains (MirrorPath.value write.Path) liveNames))
 
@@ -435,13 +434,13 @@ module ``Restore never writes into the live mirror`` =
                 return cased + "\\" + detour + String.Join("\\", segments) + trailing
             }
 
-        Prop.forAll (Arb.fromGen spellings) (fun path -> refuses path)
+        Prop.forAll (Arb.fromGen spellings) refuses
 
 module ``Flexible path input for history, restore, show, and diff`` =
     let private context (cwd: string) : PathContext =
         { MirrorRoot = "T:\\Target"
           WorkingDirectory = cwd
-          IsWithinMirror = fun path -> path.StartsWith("T:\\Target", StringComparison.OrdinalIgnoreCase) }
+          IsWithinMirror = _.StartsWith("T:\\Target", StringComparison.OrdinalIgnoreCase) }
 
     let private resolve (cwd: string) (history: string list) (raw: string) : string option =
         PathInput.resolve (context cwd) (fun candidate -> List.contains candidate history) raw |> ValueOption.toOption
@@ -634,7 +633,7 @@ module ``Snapshot change rollups use change-kind colors`` =
         let display = HistoryView.ofRollup (snapshot 1L 10 SnapshotStatus.Complete) "" Set.empty ValueNone rollup
 
         let line = display |> List.pick (function Line.Spans spans when spans |> List.exists (fun span -> span.Text = "a") -> Some spans | _ -> None)
-        let tones = line |> List.map (fun span -> span.Tone) |> List.distinct
+        let tones = line |> List.map _.Tone |> List.distinct
         // The directory name is plain; each count is in its own kind's tone.
         Assert.True(tones |> List.contains Tone.Plain)
         Assert.True(tones.Length >= 5)
@@ -743,12 +742,12 @@ module ``Interactive and explicit snapshot selection for a directory restore`` =
     [<Fact>]
     let ``Only snapshots that touched the directory are offered`` () =
         let candidates = History.directoryCandidates "C\\d" snapshots rows
-        Assert.DoesNotContain(5L, candidates |> List.map (fun candidate -> candidate.Snapshot.SnapshotId))
+        Assert.DoesNotContain(5L, candidates |> List.map _.Snapshot.SnapshotId)
 
     [<Fact>]
     let ``Running and failed snapshots are never offered`` () =
         let candidates = History.directoryCandidates "C\\d" snapshots rows
-        Assert.Equal<int64 list>([ 2L; 1L ], candidates |> List.map (fun candidate -> candidate.Snapshot.SnapshotId))
+        Assert.Equal<int64 list>([ 2L; 1L ], candidates |> List.map _.Snapshot.SnapshotId)
 
     [<Fact>]
     let ``Picker entries report directory-scoped statistics`` () =

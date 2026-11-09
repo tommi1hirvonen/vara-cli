@@ -2,7 +2,6 @@
 module Vara.Domain.Tests.DiffTests
 
 open Xunit
-open FsCheck
 open FsCheck.FSharp
 open FsCheck.Xunit
 open Vara.Domain
@@ -22,7 +21,7 @@ module ``Incremental change detection`` =
 
     [<Fact>]
     let ``File's casing changes without content changing`` () =
-        let state = tracked [ "C\\Photo.JPG", regular "h1" 10L 1 ]
+        let state = tracked [ ("C\\Photo.JPG", regular "h1" 10L 1) ]
         let result = Diff.run state [ ScanEntry.File(file "C\\photo.jpg" 10L 1) ]
         Assert.Empty result.Pending
         Assert.Empty result.Deleted
@@ -66,7 +65,7 @@ module ``Incremental change detection`` =
 
     [<Fact>]
     let ``A link replaced by a file is a change`` () =
-        let state = tracked [ "C\\l", TrackedState.Linked ValueNone ]
+        let state = tracked [ ("C\\l", TrackedState.Linked ValueNone) ]
         let result = Diff.run state [ ScanEntry.File(file "C\\l" 3L 1) ]
         Assert.True(
             match result.Pending with
@@ -145,8 +144,8 @@ module ``Properties of the diff`` =
                   for c in failureCovers -> ScanEntry.Failure(failure c ScanFailureReason.UnreadableDirectory) ]
 
             let result = Diff.run state scan
-            let deleted = deletedPaths result |> List.map (fun p -> p.ToUpperInvariant()) |> Set.ofList
-            let seen = seenNames |> List.map (fun p -> p.ToUpperInvariant()) |> Set.ofList
+            let deleted = deletedPaths result |> List.map _.ToUpperInvariant() |> Set.ofList
+            let seen = seenNames |> List.map _.ToUpperInvariant() |> Set.ofList
 
             let hidden (path: string) =
                 let p = path.Replace('\\', '/').ToUpperInvariant()

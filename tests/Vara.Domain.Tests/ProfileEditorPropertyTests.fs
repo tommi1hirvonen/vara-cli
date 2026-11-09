@@ -2,7 +2,6 @@
 /// says depends on the draft it shows and on nothing that came before it.
 module Vara.Domain.Tests.ProfileEditorPropertyTests
 
-open Xunit
 open FsCheck
 open FsCheck.FSharp
 open FsCheck.Xunit

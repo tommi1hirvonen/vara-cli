@@ -6,8 +6,6 @@ open System
 open System.IO
 open System.Text.Json
 open System.Threading
-open System.Threading.Tasks
-open Spectre.Console
 open Spectre.Console.Testing
 open Xunit
 open Vara.Cli
@@ -180,7 +178,7 @@ module ``Sleep-prevention request failure does not block backup`` =
             write setup "a.txt" "alpha"
 
             let refusing (env: CliEnv) : CliEnv =
-                { env with Power = { env.Power with Create = fun _ -> Error 5 } }
+                { env with Power.Create = fun _ -> Error 5 }
 
             let result = invokeEnv refusing CancellationToken.None (args setup [])
             Assert.Equal(0, result.ExitCode)

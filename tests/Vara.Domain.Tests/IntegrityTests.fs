@@ -35,7 +35,7 @@ module ``Check command verifies stored content against the manifest`` =
 
     [<Fact>]
     let ``Referenced blob present but corrupted`` () =
-        let result = run false [] false [ "a", Observation.Present(ValueSome(hash "something else")) ]
+        let result = run false [] false [ ("a", Observation.Present(ValueSome(hash "something else"))) ]
         Assert.Equal<Finding list>([ { Hash = hash "a"; Paths = [ "dir\\a.txt" ]; PathCount = 1 } ], result.Corrupt)
         Assert.Empty result.Missing
         Assert.Equal(Outcome.PartialFailure, Check.outcome result)
@@ -43,7 +43,7 @@ module ``Check command verifies stored content against the manifest`` =
     [<Fact>]
     let ``Unreferenced content present in the store`` () =
         // An orphan is reported and never a problem: it does not change the outcome.
-        let result = run false [ "orphan" ] false [ "a", present "a" ]
+        let result = run false [ "orphan" ] false [ ("a", present "a") ]
         Assert.Equal<ContentHash list>([ hash "orphan" ], result.Orphaned)
         Assert.False(Check.hasProblems result)
         Assert.Equal(Outcome.Success, Check.outcome result)
@@ -52,7 +52,7 @@ module ``Check command verifies stored content against the manifest`` =
     let ``Profile contains a tracked symlink or junction`` () =
         // A link row has no content hash, so it is never among the blobs that reach the verdict; the engine's query
         // leaves it out (tested on a real manifest). What reaches the fold is only real content, all intact.
-        let result = run false [] false [ "a", present "a" ]
+        let result = run false [] false [ ("a", present "a") ]
         Assert.Empty result.Missing
         Assert.Empty result.Corrupt
         Assert.Equal(Outcome.Success, Check.outcome result)
@@ -89,12 +89,12 @@ module ``Quick mode trades thoroughness for speed`` =
             run true [] false [ "a", Observation.Present(ValueSome(hash "changed")); "b", Observation.Present ValueNone; "c", Observation.Absent ]
 
         Assert.Empty result.Corrupt
-        Assert.Equal<ContentHash list>([ hash "c" ], result.Missing |> List.map (fun finding -> finding.Hash))
+        Assert.Equal<ContentHash list>([ hash "c" ], result.Missing |> List.map _.Hash)
 
 module ``Check exits with a scriptable status`` =
     [<Fact>]
     let ``Problems found`` () =
-        let result = run false [] false [ "a", Observation.Absent ]
+        let result = run false [] false [ ("a", Observation.Absent) ]
         let code = Outcome.exitCode (Check.outcome result)
         Assert.NotEqual(0, code)
         // Distinct from the code of a hard error such as a missing profile.
@@ -102,13 +102,13 @@ module ``Check exits with a scriptable status`` =
 
     [<Fact>]
     let ``No problems found`` () =
-        let result = run false [ "orphan" ] false [ "a", present "a" ]
+        let result = run false [ "orphan" ] false [ ("a", present "a") ]
         Assert.Equal(0, Outcome.exitCode (Check.outcome result))
 
 module ``Graceful cancellation via CtrlC`` =
     [<Fact>]
     let ``Cancelled run reports problems found before cancellation`` () =
-        let result = run false [] true [ "a", Observation.Absent ]
+        let result = run false [] true [ ("a", Observation.Absent) ]
         let text = CheckView.report result |> Display.plainLines |> String.concat "\n"
         Assert.Contains("1 missing", text)
         Assert.Contains("Missing:", text)
@@ -116,7 +116,7 @@ module ``Graceful cancellation via CtrlC`` =
 
     [<Fact>]
     let ``a stopped run with no problems is still reported as stopped`` () =
-        let result = run false [] true [ "a", present "a" ]
+        let result = run false [] true [ ("a", present "a") ]
         let text = CheckView.report result |> Display.plainLines |> String.concat "\n"
         Assert.Contains("Check cancelled", text)
         // The C# build's code for a stopped check; the spec's "exits successfully" is a recorded gap.

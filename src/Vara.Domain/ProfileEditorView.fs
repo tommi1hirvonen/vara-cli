@@ -188,14 +188,14 @@ module ProfileEditorView =
                 send (Input.Menu(MenuInput.Open index)))
 
         let deleteChoice =
-            if List.isEmpty profiles then [] else [ plain deleteProfile, send (Input.Menu MenuInput.StartDelete) ]
+            if List.isEmpty profiles then [] else [ (plain deleteProfile, send (Input.Menu MenuInput.StartDelete)) ]
 
         Question.Choose(
             mainTitle,
             profileChoices
-            @ [ plain addProfile, send (Input.Menu MenuInput.Add) ]
+            @ [ (plain addProfile, send (Input.Menu MenuInput.Add)) ]
             @ deleteChoice
-            @ [ plain quit, send (Input.Menu MenuInput.Quit) ]
+            @ [ (plain quit, send (Input.Menu MenuInput.Quit)) ]
         )
 
     let private deletePicker (profiles: Profile list) : Question =
@@ -204,7 +204,7 @@ module ProfileEditorView =
             (profiles
              |> List.mapi (fun index profile ->
                  plain $"{Profile.name profile} - {AbsolutePath.value (Profile.target profile)}", send (Input.Picker(PickerInput.Pick index))))
-            @ [ plain cancel, send (Input.Picker PickerInput.Cancel) ]
+            @ [ (plain cancel, send (Input.Picker PickerInput.Cancel)) ]
         )
 
     /// The question that names the profile and its target root, and says that backup data is not touched.
@@ -282,9 +282,9 @@ module ProfileEditorView =
 
         Question.Choose(
             $"Manage {label} list:",
-            [ plain addEntry, Answer.Ask(Question.Text($"New {label}:", fun text -> input (EntriesInput.Add(defaultArg text "")))) ]
+            [ (plain addEntry, Answer.Ask(Question.Text($"New {label}:", fun text -> input (EntriesInput.Add(defaultArg text ""))))) ]
             @ (values |> List.mapi (fun index value -> plain $"Remove {index + 1}. {value}", send (input (EntriesInput.Remove index))))
-            @ [ plain done_, send (input EntriesInput.Done) ]
+            @ [ (plain done_, send (input EntriesInput.Done)) ]
         )
 
     let private retentionQuestion (retention: RetentionDraft option) : Question =

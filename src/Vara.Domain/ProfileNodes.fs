@@ -11,7 +11,7 @@ let private count (value: int) : ConfigNode =
 let private listField (key: string) (values: string list) : (string * ConfigNode) list =
     match values with
     | [] -> []
-    | _ -> [ key, ConfigNode.Sequence(values |> List.map ConfigNode.Scalar) ]
+    | _ -> [ (key, ConfigNode.Sequence(values |> List.map ConfigNode.Scalar)) ]
 
 let private ofSource (source: Source) : ConfigNode =
     ConfigNode.Mapping(
@@ -33,7 +33,7 @@ let private ofRetention (policy: RetentionPolicy) : ConfigNode =
 let private ofConcurrency (settings: Concurrency) : ConfigNode =
     let limit (key: string) (value: ConcurrencyLimit option) : (string * ConfigNode) list =
         match value with
-        | Some limit -> [ key, count (ConcurrencyLimit.value limit) ]
+        | Some limit -> [ (key, count (ConcurrencyLimit.value limit)) ]
         | None -> []
 
     ConfigNode.Mapping(limit "scan_concurrency" settings.Scan @ limit "transfer_concurrency" settings.Transfer)

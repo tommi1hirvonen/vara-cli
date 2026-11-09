@@ -2,7 +2,6 @@ module Vara.Domain.Tests.OutcomeTests
 
 // Xunit first: after `open FsCheck`, a bare `open Xunit` would resolve to FsCheck.Xunit.
 open Xunit
-open FsCheck
 open FsCheck.FSharp
 open FsCheck.Xunit
 open Vara.Domain

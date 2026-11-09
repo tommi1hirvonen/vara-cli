@@ -3,14 +3,12 @@
 /// cli-presentation and each test after one of its scenarios.
 module Vara.Cli.Tests.BrowsingCommandTests
 
-open System
 open System.IO
 open Spectre.Console.Testing
 open Xunit
 open Vara.Cli
 open Vara.Cli.Tests.BackupCommandTests
 open Vara.Cli.Tests.HistoryCommandTests
-open Vara.Domain
 
 module ``Inspect changes recorded by a snapshot`` =
     /// A target with one snapshot that added files in two nested directories and a moved file.
@@ -249,7 +247,7 @@ module ``Including deleted entries in a directory listing`` =
             Assert.Contains("gone.txt", result.Output)
             Assert.Contains("Deleted", result.Output)
             // Interleaved by name: "emptied" < "gone.txt" < "left.txt" < "live.txt".
-            let order = [ "emptied"; "gone.txt"; "left.txt"; "live.txt" ] |> List.map (fun name -> result.Output.IndexOf name)
+            let order = [ "emptied"; "gone.txt"; "left.txt"; "live.txt" ] |> List.map result.Output.IndexOf
             Assert.Equal<int list>(List.sort order, order))
 
     [<Fact>]

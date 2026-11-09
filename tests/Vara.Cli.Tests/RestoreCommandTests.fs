@@ -37,7 +37,7 @@ type private Script(select: int, confirm: bool) =
                 confirm
           Text = fun prompt -> failwith $"unexpected text prompt: {prompt}" }
 
-let private text (choice: Span list) : string = choice |> List.map (fun span -> span.Text) |> String.concat ""
+let private text (choice: Span list) : string = choice |> List.map _.Text |> String.concat ""
 
 /// Two versions of a.txt: the first is "first content", the second "second content, longer".
 let private twoVersions (setup: Scratch) : unit =
@@ -527,7 +527,7 @@ module ``Interactive and explicit snapshot selection for a directory restore`` =
             setStatus setup 2L "Cancelled"
             let script = Script(0, true)
             restoreWith (interactive script.Prompts) setup [ directory; "--recursive"; "--out"; outDir setup ] |> ignore
-            let toneOf (index: int) = script.Choices[0][index] |> List.map (fun span -> span.Tone)
+            let toneOf (index: int) = script.Choices[0][index] |> List.map _.Tone
             // Index 1 is snapshot 2 (cancelled), index 2 is snapshot 1 (complete).
             Assert.Contains(Tone.PartialFailure, toneOf 1)
             Assert.Contains(Tone.Success, toneOf 2)
@@ -639,7 +639,9 @@ module ``Graceful cancellation of a directory restore via CtrlC`` =
             let directory = Path.GetDirectoryName(keyOf setup "dir\\a.txt") |> nonNull
             use source = new CancellationTokenSource()
             source.Cancel()
-            let result = invokeEnv id source.Token (Array.ofList ([ "restore"; directory; "--recursive"; "--out"; outDir setup; "--force"; "--profile"; "docs"; "--config"; setup.Config ]))
+            let result = invokeEnv id source.Token (Array.ofList
+                                                        [ "restore"; directory; "--recursive"; "--out"; outDir setup; "--force"; "--profile"; "docs"; "--config"; setup.Config ]
+                             )
             // Stopped before the first planned path: reported as cancelled, with the partial-failure code.
             Assert.Equal(2, result.ExitCode)
             Assert.Contains("cancelled", result.Output)

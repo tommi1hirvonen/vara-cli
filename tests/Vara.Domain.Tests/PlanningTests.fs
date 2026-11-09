@@ -4,7 +4,6 @@ module Vara.Domain.Tests.PlanningTests
 open System
 open System.Collections.Generic
 open Xunit
-open FsCheck
 open FsCheck.FSharp
 open FsCheck.Xunit
 open Vara.Domain
@@ -47,23 +46,23 @@ module ``Move detection avoids unbounded reads for non-matching candidates`` =
 
     [<Fact>]
     let ``Full content match still required to confirm a move`` () =
-        let candidates = candidateList [ "C\\old1", withQuick "q1" 1 (content "h1" 10L 1) ]
+        let candidates = candidateList [ ("C\\old1", withQuick "q1" 1 (content "h1" 10L 1)) ]
         Assert.True(Planning.needsFullHash candidates "q1")
 
         // The bounded read only escalates; the exact hash decides. A prefix match with another full hash is an add.
         let plan =
             resolve
-                [ "C\\old1", TrackedState.Regular(withQuick "q1" 1 (content "h1" 10L 1)) ]
+                [ ("C\\old1", TrackedState.Regular(withQuick "q1" 1 (content "h1" 10L 1))) ]
                 [ ScanEntry.File(file "C\\new" 10L 5) ]
-                [ "C\\new", "different" ]
+                [ ("C\\new", "different") ]
 
         Assert.Empty(moveFroms plan)
         Assert.Equal(10L, plan.TotalBytes)
 
     [<Fact>]
     let ``Recorded signature unavailable for a candidate`` () =
-        let missing = candidateList [ "C\\old1", content "h1" 10L 1 ]
-        let otherScheme = candidateList [ "C\\old1", withQuick "q1" 99 (content "h1" 10L 1) ]
+        let missing = candidateList [ ("C\\old1", content "h1" 10L 1) ]
+        let otherScheme = candidateList [ ("C\\old1", withQuick "q1" 99 (content "h1" 10L 1)) ]
         Assert.True(Planning.needsFullHash missing "anything")
         Assert.True(Planning.needsFullHash otherScheme "q1")
 
@@ -78,9 +77,9 @@ module ``Move and rename detection`` =
     let ``File moved to a new folder`` () =
         let plan =
             resolve
-                [ "C\\old\\a.txt", regular "h1" 10L 1 ]
+                [ ("C\\old\\a.txt", regular "h1" 10L 1) ]
                 [ ScanEntry.File(file "C\\new\\a.txt" 10L 5) ]
-                [ "C\\new\\a.txt", "h1" ]
+                [ ("C\\new\\a.txt", "h1") ]
 
         match plan.Metadata with
         | [ MetadataOperation.Move move ] ->
@@ -111,7 +110,7 @@ module ``Move and rename detection`` =
             resolve
                 [ "C\\a", regular "h1" 10L 1; "C\\gone", regular "h2" 11L 1 ]
                 [ ScanEntry.File(file "C\\a" 11L 2) ]
-                [ "C\\a", "h2" ]
+                [ ("C\\a", "h2") ]
 
         match plan.Transfers with
         | [ { TransferKind = TransferKind.Changed(ValueSome superseded) } ] -> Assert.Equal("h1", ContentHash.value superseded)
@@ -124,7 +123,7 @@ module ``Move and rename detection`` =
     let ``Links are metadata and a replaced file's content is superseded`` () =
         let plan =
             resolve
-                [ "C\\f", regular "h1" 10L 1 ]
+                [ ("C\\f", regular "h1" 10L 1) ]
                 [ ScanEntry.Link(link "C\\f" (ValueSome "t")) ]
                 []
 
@@ -136,7 +135,7 @@ module ``Move and rename detection`` =
 
     [<Fact>]
     let ``Deleted links are not move candidates`` () =
-        let candidates = Planning.moveCandidates [ mirror "C\\l", TrackedState.Linked ValueNone ]
+        let candidates = Planning.moveCandidates [ (mirror "C\\l", TrackedState.Linked ValueNone) ]
         Assert.Equal(0, candidates.Count)
 
 module ``Properties of planning`` =
@@ -154,7 +153,7 @@ module ``Properties of planning`` =
     let private build (deleted, added, changedSizes) =
         let state =
             [ for i, (size, h) in List.indexed deleted -> $"C\\del{i}", regular $"h{h}" size 1
-              for i, size in List.indexed changedSizes -> $"C\\chg{i}", regular "hc" 100L 1 ]
+              for i, _ in List.indexed changedSizes -> $"C\\chg{i}", regular "hc" 100L 1 ]
 
         let scan =
             [ for i, (size, _) in List.indexed added -> ScanEntry.File(file $"C\\add{i}" size 2)
@@ -181,4 +180,4 @@ module ``Properties of planning`` =
     let ``plan totals equal the sum of transfer sizes`` () =
         Prop.forAll (Arb.fromGen scenario) (fun input ->
             let plan, _ = build input
-            plan.TotalBytes = (plan.Transfers |> List.sumBy (fun t -> t.Source.Size)))
+            plan.TotalBytes = (plan.Transfers |> List.sumBy _.Source.Size))

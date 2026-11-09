@@ -22,7 +22,7 @@ let findTargetRoot (manifestExists: string -> bool) (startDirectory: string) : s
         (fun directory ->
             directory
             |> Option.map (fun current ->
-                current, Directory.GetParent current |> Option.ofObj |> Option.map (fun parent -> parent.FullName)))
+                current, Directory.GetParent current |> Option.ofObj |> Option.map _.FullName))
         (Some start)
     |> Seq.tryFind (fun directory -> manifestExists (SqliteManifest.pathIn directory))
 

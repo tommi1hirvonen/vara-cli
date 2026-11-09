@@ -9,7 +9,6 @@ open Xunit
 open Vara.Cli
 open Vara.Cli.Tests.BackupCommandTests
 open Vara.Cli.Tests.HistoryCommandTests
-open Vara.Cli.Tests.PruneCommandTests
 open Vara.Domain
 open Vara.Engine
 
@@ -20,7 +19,8 @@ let private store (setup: Scratch) : StoreLayout = ContentStore.layout setup.Tar
 
 /// The blob of the oldest recorded version of a.txt: after later runs it is history only.
 let private firstBlob (setup: Scratch) : string =
-    let oldest = rowsOf setup |> List.filter (fun version -> MirrorPath.value version.Row.RowPath = keyOf setup "a.txt") |> List.minBy (fun version -> version.VersionId)
+    let oldest = rowsOf setup |> List.filter (fun version -> MirrorPath.value version.Row.RowPath = keyOf setup "a.txt") |> List.minBy
+                                                                                                                                _.VersionId
 
     match oldest.Row.Content with
     | RowContent.Regular content -> ContentStore.blobPath (store setup) content.Hash
@@ -44,7 +44,7 @@ let private twoVersions (setup: Scratch) : unit =
 
 /// The lines of a run's output that are progress.
 let private progressLines (result: Invocation) : string list =
-    result.Output.Split('\n') |> Array.map (fun line -> line.TrimEnd('\r')) |> Array.filter (fun line -> line.Contains "Files ") |> List.ofArray
+    result.Output.Split('\n') |> Array.map _.TrimEnd('\r') |> Array.filter (fun line -> line.Contains "Files ") |> List.ofArray
 
 module ``Check command verifies stored content against the manifest`` =
     [<Fact>]

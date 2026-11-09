@@ -313,7 +313,7 @@ module Display =
     /// The text of a table, drawn with a border: a header row, a rule, then the rows. Each column is as wide as its
     /// widest cell, and a right-aligned column lines its digits up.
     let tableLinesWith (glyphs: Glyphs) (table: Table) : string list =
-        let cells = table.Rows |> List.map (List.map (fun span -> span.Text))
+        let cells = table.Rows |> List.map (List.map _.Text)
 
         let widths =
             table.Columns
@@ -332,7 +332,7 @@ module Display =
             + glyphs.Vertical
 
         [ rule glyphs.TopLeft glyphs.TeeDown glyphs.TopRight
-          line (table.Columns |> List.map (fun column -> column.Header))
+          line (table.Columns |> List.map _.Header)
           rule glyphs.TeeRight glyphs.Cross glyphs.TeeLeft ]
         @ (cells |> List.map (fun row -> line (table.Columns |> List.mapi (fun index _ -> List.tryItem index row |> Option.defaultValue ""))))
         @ [ rule glyphs.BottomLeft glyphs.TeeUp glyphs.BottomRight ]
@@ -357,9 +357,9 @@ module Display =
         |> List.collect (fun line ->
             match line with
             | Line.Text(_, text) -> [ text ]
-            | Line.Row cells -> [ (cells |> List.map (fun cell -> cell.Text) |> String.concat "").TrimEnd() ]
+            | Line.Row cells -> [ (cells |> List.map _.Text |> String.concat "").TrimEnd() ]
             | Line.Bar bar -> [ (bar.Label + bar.Trailing).TrimEnd() ]
-            | Line.Spans spans -> [ spans |> List.map (fun span -> span.Text) |> String.concat "" ]
+            | Line.Spans spans -> [ spans |> List.map _.Text |> String.concat "" ]
             | Line.Table table -> tableLinesWith glyphs table
             | Line.Box(title, lines) -> boxLinesWith glyphs title (plainLinesWith glyphs lines))
 

@@ -19,7 +19,7 @@ let ``every event emitted by the workers is folded once the pool completes`` () 
 [<Fact>]
 let ``no item starts once a stop is requested`` () =
     task {
-        let struct (events, pool) = Flow.parallelEmit 4 (fun () -> true) (fun emit item -> emit item) [ 1..100 ]
+        let struct (events, pool) = Flow.parallelEmit 4 (fun () -> true) id [ 1..100 ]
         let! count = Flow.foldChannel (fun count _ -> count + 1) 0 events
         do! pool
         Assert.Equal(0, count)

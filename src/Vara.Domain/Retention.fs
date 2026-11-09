@@ -89,7 +89,7 @@ module Retention =
                 | SnapshotStatus.Complete
                 | SnapshotStatus.Failed
                 | SnapshotStatus.Cancelled -> not (keptIds.Contains snapshot.SnapshotId))
-            |> List.map (fun snapshot -> snapshot.SnapshotId)
+            |> List.map _.SnapshotId
             |> List.sort
 
         { Kept = keptIds; Eligible = eligible }

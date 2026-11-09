@@ -4,7 +4,6 @@
 /// build wrote is what existing users have, so the F# engine must read it as it is.
 module Vara.Engine.Tests.LegacyTarget
 
-open System
 open System.IO
 open Microsoft.Data.Sqlite
 open Vara.Domain

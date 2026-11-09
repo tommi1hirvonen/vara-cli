@@ -102,10 +102,10 @@ module Tracker =
                 TotalFiles = totalFiles
                 TransferStartedAt = ValueSome now }
         | BytesCopied delta ->
-            { tracker with Live = { tracker.Live with Bytes = tracker.Live.Bytes + max 0L delta } }
+            { tracker with Live.Bytes = tracker.Live.Bytes + max 0L delta }
         | FileStarted path -> { tracker with Active = path :: tracker.Active }
         | FileFinished path -> { tracker with Active = removeFirst path tracker.Active }
-        | FileTransferred -> { tracker with Live = { tracker.Live with Files = tracker.Live.Files + 1 } }
+        | FileTransferred -> { tracker with Live.Files = tracker.Live.Files + 1 }
         | WorkCredited bytes -> { tracker with Credited = tracker.Credited + max 0L bytes }
         | RunEnded outcome -> { tracker with Ended = ValueSome outcome }
 

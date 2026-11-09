@@ -313,7 +313,7 @@ module Execution =
                 Flow.parallelEmit
                     env.TransferConcurrency
                     (fun () -> env.ShouldStop() || stop.IsCancellationRequested || afterMetadata.Failure.IsSome)
-                    (fun emit transfer -> runTransfer env emit transfer)
+                    (runTransfer env)
                     plan.Transfers
 
             let! folding = Flow.attempt (Flow.foldChannel (onEvent env snapshotId recordedAt stop) afterMetadata events)

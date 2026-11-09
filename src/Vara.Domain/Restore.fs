@@ -130,7 +130,7 @@ module Restore =
         if not anyTracked then
             Error(HistoryError.NoSuchDirectory directory)
         else
-            let ordered = writes |> Seq.sortBy (fun write -> write.Destination) |> List.ofSeq
+            let ordered = writes |> Seq.sortBy _.Destination |> List.ofSeq
 
             Ok
                 { Writes = ordered
@@ -145,7 +145,7 @@ module Restore =
 
     /// Every destination the plan touches, to check each against the guard.
     let destinations (plan: RestorePlan) : string list =
-        (plan.Writes |> List.map (fun write -> write.Destination)) @ plan.Removals
+        (plan.Writes |> List.map _.Destination) @ plan.Removals
 
     let private canonical (path: string) : string =
         let full =

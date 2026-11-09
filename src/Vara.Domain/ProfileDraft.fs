@@ -83,13 +83,13 @@ module SourceDraft =
     let private listField (key: string) (values: string list) : (string * ConfigNode) list =
         match values with
         | [] -> []
-        | _ -> [ key, ConfigNode.Sequence(values |> List.map ConfigNode.Scalar) ]
+        | _ -> [ (key, ConfigNode.Sequence(values |> List.map ConfigNode.Scalar)) ]
 
     /// The tree the loader would read for this source. A path not set is a missing `path`, which the loader rejects.
     let toNode (source: SourceDraft) : ConfigNode =
         ConfigNode.Mapping(
             (source.SourcePath |> Option.map (fun path -> "path", ConfigNode.Scalar path) |> Option.toList)
-            @ [ "recursive", ConfigNode.Scalar(if source.IsRecursive then "true" else "false") ]
+            @ [ ("recursive", ConfigNode.Scalar(if source.IsRecursive then "true" else "false")) ]
             @ listField "exclude" source.ExcludeEntries
             @ listField "include_globs" source.IncludeGlobEntries
             @ listField "exclude_globs" source.ExcludeGlobEntries
@@ -187,7 +187,7 @@ module ProfileDraft =
         ConfigNode.Mapping(
             scalar "name" draft.EnteredName
             @ scalar "target" draft.EnteredTarget
-            @ [ "sources", ConfigNode.Sequence(draft.DraftSources |> List.map SourceDraft.toNode) ]
+            @ [ ("sources", ConfigNode.Sequence(draft.DraftSources |> List.map SourceDraft.toNode)) ]
             @ retention
             @ concurrency
         )

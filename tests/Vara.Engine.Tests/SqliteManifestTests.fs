@@ -1,7 +1,6 @@
 module Vara.Engine.Tests.SqliteManifestTests
 
 open System
-open System.Collections.Generic
 open System.IO
 open Microsoft.Data.Sqlite
 open Xunit
@@ -193,7 +192,7 @@ module ``Manifest compatibility`` =
             createLegacy path
             SqliteManifest.close (SqliteManifest.openAt path true)
             let recorded = Corpus.read "manifest" "legacy-migration.txt"
-            Corpus.assertSame [ "legacy migration", recorded, String.Join("\n", dumpRows path) ]
+            Corpus.assertSame [ ("legacy migration", recorded, String.Join("\n", dumpRows path)) ]
             Assert.Equal(3, List.length (dumpRows path))
 
             // The migrated table is case-insensitive: it now lists the casings as one path.

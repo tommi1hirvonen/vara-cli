@@ -40,7 +40,7 @@ let private foldAll (completions: Completion list) : RunState * ManifestRow list
 
     state, rows
 
-let private kinds (rows: ManifestRow list) : ChangeKind list = rows |> List.map (fun r -> r.Kind)
+let private kinds (rows: ManifestRow list) : ChangeKind list = rows |> List.map _.Kind
 
 module ``Applying completed operations`` =
     [<Fact>]
@@ -96,7 +96,7 @@ module ``Applying completed operations`` =
         Assert.Equal(2, state.Counts.FilesFailed)
         Assert.Equal<string list>([ "C\\y"; "C\\x" ], state.FailedPaths |> List.map MirrorPath.value)
 
-module ``Checkpoints`` =
+module Checkpoints =
     [<Fact>]
     let ``A checkpoint is due once the interval has elapsed`` () =
         let state = Run.initial (at 0)
@@ -213,7 +213,7 @@ module ``Dry-run mode`` =
 
     [<Fact>]
     let ``No changes pending`` () =
-        let summary = summarize [ "C\a", regular "h" 1L 1 ] [ ScanEntry.File(file "C\a" 1L 1) ]
+        let summary = summarize [ ("C\a", regular "h" 1L 1) ] [ ScanEntry.File(file "C\a" 1L 1) ]
         Assert.Equal(0, summary.Added + summary.Changed + summary.Moved + summary.Deleted)
         Assert.Equal(0L, summary.PlannedBytes)
         Assert.Empty summary.Unscanned

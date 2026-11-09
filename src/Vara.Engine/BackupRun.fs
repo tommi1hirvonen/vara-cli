@@ -2,7 +2,6 @@ namespace Vara.Engine
 
 open System
 open System.IO
-open System.Runtime.ExceptionServices
 open System.Threading.Tasks
 open Vara.Domain
 
@@ -34,12 +33,12 @@ module BackupRun =
     let private defaultTransferConcurrency = 1
 
     let private scanConcurrency (profile: Profile) : int =
-        match Profile.concurrency profile |> Option.bind (fun c -> c.Scan) with
+        match Profile.concurrency profile |> Option.bind _.Scan with
         | Some limit -> ConcurrencyLimit.value limit
         | None -> Environment.ProcessorCount
 
     let private transferConcurrency (profile: Profile) : int =
-        match Profile.concurrency profile |> Option.bind (fun c -> c.Transfer) with
+        match Profile.concurrency profile |> Option.bind _.Transfer with
         | Some limit -> ConcurrencyLimit.value limit
         | None -> defaultTransferConcurrency
 

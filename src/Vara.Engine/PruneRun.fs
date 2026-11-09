@@ -86,7 +86,7 @@ module PruneRun =
               Stopped = true }
         else
             let snapshots = SqliteManifest.snapshots handle
-            let existing = snapshots |> List.map (fun snapshot -> snapshot.SnapshotId) |> Set.ofList
+            let existing = snapshots |> List.map _.SnapshotId |> Set.ofList
             let decision = Retention.evaluate policy snapshots
             let ids = Prune.snapshotsToRemove decision.Eligible confirmed existing
             let snapshotsRemoved = SqliteManifest.removeSnapshots handle ids

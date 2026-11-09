@@ -2,7 +2,6 @@
 /// after a scenario of openspec/specs/profile-management/spec.md and sits in a module named after its requirement.
 module Vara.Domain.Tests.ProfileEditorTests
 
-open System
 open System.Globalization
 open Xunit
 open Vara.Domain
@@ -378,7 +377,7 @@ module ``Main menu lists profiles and top-level actions`` =
         // The choices are the profiles, then the actions.
         match ProfileEditorView.ask (ProfileEditor.start [ docs; photos ]) with
         | Some(Question.Choose(_, choices)) ->
-            let labels = choices |> List.map (fun (spans, _) -> spans |> List.map (fun span -> span.Text) |> String.concat "")
+            let labels = choices |> List.map (fun (spans, _) -> spans |> List.map _.Text |> String.concat "")
             Assert.Equal<string list>(
                 [ @"docs - C:\backup\docs (1 source(s))"
                   @"photos - C:\backup\photos (2 source(s))"
@@ -519,7 +518,7 @@ module ``Save persists only a fully valid draft`` =
             Assert.False (Profile.sources written |> List.head).Recursive
             Assert.Equal<string list>([ "*.tmp" ], (Profile.sources written |> List.head).ExcludeGlobs)
             Assert.Equal(3, Profile.retention written |> Option.map (fun policy -> RetentionCount.value policy.KeepDaily) |> Option.defaultValue -1)
-            Assert.Equal(Some 2, Profile.concurrency written |> Option.bind (fun settings -> settings.Scan) |> Option.map ConcurrencyLimit.value)
+            Assert.Equal(Some 2, Profile.concurrency written |> Option.bind _.Scan |> Option.map ConcurrencyLimit.value)
         | other -> failwith $"unexpected {other}"
 
     [<Fact>]

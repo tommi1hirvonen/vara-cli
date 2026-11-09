@@ -53,7 +53,7 @@ let private firstHashOf (setup: Setup) (name: string) : ContentHash =
 let private blobOf (setup: Setup) (hash: ContentHash) : string = ContentStore.blobPath (store setup) hash
 
 let private snapshotIds (setup: Setup) : int64 list =
-    reader setup (fun handle -> SqliteManifest.snapshots handle |> List.map (fun snapshot -> snapshot.SnapshotId) |> List.sort)
+    reader setup (fun handle -> SqliteManifest.snapshots handle |> List.map _.SnapshotId |> List.sort)
 
 /// Writes the file again with new content and runs the backup: one more snapshot, with the old content now history.
 let private revise (setup: Setup) (name: string) (text: string) (profile: Profile) : unit =
@@ -76,10 +76,10 @@ let private overwrite (path: string) (text: string) : unit =
     File.WriteAllText(path, text)
 
 let private pruneEnv (setup: Setup) (shouldStop: unit -> bool) (events: ResizeArray<ProgressEvent>) : PruneEnv =
-    PruneRun.live (store setup) shouldStop (fun event -> events.Add event)
+    PruneRun.live (store setup) shouldStop events.Add
 
 let private checkEnv (setup: Setup) (shouldStop: unit -> bool) (events: ResizeArray<ProgressEvent>) : CheckEnv =
-    CheckRun.live (store setup) shouldStop (fun event -> events.Add event)
+    CheckRun.live (store setup) shouldStop events.Add
 
 let private checkOf (setup: Setup) (quick: bool) : CheckResult =
     reader setup (fun handle -> CheckRun.execute (checkEnv setup (fun () -> false) (ResizeArray())) (store setup) handle quick)
@@ -130,7 +130,7 @@ module ``Manifest queries and the prune writer`` =
             Assert.Contains(rows, fun row -> row.EndsWith "|Deleted")
             Assert.Contains(rows, fun row -> row.Contains "kept.txt")
             Assert.DoesNotContain(rows, fun row -> row.Contains "gone.txt" && row.EndsWith "|Added")
-            ignore path)
+            path)
 
     [<Fact>]
     let ``referenced hashes and sizes are read, with the paths that use them`` () =
@@ -201,7 +201,7 @@ module ``Content store listing and deletion`` =
             let hash = hashOf setup "a.txt"
             Assert.Equal<Set<ContentHash>>(set [ hash ], ContentStore.storedHashes (store setup))
             // The blob is a hard link target of the mirror entry, so it is read-only.
-            Assert.True((File.GetAttributes(blobOf setup hash)).HasFlag FileAttributes.ReadOnly)
+            Assert.True(File.GetAttributes(blobOf setup hash).HasFlag FileAttributes.ReadOnly)
             ContentStore.deleteBlob (store setup) hash
             Assert.False(File.Exists(blobOf setup hash))
             // Deleting what is not there is not an error.
@@ -234,7 +234,7 @@ module ``Unreferenced content garbage collection`` =
             let first = firstHashOf setup "a.txt"
             let latest = hashOf setup "a.txt"
             // Older content is protected read-only after the mirror moved on: the prune still removes it.
-            Assert.True((File.GetAttributes(blobOf setup first)).HasFlag FileAttributes.ReadOnly)
+            Assert.True(File.GetAttributes(blobOf setup first).HasFlag FileAttributes.ReadOnly)
             let events = ResizeArray()
             let result = writer setup (fun handle -> PruneRun.execute (pruneEnv setup (fun () -> false) events) (store setup) handle keepNothing ValueNone)
             Assert.Equal(2, result.BlobsRemoved)

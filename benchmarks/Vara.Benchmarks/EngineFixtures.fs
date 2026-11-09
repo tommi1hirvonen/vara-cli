@@ -55,7 +55,7 @@ let prepareExecutor (sourceRoot: string) (targetRoot: string) (fileCount: int) (
       Plan =
         { Metadata = []
           Transfers = transfers
-          TotalBytes = transfers |> List.sumBy (fun transfer -> transfer.Source.Size) } }
+          TotalBytes = transfers |> List.sumBy _.Source.Size } }
 
 let execute (fixture: ExecutorFixture) : Task<ExecutionEnd> =
     Execution.run fixture.Env fixture.SnapshotId fixture.RecordedAt fixture.Batch fixture.Plan

@@ -7,7 +7,6 @@ open System.Diagnostics
 open System.IO
 open Xunit
 open Vara.Domain
-open Vara.Engine
 open Vara.Engine.Tests
 open Vara.Engine.Tests.BackupRunTests
 
@@ -144,8 +143,8 @@ module ``Symlinks and junctions are not followed`` =
             let key = mirrorKey setup "item"
             let rows = query setup $"SELECT change_kind, ifnull(content_hash,'~'), ifnull(link_target,'~') FROM file_versions WHERE relative_path = '{key}' ORDER BY id"
             Assert.Equal(2, List.length rows)
-            Assert.StartsWith("Linked|~|", rows.[1])
-            Assert.Contains("outside", rows.[1]))
+            Assert.StartsWith("Linked|~|", rows[1])
+            Assert.Contains("outside", rows[1]))
 
     [<Fact>]
     let ``Symlink present across multiple runs`` () =

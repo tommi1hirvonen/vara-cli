@@ -71,7 +71,7 @@ let private add (path: string) (length: int64) : ScannedFile =
 let private candidates (entries: (MirrorPath * FileContent) list) : MoveCandidates =
     let map = MoveCandidates()
 
-    for (path, content) as entry in entries do
+    for _, content as entry in entries do
         map[content.Size] <- (match map.TryGetValue content.Size with
                               | true, existing -> existing @ [ entry ]
                               | false, _ -> [ entry ])

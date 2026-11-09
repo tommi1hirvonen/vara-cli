@@ -20,7 +20,7 @@ let private compareArea (area: string) (cases: Case list) : unit =
 /// A recorded file for every case, and no recorded file without a case.
 let private assertRecorded (area: string) (cases: Case list) : unit =
     let recorded = Corpus.names area |> List.map Path.GetFileNameWithoutExtension |> List.sort
-    Assert.Equal<string list>(cases |> List.map (fun case -> case.Name) |> List.sort, recorded)
+    Assert.Equal<string list>(cases |> List.map _.Name |> List.sort, recorded)
 
 [<Fact>]
 let ``the built F# command exists`` () = Assert.True(File.Exists fsharpDll)

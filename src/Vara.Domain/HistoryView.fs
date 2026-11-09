@@ -71,7 +71,7 @@ module HistoryView =
         | _ ->
             let rows =
                 snapshots
-                |> List.sortByDescending (fun snapshot -> snapshot.SnapshotId)
+                |> List.sortByDescending _.SnapshotId
                 |> List.map (fun snapshot ->
                     [ plain (snapshot.SnapshotId.ToString(CultureInfo.InvariantCulture))
                       plain (timestamp snapshot.StartedAt)
@@ -262,7 +262,7 @@ module HistoryView =
                 |> List.countBy (fun directory -> (ancestorAtDepth scope limit directory.DirectoryPath).ToLowerInvariant())
                 |> Map.ofList
 
-        let shown = visible |> List.map (fun directory -> directory.DirectoryPath.ToLowerInvariant()) |> Set.ofList
+        let shown = visible |> List.map _.DirectoryPath.ToLowerInvariant() |> Set.ofList
 
         let childrenOf (path: string) : RollupDirectory list =
             visible
@@ -270,7 +270,7 @@ module HistoryView =
                 not (String.Equals(directory.DirectoryPath, scope, StringComparison.OrdinalIgnoreCase))
                 && String.Equals(parentOf directory.DirectoryPath, path, StringComparison.OrdinalIgnoreCase)
                 && shown.Contains(directory.DirectoryPath.ToLowerInvariant()))
-            |> List.sortBy (fun directory -> directory.DirectoryPath.ToLowerInvariant())
+            |> List.sortBy _.DirectoryPath.ToLowerInvariant()
 
         let fileText (file: FileVersion) : string =
             let name = nameOf (MirrorPath.value file.Row.RowPath)

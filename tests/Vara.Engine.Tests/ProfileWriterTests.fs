@@ -7,7 +7,6 @@ open System
 open System.Diagnostics
 open System.IO
 open Xunit
-open FsCheck
 open FsCheck.FSharp
 open FsCheck.Xunit
 open Vara.Domain
@@ -34,7 +33,7 @@ let everything: Profile =
                           "exclude", ConfigNode.Sequence [ ConfigNode.Scalar "tmp"; ConfigNode.Scalar "a b" ]
                           "include_globs", ConfigNode.Sequence [ ConfigNode.Scalar "**/*.md" ]
                           "exclude_globs", ConfigNode.Sequence [ ConfigNode.Scalar "*.bak" ] ]
-                    ConfigNode.Mapping [ "path", ConfigNode.Scalar @"C:\data\two" ] ]
+                    ConfigNode.Mapping [ ("path", ConfigNode.Scalar @"C:\data\two") ] ]
               "retention",
               ConfigNode.Mapping
                   [ "keep_daily", ConfigNode.Scalar "7"

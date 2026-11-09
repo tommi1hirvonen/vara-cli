@@ -36,7 +36,7 @@ let ``the F# loader reports a missing file with the recorded message`` () =
     ConfigurationTests.withScratch (fun directory ->
         let missing = Path.Combine(directory, "missing", "profiles.yml")
         let actual = ProfileDescription.loadText missing
-        Corpus.assertSame [ "missing-file", Corpus.read area "missing-file.expected", actual ])
+        Corpus.assertSame [ ("missing-file", Corpus.read area "missing-file.expected", actual) ])
 
 [<Fact>]
 let ``the loader corpus keeps all its cases and exercises both successes and errors`` () =

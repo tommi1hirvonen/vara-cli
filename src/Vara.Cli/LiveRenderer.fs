@@ -71,7 +71,7 @@ let private tableOf (table: Table) : IRenderable =
 let rec private renderLine (frame: int) (line: Line) : IRenderable =
     match line with
     | Line.Bar bar -> barLine frame bar
-    | Line.Row cells -> Paragraph(cells |> List.map (fun cell -> cell.Text) |> String.concat "", Style.Plain) :> IRenderable
+    | Line.Row cells -> Paragraph(cells |> List.map _.Text |> String.concat "", Style.Plain) :> IRenderable
     | Line.Text(tone, text) -> Text(text, Terminal.styleOfTone tone) :> IRenderable
     | Line.Spans spans -> spansLine spans
     | Line.Table table -> tableOf table

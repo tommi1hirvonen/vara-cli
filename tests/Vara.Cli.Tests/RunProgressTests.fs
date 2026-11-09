@@ -4,7 +4,6 @@ module Vara.Cli.Tests.RunProgressTests
 
 open System
 open System.Threading.Tasks
-open Spectre.Console
 open Spectre.Console.Testing
 open Xunit
 open Vara.Cli

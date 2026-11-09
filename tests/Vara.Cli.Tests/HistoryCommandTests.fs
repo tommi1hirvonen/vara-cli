@@ -82,7 +82,7 @@ let snapshotsOf (setup: Scratch) : SnapshotInfo list =
     let handle = SqliteManifest.openReadOnly (databaseOf setup)
 
     try
-        SqliteManifest.snapshots handle |> List.sortBy (fun snapshot -> snapshot.SnapshotId)
+        SqliteManifest.snapshots handle |> List.sortBy _.SnapshotId
     finally
         SqliteManifest.close handle
 
@@ -96,7 +96,7 @@ let betweenFirstTwo (setup: Scratch) : string =
 let versionIds (setup: Scratch) (name: string) : int64 list =
     rowsOf setup
     |> List.filter (fun version -> String.Equals(MirrorPath.value version.Row.RowPath, keyOf setup name, StringComparison.OrdinalIgnoreCase))
-    |> List.map (fun version -> version.VersionId)
+    |> List.map _.VersionId
     |> List.sort
 
 let private pause () : unit = Thread.Sleep 30
@@ -212,7 +212,7 @@ module ``List snapshots`` =
             // The command's live output is coloured per status: the failed row carries the error colour's sequence.
             let live (env: CliEnv) = { env with Console = console; Capabilities = liveCapabilities }
             let result = invokeEnv live CancellationToken.None [| "snapshots"; "docs"; "--config"; setup.Config |]
-            let text = (console.Output)
+            let text = console.Output
             Assert.True(text.Contains(char 27))
             Assert.Contains("Failed", text)
             Assert.Equal(0, result.ExitCode))

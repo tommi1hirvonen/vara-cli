@@ -9,7 +9,6 @@ open System.IO
 open System.Text.Json.Nodes
 open System.Text.RegularExpressions
 open Vara.Cli.Tests.BackupCommandTests
-open Vara.Testing.Anonymize
 
 /// A case of the process corpus: the file name it is recorded under (without the extension) and its observation.
 type Case =

@@ -2,7 +2,6 @@
 module Vara.Engine.Tests.BackupRunTests
 
 open System
-open System.Collections.Generic
 open System.Diagnostics
 open System.IO
 open System.Threading
@@ -204,7 +203,7 @@ module ``Concurrent run prevention`` =
                 | Error(BackupRefusal.RunLockAccessDenied target) ->
                     Assert.Equal(absolute setup.TargetDir, target)
                     Assert.Contains("permission problem", BackupRefusal.render (BackupRefusal.RunLockAccessDenied target))
-                | other -> Assert.Fail "expected a lock access refusal"
+                | _ -> Assert.Fail "expected a lock access refusal"
             finally
                 restoreAccess lockFile)
 
@@ -225,7 +224,7 @@ module ``Original failure cause is preserved when failure recording itself fails
             let env =
                 { quiet with
                     OpenRead =
-                        fun path ->
+                        fun _ ->
                             broken.Value <- true
                             raise (InvalidOperationException "the original failure")
                     Clock =
@@ -234,7 +233,7 @@ module ``Original failure cause is preserved when failure recording itself fails
                                 raise (InvalidOperationException "recording failed")
 
                             DateTimeOffset.UtcNow
-                    Diagnostics = fun message -> diagnostics.Add message }
+                    Diagnostics = diagnostics.Add }
 
             let thrown = Assert.ThrowsAny<Exception>(fun () -> runWith env profile |> ignore)
 
@@ -387,7 +386,7 @@ module ``Dry-run mode reports planned changes without executing them`` =
 
 module ``Configurable backup-stage concurrency`` =
     /// Runs the profile with a slow, observed read and returns the most reads that were open at once.
-    let private peakReads (setup: Setup) (profile: Profile) : int =
+    let private peakReads (_: Setup) (profile: Profile) : int =
         let active = ref 0
         let peak = ref 0
 

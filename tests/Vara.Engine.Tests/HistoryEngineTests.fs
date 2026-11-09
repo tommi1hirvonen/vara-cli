@@ -139,7 +139,7 @@ module ``Manifest queries`` =
             runOk quiet profile |> ignore
 
             withManifest setup (fun handle ->
-                let ids = SqliteManifest.snapshots handle |> List.map (fun snapshot -> snapshot.SnapshotId)
+                let ids = SqliteManifest.snapshots handle |> List.map _.SnapshotId
                 Assert.Equal<int64 list>(ids |> List.sortDescending, ids)
                 Assert.Equal(2, ids.Length)))
 
@@ -158,7 +158,7 @@ module ``Manifest queries`` =
 
                 Assert.Equal<ChangeKind list>(
                     [ ChangeKind.Moved; ChangeKind.Deleted; ChangeKind.Added ],
-                    history |> List.map (fun version -> version.Row.Kind)
+                    history |> List.map _.Row.Kind
                 )))
 
     [<Fact>]
@@ -256,7 +256,7 @@ module ``Restore writes are atomic`` =
             let result = RestoreRun.execute failing (planFor setup "a.txt" destination)
 
             Assert.Equal(0, result.Written)
-            Assert.Equal<string list>([ destination ], result.Failed |> List.map (fun failure -> failure.Destination))
+            Assert.Equal<string list>([ destination ], result.Failed |> List.map _.Destination)
             Assert.Contains("The disk failed", result.Failed.Head.Reason)
             Assert.Equal("original", File.ReadAllText destination)
             Assert.Equal<string list>([ destination ], Directory.GetFiles(Path.GetDirectoryName destination |> nonNull) |> List.ofArray))

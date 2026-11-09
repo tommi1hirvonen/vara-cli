@@ -1,6 +1,5 @@
 namespace Vara.Benchmarks
 
-open System
 open System.IO
 open System.Threading.Tasks
 open BenchmarkDotNet.Attributes
@@ -55,7 +54,7 @@ type BackupExecutorBenchmarks() =
     member private _.CloseIteration() : unit =
         match fixture with
         | Some current ->
-            EngineFixtures.closeExecutor current ValueNone
+            closeExecutor current ValueNone
             fixture <- None
         | None -> ()
 
@@ -63,7 +62,7 @@ type BackupExecutorBenchmarks() =
     member this.SetupIteration() : unit =
         this.CloseIteration()
         this.ResetTarget()
-        fixture <- Some(EngineFixtures.prepareExecutor this.SourceRoot this.TargetRoot this.FileCount this.TransferConcurrency)
+        fixture <- Some(prepareExecutor this.SourceRoot this.TargetRoot this.FileCount this.TransferConcurrency)
 
     [<IterationCleanup>]
     member this.CleanupIteration() : unit = this.CloseIteration()
@@ -74,7 +73,7 @@ type BackupExecutorBenchmarks() =
         this.CleanupWorkspace()
 
     [<Benchmark>]
-    member _.ExecuteTransfers() : Task<ExecutionEnd> = EngineFixtures.execute fixture.Value
+    member _.ExecuteTransfers() : Task<ExecutionEnd> = execute fixture.Value
 
 /// A first backup of an all-added source tree with the real scanner, planner, executor, content store, run lock and SQLite
 /// manifest.
@@ -86,7 +85,7 @@ type BackupPipelineBenchmarks() =
     [<GlobalSetup>]
     member this.Setup() : unit =
         this.CreateSourceFixture()
-        profile <- Some(EngineFixtures.profileOf this.SourceRoot this.TargetRoot)
+        profile <- Some(profileOf this.SourceRoot this.TargetRoot)
 
     [<IterationSetup>]
     member this.SetupIteration() : unit = this.ResetTarget()
@@ -95,4 +94,4 @@ type BackupPipelineBenchmarks() =
     member this.Cleanup() : unit = this.CleanupWorkspace()
 
     [<Benchmark>]
-    member _.RunFirstBackup() : Task<int> = EngineFixtures.runFirstBackup profile.Value
+    member _.RunFirstBackup() : Task<int> = runFirstBackup profile.Value
