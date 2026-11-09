@@ -2,23 +2,23 @@
 
   <ItemGroup>
     <Compile Include="HostTests.fs" />
-    <Compile Include="BackupCommandTests.fs" />
-    <Compile Include="PresentationCommandTests.fs" />
-    <Compile Include="RunProgressTests.fs" />
-    <Compile Include="RestorePresentationTests.fs" />
-    <Compile Include="HistoryCommandTests.fs" />
-    <Compile Include="ShowDiffCommandTests.fs" />
-    <Compile Include="BrowsingCommandTests.fs" />
-    <Compile Include="RestoreCommandTests.fs" />
-    <Compile Include="PruneCommandTests.fs" />
-    <Compile Include="CheckCommandTests.fs" />
-    <Compile Include="ProfilesCommandTests.fs" />
-    <Compile Include="PortableDistributionTests.fs" />
-    <Compile Include="ProcessCorpus.fs" />
-    <Compile Include="BackupCorpus.fs" />
-    <Compile Include="HistoryCorpus.fs" />
-    <Compile Include="MaintenanceCorpus.fs" />
-    <Compile Include="ProcessCorpusTests.fs" />
+    <Compile Include="Commands\BackupCommandTests.fs" />
+    <Compile Include="Commands\HistoryCommandTests.fs" />
+    <Compile Include="Commands\ShowDiffCommandTests.fs" />
+    <Compile Include="Commands\BrowsingCommandTests.fs" />
+    <Compile Include="Commands\RestoreCommandTests.fs" />
+    <Compile Include="Commands\PruneCommandTests.fs" />
+    <Compile Include="Commands\CheckCommandTests.fs" />
+    <Compile Include="Commands\ProfilesCommandTests.fs" />
+    <Compile Include="Output\PresentationCommandTests.fs" />
+    <Compile Include="Output\RunProgressTests.fs" />
+    <Compile Include="Output\RestorePresentationTests.fs" />
+    <Compile Include="Process\PortableDistributionTests.fs" />
+    <Compile Include="Process\ProcessCorpus.fs" />
+    <Compile Include="Process\BackupCorpus.fs" />
+    <Compile Include="Process\HistoryCorpus.fs" />
+    <Compile Include="Process\MaintenanceCorpus.fs" />
+    <Compile Include="Process\ProcessCorpusTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

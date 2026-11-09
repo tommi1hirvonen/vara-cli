@@ -6,24 +6,24 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="Flow.fs" />
-    <Compile Include="Kernel32.fs" />
-    <Compile Include="Streams.fs" />
-    <Compile Include="Hashing.fs" />
-    <Compile Include="ContentStore.fs" />
-    <Compile Include="SqliteManifest.fs" />
-    <Compile Include="Scanner.fs" />
-    <Compile Include="Signatures.fs" />
-    <Compile Include="Execution.fs" />
-    <Compile Include="RunLock.fs" />
-    <Compile Include="RestoreRun.fs" />
-    <Compile Include="PruneRun.fs" />
-    <Compile Include="CheckRun.fs" />
-    <Compile Include="PowerRequest.fs" />
-    <Compile Include="BackupRun.fs" />
-    <Compile Include="YamlConfig.fs" />
-    <Compile Include="ConfigFile.fs" />
-    <Compile Include="ProfileResolution.fs" />
+    <Compile Include="Foundation\Flow.fs" />
+    <Compile Include="Foundation\Kernel32.fs" />
+    <Compile Include="Foundation\Streams.fs" />
+    <Compile Include="Foundation\Hashing.fs" />
+    <Compile Include="Storage\ContentStore.fs" />
+    <Compile Include="Storage\SqliteManifest.fs" />
+    <Compile Include="Runs\Scanner.fs" />
+    <Compile Include="Runs\Signatures.fs" />
+    <Compile Include="Runs\Execution.fs" />
+    <Compile Include="Runs\RunLock.fs" />
+    <Compile Include="Runs\RestoreRun.fs" />
+    <Compile Include="Runs\PruneRun.fs" />
+    <Compile Include="Runs\CheckRun.fs" />
+    <Compile Include="Runs\PowerRequest.fs" />
+    <Compile Include="Runs\BackupRun.fs" />
+    <Compile Include="Config\YamlConfig.fs" />
+    <Compile Include="Config\ConfigFile.fs" />
+    <Compile Include="Config\ProfileResolution.fs" />
   </ItemGroup>
 
   <ItemGroup>

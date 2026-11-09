@@ -1,24 +1,24 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <Compile Include="OutcomeTests.fs" />
-    <Compile Include="ResultTests.fs" />
-    <Compile Include="ConfigErrorTests.fs" />
-    <Compile Include="ProfileValidationTests.fs" />
-    <Compile Include="ProfilePropertyTests.fs" />
-    <Compile Include="ProfileEditorTests.fs" />
-    <Compile Include="ProfileEditorPropertyTests.fs" />
+    <Compile Include="Foundation\OutcomeTests.fs" />
+    <Compile Include="Foundation\ResultTests.fs" />
+    <Compile Include="Profiles\ConfigErrorTests.fs" />
+    <Compile Include="Profiles\ProfileValidationTests.fs" />
+    <Compile Include="Profiles\ProfilePropertyTests.fs" />
+    <Compile Include="Profiles\ProfileEditorTests.fs" />
+    <Compile Include="Profiles\ProfileEditorPropertyTests.fs" />
     <Compile Include="Fixtures.fs" />
-    <Compile Include="ScanRulesTests.fs" />
-    <Compile Include="DiffTests.fs" />
-    <Compile Include="PlanningTests.fs" />
-    <Compile Include="RunTests.fs" />
-    <Compile Include="ProgressTests.fs" />
-    <Compile Include="PresentationTests.fs" />
-    <Compile Include="HistoryTests.fs" />
-    <Compile Include="RetentionTests.fs" />
-    <Compile Include="IntegrityTests.fs" />
-    <Compile Include="CountProgressTests.fs" />
+    <Compile Include="Backup\ScanRulesTests.fs" />
+    <Compile Include="Backup\DiffTests.fs" />
+    <Compile Include="Backup\PlanningTests.fs" />
+    <Compile Include="Backup\RunTests.fs" />
+    <Compile Include="Backup\ProgressTests.fs" />
+    <Compile Include="Snapshots\HistoryTests.fs" />
+    <Compile Include="Snapshots\RetentionTests.fs" />
+    <Compile Include="Snapshots\IntegrityTests.fs" />
+    <Compile Include="Presentation\PresentationTests.fs" />
+    <Compile Include="Presentation\CountProgressTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -3,26 +3,26 @@
   <ItemGroup>
     <Compile Include="TempDir.fs" />
     <Compile Include="ProfileDescription.fs" />
-    <Compile Include="FlowTests.fs" />
-    <Compile Include="InteropTests.fs" />
-    <Compile Include="ContentStoreTests.fs" />
-    <Compile Include="SqliteManifestTests.fs" />
-    <Compile Include="ScannerTests.fs" />
-    <Compile Include="SignatureTests.fs" />
-    <Compile Include="PowerRequestTests.fs" />
-    <Compile Include="ExecutionTests.fs" />
-    <Compile Include="BackupRunTests.fs" />
-    <Compile Include="BackupScenarioTests.fs" />
-    <Compile Include="ConfigurationTests.fs" />
-    <Compile Include="ProfileWriterTests.fs" />
-    <Compile Include="HistoryEngineTests.fs" />
-    <Compile Include="MaintenanceEngineTests.fs" />
-    <Compile Include="EngineScenarios.fs" />
-    <Compile Include="LegacyTarget.fs" />
-    <Compile Include="EngineCorpusTests.fs" />
-    <Compile Include="LoaderCorpusTests.fs" />
-    <Compile Include="RetentionCorpusTests.fs" />
-    <Compile Include="WriterCorpusTests.fs" />
+    <Compile Include="Foundation\FlowTests.fs" />
+    <Compile Include="Foundation\InteropTests.fs" />
+    <Compile Include="Storage\ContentStoreTests.fs" />
+    <Compile Include="Storage\SqliteManifestTests.fs" />
+    <Compile Include="Runs\ScannerTests.fs" />
+    <Compile Include="Runs\SignatureTests.fs" />
+    <Compile Include="Runs\PowerRequestTests.fs" />
+    <Compile Include="Runs\ExecutionTests.fs" />
+    <Compile Include="Runs\BackupRunTests.fs" />
+    <Compile Include="Runs\BackupScenarioTests.fs" />
+    <Compile Include="Runs\HistoryEngineTests.fs" />
+    <Compile Include="Runs\MaintenanceEngineTests.fs" />
+    <Compile Include="Config\ConfigurationTests.fs" />
+    <Compile Include="Config\ProfileWriterTests.fs" />
+    <Compile Include="Scenarios\EngineScenarios.fs" />
+    <Compile Include="Scenarios\LegacyTarget.fs" />
+    <Compile Include="Scenarios\EngineCorpusTests.fs" />
+    <Compile Include="Scenarios\LoaderCorpusTests.fs" />
+    <Compile Include="Scenarios\RetentionCorpusTests.fs" />
+    <Compile Include="Scenarios\WriterCorpusTests.fs" />
     <Compile Include="SpecCoverageTests.fs" />
   </ItemGroup>
 
