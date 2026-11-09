@@ -17,6 +17,8 @@
     <Compile Include="Execution.fs" />
     <Compile Include="RunLock.fs" />
     <Compile Include="RestoreRun.fs" />
+    <Compile Include="PruneRun.fs" />
+    <Compile Include="CheckRun.fs" />
     <Compile Include="PowerRequest.fs" />
     <Compile Include="BackupRun.fs" />
     <Compile Include="YamlConfig.fs" />

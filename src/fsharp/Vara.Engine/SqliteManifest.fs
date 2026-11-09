@@ -489,6 +489,98 @@ module SqliteManifest =
             addText command "$prefix" prefix
             not (isNull (command.ExecuteScalar()))
 
+    // ---- Queries and the writer of prune and check ---------------------------------------------------------------
+    // The queries decide nothing; the writer is the one place a command other than a backup changes the manifest.
+
+    /// Every content hash that some row references, link rows (which have none) excluded.
+    let referencedHashes (handle: ManifestHandle) : Set<ContentHash> =
+        match handle.Connection with
+        | ValueNone -> Set.empty
+        | ValueSome connection ->
+            use command = connection.CreateCommand()
+            command.CommandText <- "SELECT DISTINCT content_hash FROM file_versions WHERE content_hash IS NOT NULL"
+            use reader = command.ExecuteReader()
+
+            [ while reader.Read() do
+                  match ContentHash.tryCreate (reader.GetString 0) with
+                  | ValueSome hash -> yield hash
+                  | ValueNone -> () ]
+            |> Set.ofList
+
+    /// Each referenced content hash with the largest size recorded for it, by hash. Link rows have no hash and are
+    /// not included, so a link is never a blob to verify.
+    let referencedSizes (handle: ManifestHandle) : (ContentHash * int64) list =
+        match handle.Connection with
+        | ValueNone -> []
+        | ValueSome connection ->
+            use command = connection.CreateCommand()
+
+            command.CommandText <-
+                "SELECT content_hash, MAX(size) FROM file_versions WHERE content_hash IS NOT NULL GROUP BY content_hash ORDER BY content_hash"
+
+            use reader = command.ExecuteReader()
+
+            [ while reader.Read() do
+                  match ContentHash.tryCreate (reader.GetString 0) with
+                  | ValueSome hash -> yield hash, reader.GetInt64 1
+                  | ValueNone -> () ]
+
+    /// The distinct paths that some row records with this content, by path.
+    let pathsForHash (handle: ManifestHandle) (hash: ContentHash) : string list =
+        match handle.Connection with
+        | ValueNone -> []
+        | ValueSome connection ->
+            use command = connection.CreateCommand()
+
+            command.CommandText <-
+                "SELECT DISTINCT relative_path FROM file_versions WHERE content_hash = $hash ORDER BY relative_path"
+
+            addText command "$hash" (ContentHash.value hash)
+            use reader = command.ExecuteReader()
+            [ while reader.Read() do yield reader.GetString 0 ]
+
+    /// Removes the listed snapshots in one transaction and returns how many went. A row that is the current state of
+    /// its path (the highest id for the path, when that row is not a deletion) is never removed, so the live state
+    /// survives the expiry of its snapshot, and a snapshot that still has such a row stays. An id that is not
+    /// recorded is ignored. The highest id is taken over all rows including deletions: excluding them first would
+    /// protect a stale row from before the deletion.
+    let removeSnapshots (handle: ManifestHandle) (snapshotIds: int64 list) : int =
+        match snapshotIds with
+        | [] -> 0
+        | _ ->
+            let connection = requireConnection handle
+            // The ids are numbers, so the list is spelled into the statement as the C# build does.
+            let idList = String.Join(",", snapshotIds |> List.map (fun id -> id.ToString(CultureInfo.InvariantCulture)))
+            use transaction = connection.BeginTransaction()
+
+            execute
+                connection
+                transaction
+                $"""
+                DELETE FROM file_versions
+                WHERE snapshot_id IN ({idList})
+                  AND id NOT IN (
+                      SELECT fv.id
+                      FROM file_versions fv
+                      INNER JOIN (
+                          SELECT relative_path, MAX(id) AS max_id FROM file_versions GROUP BY relative_path
+                      ) latest ON fv.relative_path = latest.relative_path AND fv.id = latest.max_id
+                      WHERE fv.change_kind != 'Deleted'
+                  )
+                """
+
+            let removed =
+                use command = connection.CreateCommand()
+                command.Transaction <- transaction
+
+                command.CommandText <-
+                    $"DELETE FROM snapshots WHERE id IN ({idList}) AND id NOT IN (SELECT DISTINCT snapshot_id FROM file_versions)"
+
+                command.ExecuteNonQuery()
+
+            transaction.Commit()
+            removed
+
     /// Every snapshot, newest first.
     let snapshots (handle: ManifestHandle) : SnapshotInfo list =
         match handle.Connection with

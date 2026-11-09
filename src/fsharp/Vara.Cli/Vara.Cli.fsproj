@@ -32,6 +32,8 @@
     <Compile Include="ShowCommand.fs" />
     <Compile Include="DiffCommand.fs" />
     <Compile Include="RestoreCommand.fs" />
+    <Compile Include="PruneCommand.fs" />
+    <Compile Include="CheckCommand.fs" />
     <Compile Include="Composition.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

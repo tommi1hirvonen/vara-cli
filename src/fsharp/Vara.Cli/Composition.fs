@@ -17,4 +17,6 @@ let withCommands (env: CliEnv) (root: RootCommand) : RootCommand =
     root.Subcommands.Add(DiffCommand.create env)
     root.Subcommands.Add(BrowseCommand.create env)
     root.Subcommands.Add(DeletedCommand.create env)
+    root.Subcommands.Add(PruneCommand.create env)
+    root.Subcommands.Add(CheckCommand.create env)
     root

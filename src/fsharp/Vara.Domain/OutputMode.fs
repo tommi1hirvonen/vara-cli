@@ -39,12 +39,15 @@ type Indicator =
 
 module TerminalProgress =
     /// Hidden once the run has ended, indeterminate while the scan runs, the byte percentage while content copies.
-    let indicator (tracker: Tracker) : Indicator =
+    let indicatorBy (basis: Basis) (tracker: Tracker) : Indicator =
         match tracker.Ended, tracker.Phase with
         | ValueSome _, _ -> Indicator.Hidden
         | ValueNone, Phase.Scanning _ -> Indicator.Indeterminate
         | ValueNone, Phase.Transferring ->
-            Indicator.Percentage(int (Math.Round(Math.Clamp(Tracker.percent tracker, 0.0, 100.0))))
+            Indicator.Percentage(int (Math.Round(Math.Clamp(Tracker.percentBy basis tracker, 0.0, 100.0))))
+
+    /// The indicator of a run measured in bytes.
+    let indicator (tracker: Tracker) : Indicator = indicatorBy Basis.Bytes tracker
 
     /// The OSC 9;4 sequence for the indicator, ended by BEL.
     let sequence (indicator: Indicator) : string =

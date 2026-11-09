@@ -18,11 +18,6 @@ let private specPath (capability: string) : Result<string, string> =
 
     search (DirectoryInfo AppContext.BaseDirectory)
 
-/// Owned by fsharp-retention-and-integrity: it needs the prune command.
-let private ownedElsewhere: SpecCoverage.ScenarioId list =
-    [ { Requirement = "Retention policy configuration"
-        Scenario = "Profile without a retention policy" } ]
-
 /// The tests of these changes live in the domain, engine and command test assemblies.
 let private testAssemblies () : Assembly list =
     [ Assembly.Load "Vara.Domain.Tests"; Assembly.GetExecutingAssembly(); Assembly.Load "Vara.Cli.Tests" ]
@@ -32,7 +27,7 @@ let ``every owned profile-config scenario has a test`` () =
     match specPath "profile-config" with
     | Error message -> Assert.Fail message
     | Ok path ->
-        let missing = SpecCoverage.missingTests ownedElsewhere (testAssemblies ()) (File.ReadAllText path)
+        let missing = SpecCoverage.missingTests [] (testAssemblies ()) (File.ReadAllText path)
         Assert.True(missing.IsEmpty, "Scenarios without a test:\n" + String.Join("\n", missing |> List.map SpecCoverage.describe))
 
 /// The scenarios of a spec that have no test, leaving out those that `excluded` picks from the spec's scenarios.
@@ -45,17 +40,9 @@ let private missingIn (capability: string) (excluded: SpecCoverage.ScenarioId li
         SpecCoverage.missingTests (excluded (SpecCoverage.parseSpec text)) (testAssemblies ()) text
         |> List.map SpecCoverage.describe
 
-/// The scenarios of the named requirements.
-let private ofRequirements (names: string list) (scenarios: SpecCoverage.ScenarioId list) : SpecCoverage.ScenarioId list =
-    scenarios |> List.filter (fun scenario -> List.contains scenario.Requirement names)
-
 /// The scenarios of every requirement but the named ones.
 let private exceptRequirements (names: string list) (scenarios: SpecCoverage.ScenarioId list) : SpecCoverage.ScenarioId list =
     scenarios |> List.filter (fun scenario -> not (List.contains scenario.Requirement names))
-
-/// The `progress-reporting` requirements that a later change owns, excluded by name.
-let private progressOwnedElsewhere: string list =
-    [ "Count-based progress indication for non-byte-transfer operations" ] // fsharp-retention-and-integrity
 
 /// The `cli-presentation` requirements this change and the one before it own; the others belong to the commands that
 /// need them.
@@ -79,7 +66,7 @@ let ``every owned backup-execution scenario has a test`` () =
 
 [<Fact>]
 let ``every owned progress-reporting scenario has a test`` () =
-    let missing = missingIn "progress-reporting" (ofRequirements progressOwnedElsewhere)
+    let missing = missingIn "progress-reporting" (fun _ -> [])
     Assert.True(missing.IsEmpty, show missing)
 
 [<Fact>]
@@ -95,4 +82,14 @@ let ``every owned snapshot-history scenario has a test`` () =
 [<Fact>]
 let ``every owned backup-browsing scenario has a test`` () =
     let missing = missingIn "backup-browsing" (fun _ -> [])
+    Assert.True(missing.IsEmpty, show missing)
+
+[<Fact>]
+let ``every owned retention-pruning scenario has a test`` () =
+    let missing = missingIn "retention-pruning" (fun _ -> [])
+    Assert.True(missing.IsEmpty, show missing)
+
+[<Fact>]
+let ``every owned backup-integrity scenario has a test`` () =
+    let missing = missingIn "backup-integrity" (fun _ -> [])
     Assert.True(missing.IsEmpty, show missing)

@@ -18,8 +18,18 @@ type ProgressEvent =
     | FileStarted of started: string
     | FileFinished of finished: string
     | FileTransferred
+    /// Work that is done without reading any byte, such as a missing blob whose size counts as checked. It moves the
+    /// percentage of a byte-weighted run but not the byte count that the throughput and the ETA come from.
+    | WorkCredited of bytes: int64
     /// The run is over; its outcome colours the final bar.
     | RunEnded of outcome: Outcome
+
+/// What a run's percentage and ETA are measured in: the bytes it moves, or the items it completes (blobs removed or
+/// checked), which have no throughput.
+[<RequireQualifiedAccess>]
+type Basis =
+    | Bytes
+    | Items
 
 /// Bytes and files, as the display shows them.
 [<Struct>]
@@ -34,6 +44,9 @@ type Tracker =
       TotalFiles: int
       Live: Counted
       Shown: Counted
+      /// The bytes credited as done without being read, as reported and as last admitted.
+      Credited: int64
+      ShownCredited: int64
       /// The files being transferred, newest first.
       Active: string list
       /// When the transfer phase began: the basis of throughput, so a metadata pass before it does not count.
@@ -59,6 +72,8 @@ module Tracker =
           TotalFiles = 0
           Live = { Bytes = 0L; Files = 0 }
           Shown = { Bytes = 0L; Files = 0 }
+          Credited = 0L
+          ShownCredited = 0L
           Active = []
           TransferStartedAt = ValueNone
           LastAdmitted = ValueNone
@@ -91,6 +106,7 @@ module Tracker =
         | FileStarted path -> { tracker with Active = path :: tracker.Active }
         | FileFinished path -> { tracker with Active = removeFirst path tracker.Active }
         | FileTransferred -> { tracker with Live = { tracker.Live with Files = tracker.Live.Files + 1 } }
+        | WorkCredited bytes -> { tracker with Credited = tracker.Credited + max 0L bytes }
         | RunEnded outcome -> { tracker with Ended = ValueSome outcome }
 
     /// Whether the numbers are due for a redraw: always for the first transfer update and the final one, otherwise
@@ -110,6 +126,7 @@ module Tracker =
             Shown =
                 { Bytes = max tracker.Shown.Bytes capped
                   Files = max tracker.Shown.Files tracker.Live.Files }
+            ShownCredited = max tracker.ShownCredited tracker.Credited
             LastAdmitted = ValueSome now }
 
     /// Admits a redraw of the numbers when one is due. The renderer calls it on its timer, so numbers that stopped
@@ -131,7 +148,7 @@ module Tracker =
             | Phase.Scanning _, Phase.Transferring
             | Phase.Transferring, Phase.Scanning _ -> true
 
-        phaseChanged || before.Shown <> after.Shown || before.Active <> after.Active || before.Ended <> after.Ended
+        phaseChanged || before.Shown <> after.Shown || before.ShownCredited <> after.ShownCredited || before.Active <> after.Active || before.Ended <> after.Ended
 
     /// Seconds since the transfer phase began, or nothing before it.
     let private elapsed (now: DateTimeOffset) (tracker: Tracker) : float =
@@ -139,24 +156,40 @@ module Tracker =
         | ValueSome started -> max 0.0 (now - started).TotalSeconds
         | ValueNone -> 0.0
 
-    /// Bytes per second since the transfer phase began.
+    /// Bytes per second since the transfer phase began. Credited work is not read, so it is not counted.
     let throughput (now: DateTimeOffset) (tracker: Tracker) : float =
         let seconds = elapsed now tracker
         if seconds > 0.0 then float tracker.Shown.Bytes / seconds else 0.0
 
-    /// The time left at the current throughput, never negative; nothing while there is no throughput to extrapolate.
-    let remaining (now: DateTimeOffset) (tracker: Tracker) : TimeSpan voption =
-        let rate = throughput now tracker
+    /// Items per second since the transfer phase began.
+    let itemRate (now: DateTimeOffset) (tracker: Tracker) : float =
+        let seconds = elapsed now tracker
+        if seconds > 0.0 then float tracker.Shown.Files / seconds else 0.0
 
-        if rate > 0.0 then
-            let left = max 0L (tracker.TotalBytes - tracker.Shown.Bytes)
-            ValueSome(TimeSpan.FromSeconds(float left / rate))
-        else
-            ValueNone
+    /// The bytes done so far: those read and those credited.
+    let private bytesDone (tracker: Tracker) : int64 = tracker.Shown.Bytes + tracker.ShownCredited
+
+    /// The time left in the measure of the basis, never negative; nothing while there is no rate to extrapolate. The
+    /// rate is the observed one: bytes read per second, or items done per second.
+    let remainingBy (basis: Basis) (now: DateTimeOffset) (tracker: Tracker) : TimeSpan voption =
+        let struct (rate, left) =
+            match basis with
+            | Basis.Bytes -> struct (throughput now tracker, max 0L (tracker.TotalBytes - bytesDone tracker))
+            | Basis.Items -> struct (itemRate now tracker, int64 (max 0 (tracker.TotalFiles - tracker.Shown.Files)))
+
+        if rate > 0.0 then ValueSome(TimeSpan.FromSeconds(float left / rate)) else ValueNone
+
+    /// The time left at the current throughput.
+    let remaining (now: DateTimeOffset) (tracker: Tracker) : TimeSpan voption = remainingBy Basis.Bytes now tracker
+
+    /// How much of the planned work is done, from 0 to 100. A run with nothing planned is complete.
+    let percentBy (basis: Basis) (tracker: Tracker) : float =
+        let struct (completed, total) =
+            match basis with
+            | Basis.Bytes -> struct (bytesDone tracker, tracker.TotalBytes)
+            | Basis.Items -> struct (int64 tracker.Shown.Files, int64 tracker.TotalFiles)
+
+        if total > 0L then Math.Clamp(float completed / float total * 100.0, 0.0, 100.0) else 100.0
 
     /// How much of the planned bytes were copied, from 0 to 100. A run with nothing to copy is complete.
-    let percent (tracker: Tracker) : float =
-        if tracker.TotalBytes > 0L then
-            Math.Clamp(float tracker.Shown.Bytes / float tracker.TotalBytes * 100.0, 0.0, 100.0)
-        else
-            100.0
+    let percent (tracker: Tracker) : float = percentBy Basis.Bytes tracker

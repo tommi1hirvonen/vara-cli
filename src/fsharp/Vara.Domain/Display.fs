@@ -97,10 +97,32 @@ module Display =
     let labelWidth = max scanLabel.Length transferLabel.Length
 
     /// The two labels a progress screen shows: during the scan, and during the transfer. Each starts with a space.
-    type Wording = { Scanning: string; Transferring: string }
+    /// The basis says what the percentage and the ETA are measured in.
+    type Wording =
+        { Scanning: string
+          Transferring: string
+          Basis: Basis }
 
     /// What the backup says.
-    let backupWording: Wording = { Scanning = scanLabel; Transferring = transferLabel }
+    let backupWording: Wording =
+        { Scanning = scanLabel
+          Transferring = transferLabel
+          Basis = Basis.Bytes }
+
+    /// What a prune says: it starts by evaluating, then counts the blobs it removes. The labels are the C# build's.
+    let pruneWording: Wording =
+        { Scanning = " Evaluating..."
+          Transferring = " Deleting blobs"
+          Basis = Basis.Items }
+
+    /// What a full check says: the percentage is weighted by the manifest sizes of the blobs.
+    let checkWording: Wording =
+        { Scanning = " Enumerating..."
+          Transferring = " Checking blobs"
+          Basis = Basis.Bytes }
+
+    /// What a quick check says: it only looks for blobs, so the percentage counts them.
+    let quickCheckWording: Wording = { checkWording with Basis = Basis.Items }
     /// " 100.0%": the percentage field is five characters wide, so the trailing column never changes width.
     let private percentText (percent: float) : string =
         " " + percent.ToString("0.0", CultureInfo.InvariantCulture).PadLeft 5 + "%"
@@ -160,29 +182,43 @@ module Display =
             let percent, tone =
                 match tracker.Ended with
                 | ValueSome outcome -> 100.0, toneOf outcome
-                | ValueNone -> Tracker.percent tracker, Tone.PartialFailure
+                | ValueNone -> Tracker.percentBy wording.Basis tracker, Tone.PartialFailure
 
             let rate = Tracker.throughput now tracker |> int64
+            let eta = "ETA " + etaText (Tracker.remainingBy wording.Basis now tracker)
+            let barLine = bar width wording.Transferring (BarFill.Filled percent) (percentText percent) tone
+            let files = $"Files {tracker.Shown.Files} / {tracker.TotalFiles}"
 
-            [ bar width wording.Transferring (BarFill.Filled percent) (percentText percent) tone
-              Line.Row
-                  [ cell leftWidth (ratio tracker.Shown.Bytes tracker.TotalBytes)
-                    cell rightWidth $"Files {tracker.Shown.Files} / {tracker.TotalFiles}" ]
-              Line.Row
-                  [ cell leftWidth (ByteSize.format rate + "/s")
-                    cell rightWidth ("ETA " + etaText (Tracker.remaining now tracker)) ] ]
-            @ (if tracker.Ended.IsSome then [] else activeLines tracker)
+            match wording.Basis with
+            | Basis.Bytes ->
+                [ barLine
+                  Line.Row
+                      [ cell leftWidth (ratio (tracker.Shown.Bytes + tracker.ShownCredited) tracker.TotalBytes)
+                        cell rightWidth files ]
+                  Line.Row [ cell leftWidth (ByteSize.format rate + "/s"); cell rightWidth eta ] ]
+                @ (if tracker.Ended.IsSome then [] else activeLines tracker)
+            | Basis.Items ->
+                // Items have no byte count or throughput: the count and the ETA share the one row.
+                [ barLine; Line.Row [ cell leftWidth files; cell rightWidth eta ] ]
+                @ (if tracker.Ended.IsSome then [] else activeLines tracker)
 
     /// The backup's progress screen.
     let view (width: int) (now: DateTimeOffset) (tracker: Tracker) : Display = viewWith backupWording width now tracker
 
-    /// One appended line of progress, for output that cannot redraw in place.
-    let plainProgress (now: DateTimeOffset) (tracker: Tracker) : string =
+    /// One appended line of progress, for output that cannot redraw in place. A byte-weighted run shows the bytes, the
+    /// count and the throughput; a run measured in items shows the count, the percentage and the ETA.
+    let plainProgressWith (basis: Basis) (now: DateTimeOffset) (tracker: Tracker) : string =
         let rate = Tracker.throughput now tracker |> int64
+        let percent = (Tracker.percentBy basis tracker).ToString("0.0", CultureInfo.InvariantCulture)
+        let eta = etaText (Tracker.remainingBy basis now tracker)
 
-        let percent = (Tracker.percent tracker).ToString("0.0", CultureInfo.InvariantCulture)
+        match basis with
+        | Basis.Bytes ->
+            $"{ratio (tracker.Shown.Bytes + tracker.ShownCredited) tracker.TotalBytes} ({percent}%%) - Files {tracker.Shown.Files} / {tracker.TotalFiles} - {ByteSize.format rate}/s - ETA {eta}"
+        | Basis.Items -> $"Files {tracker.Shown.Files} / {tracker.TotalFiles} ({percent}%%) - ETA {eta}"
 
-        $"{ratio tracker.Shown.Bytes tracker.TotalBytes} ({percent}%%) - Files {tracker.Shown.Files} / {tracker.TotalFiles} - {ByteSize.format rate}/s - ETA {etaText (Tracker.remaining now tracker)}"
+    /// The backup's line of plain progress.
+    let plainProgress (now: DateTimeOffset) (tracker: Tracker) : string = plainProgressWith Basis.Bytes now tracker
 
     let private failedLines (paths: string list) : Line list =
         match paths with

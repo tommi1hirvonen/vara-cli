@@ -72,7 +72,8 @@ let show
 /// (progress-reporting: "Restore task labels are bounded to a fixed width").
 let restoreWording (destination: string) : Display.Wording =
     { Scanning = " Restoring..."
-      Transferring = " " + PathLabel.truncate (Display.labelWidth - 1) destination }
+      Transferring = " " + PathLabel.truncate (Display.labelWidth - 1) destination
+      Basis = Basis.Bytes }
 
 /// A restore's tracker at the start: already in the transfer phase, with the plan's totals. Only the writes count, so
 /// a removal, which transfers no bytes, cannot move the percentage, the rate or the ETA.

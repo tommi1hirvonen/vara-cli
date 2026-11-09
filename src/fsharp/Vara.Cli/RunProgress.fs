@@ -52,7 +52,7 @@ let private shown (screen: Screen) (run: (ProgressEvent -> unit) -> Task<'a>) (o
             match screen.WriteIndicator with
             | ValueNone -> ()
             | ValueSome write ->
-                let sequence = tracker |> TerminalProgress.indicator |> TerminalProgress.sequence
+                let sequence = tracker |> TerminalProgress.indicatorBy screen.Wording.Basis |> TerminalProgress.sequence
 
                 if sequence <> lastSequence.Value then
                     lastSequence.Value <- sequence
@@ -68,7 +68,7 @@ let private shown (screen: Screen) (run: (ProgressEvent -> unit) -> Task<'a>) (o
             | OutputMode.Live -> if Tracker.visiblyChanged before after then drawLive now after
             | OutputMode.Plain ->
                 if after.LastAdmitted <> before.LastAdmitted && after.Phase = Phase.Transferring then
-                    screen.WriteLine(Display.plainProgress now after)
+                    screen.WriteLine(Display.plainProgressWith screen.Wording.Basis now after)
             | OutputMode.Json -> ()
 
         let publish (event: ProgressEvent) : unit =

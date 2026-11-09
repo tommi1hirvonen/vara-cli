@@ -25,12 +25,17 @@
     <Compile Include="Refusal.fs" />
     <Compile Include="History.fs" />
     <Compile Include="Restore.fs" />
+    <Compile Include="Retention.fs" />
+    <Compile Include="Prune.fs" />
+    <Compile Include="Check.fs" />
     <Compile Include="DateInput.fs" />
     <Compile Include="PathInput.fs" />
     <Compile Include="PathLabel.fs" />
     <Compile Include="Tracker.fs" />
     <Compile Include="Display.fs" />
     <Compile Include="HistoryView.fs" />
+    <Compile Include="PruneView.fs" />
+    <Compile Include="CheckView.fs" />
     <Compile Include="OutputMode.fs" />
     <Compile Include="RunJson.fs" />
   </ItemGroup>

@@ -259,6 +259,25 @@ module ContentStore =
             for file in Directory.EnumerateFiles store.TempRoot |> Seq.toArray do
                 tryDelete file
 
+    /// The name of every blob in the store. A name that cannot be a hash (empty) is not one.
+    let storedHashes (store: StoreLayout) : Set<ContentHash> =
+        if Directory.Exists store.VersionsRoot then
+            Directory.EnumerateFiles(store.VersionsRoot, "*", SearchOption.AllDirectories)
+            |> Seq.choose (fun path -> Path.GetFileName path |> ContentHash.tryCreate |> ValueOption.toOption)
+            |> Set.ofSeq
+        else
+            Set.empty
+
+    /// Deletes a blob. The blob can be read-only (it is while a mirror entry links to it), so the attribute is cleared
+    /// first; nothing is restored afterwards, because a prune deletes only blobs that nothing references. A blob that
+    /// is already gone is not an error.
+    let deleteBlob (store: StoreLayout) (hash: ContentHash) : unit =
+        let blob = blobPath store hash
+
+        if File.Exists blob then
+            clearReadOnly blob
+            File.Delete blob
+
     /// Opens a stored blob for reading. Used by the parity checks and by later changes (restore).
     let openRead (store: StoreLayout) (hash: ContentHash) : Stream =
         let blob = blobPath store hash

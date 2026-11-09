@@ -10,10 +10,14 @@ type BackupRefusal =
     | RunLockAccessDenied of target: AbsolutePath
 
 module BackupRefusal =
-    /// The message shown to the user. A busy target is described as busy, not as running this profile.
-    let render (refusal: BackupRefusal) : string =
+    /// The message shown to the user for the named kind of run ("backup", "prune"). A busy target is described as
+    /// busy, not as running this profile.
+    let renderFor (operation: string) (refusal: BackupRefusal) : string =
         match refusal with
         | BackupRefusal.TargetBusy(target, profile) ->
-            $"Another operation is already using target '{AbsolutePath.value target}'; a backup run for profile '{profile}' cannot start until it finishes."
+            $"Another operation is already using target '{AbsolutePath.value target}'; a {operation} run for profile '{profile}' cannot start until it finishes."
         | BackupRefusal.RunLockAccessDenied target ->
             $"The run lock for target '{AbsolutePath.value target}' could not be acquired due to a permission problem."
+
+    /// The message for a refused backup.
+    let render (refusal: BackupRefusal) : string = renderFor "backup" refusal
