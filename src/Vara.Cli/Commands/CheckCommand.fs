@@ -41,7 +41,7 @@ let create (env: CliEnv) : Command =
     let profileArgument = Argument<string>("profile", Description = "The profile to check.")
     let configOption = HistorySession.configOption ()
 
-    let quickOption = Option<bool>("--quick")
+    let quickOption = Option<bool> "--quick"
 
     quickOption.Description <-
         "Only check that each referenced blob is physically present in the store, without re-reading and re-hashing its content."

@@ -87,7 +87,7 @@ let restoreAccess (path: string) : unit =
 let private removeBehindItsBack (setup: Scratch) (snapshotId: int64) : unit =
     SqliteConnection.ClearAllPools()
     let database = Path.Combine(setup.Target, ".vara", "profile.db")
-    use connection = new SqliteConnection($"Data Source={database};Pooling=False")
+    use connection = new SqliteConnection $"Data Source={database};Pooling=False"
     connection.Open()
     use command = connection.CreateCommand()
     command.CommandText <- $"DELETE FROM file_versions WHERE snapshot_id = {snapshotId}; DELETE FROM snapshots WHERE id = {snapshotId}"
@@ -289,7 +289,7 @@ module ``Concurrent run prevention`` =
         scratch (fun setup ->
             threeSnapshots setup
             let target = (AbsolutePath.tryCreate setup.Target).Value
-            use _held = (RunLock.tryAcquire "other" target |> Result.defaultWith (fun _ -> failwith "no lock"))
+            use _held = RunLock.tryAcquire "other" target |> Result.defaultWith (fun _ -> failwith "no lock")
             let result = prune setup [ "--yes" ]
             Assert.Equal(1, result.ExitCode)
             // The target is busy; the message does not say that the requesting profile is the one running.

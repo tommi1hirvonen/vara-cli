@@ -18,7 +18,7 @@ type DiffScenario =
 [<MemoryDiagnoser>]
 type BackupDifferBenchmarks() =
     let mutable scanned: ScanEntry[] = [||]
-    let mutable tracked = TrackedPaths(StringComparer.OrdinalIgnoreCase)
+    let mutable tracked = TrackedPaths StringComparer.OrdinalIgnoreCase
 
     [<Params(256, 4096)>]
     member val EntryCount = 0 with get, set
@@ -28,8 +28,8 @@ type BackupDifferBenchmarks() =
 
     [<GlobalSetup>]
     member this.Setup() : unit =
-        let entries = ResizeArray<ScanEntry>(this.EntryCount)
-        let state = TrackedPaths(StringComparer.OrdinalIgnoreCase)
+        let entries = ResizeArray<ScanEntry> this.EntryCount
+        let state = TrackedPaths StringComparer.OrdinalIgnoreCase
         let modifiedAt = DateTimeOffset(2025, 1, 1, 0, 0, 0, TimeSpan.Zero)
         let hash = (ContentHash.tryCreate "benchmark-hash").Value
 
@@ -51,7 +51,7 @@ type BackupDifferBenchmarks() =
                     ScanEntry.File
                         { FilePath = MirrorPath.ofString relativePath
                           FileSource = SourcePath.ofString absolutePath
-                          Size = (if kind = 2 then 4097L else 4096L)
+                          Size = if kind = 2 then 4097L else 4096L
                           ModifiedAt = modifiedAt }
                 )
 
@@ -77,7 +77,7 @@ type BackupDifferBenchmarks() =
 type BackupPlannerBenchmarks() =
     let mutable scratchDirectory = ""
     let mutable diff: DiffResult = { Pending = []; Deleted = []; Failures = [] }
-    let mutable tracked = TrackedPaths(StringComparer.OrdinalIgnoreCase)
+    let mutable tracked = TrackedPaths StringComparer.OrdinalIgnoreCase
 
     [<Params(262144, 4194304)>]
     member val ContentSize = 0 with get, set
@@ -121,7 +121,7 @@ type BackupPlannerBenchmarks() =
                   SourceModifiedAt = modifiedAt
                   Quick = ValueSome quick }
 
-        let paths = TrackedPaths(StringComparer.OrdinalIgnoreCase)
+        let paths = TrackedPaths StringComparer.OrdinalIgnoreCase
         paths[MirrorPath.value oldPath] <- state
         tracked <- paths
 

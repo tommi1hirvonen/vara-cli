@@ -143,11 +143,11 @@ module Streams =
         use replay = new PrefixReplayStream(prefix, inner)
         use result = new MemoryStream()
         let buffer = Array.zeroCreate<byte> 128
-        let mutable read = replay.Read(Span<byte>(buffer))
+        let mutable read = replay.Read(Span<byte> buffer)
 
         while read > 0 do
             result.Write(buffer, 0, read)
-            read <- replay.Read(Span<byte>(buffer))
+            read <- replay.Read(Span<byte> buffer)
 
         Assert.Equal<byte[]>(Array.append prefix rest, result.ToArray())
 

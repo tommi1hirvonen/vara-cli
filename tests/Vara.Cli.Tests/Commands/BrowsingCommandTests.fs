@@ -161,9 +161,9 @@ module ``Snapshot change rollups use change-kind colors`` =
             let console = (new TestConsole()).EmitAnsiSequences()
             let live (env: CliEnv) = { env with Console = console; Capabilities = liveCapabilities }
             runEnv live setup [ "snapshot"; "1" ] |> ignore
-            let line = console.Output.Split('\n') |> Array.find (fun text -> text.Contains "link ")
+            let line = console.Output.Split '\n' |> Array.find (fun text -> text.Contains "link ")
             // The counts are coloured one by one, so the line holds several colour sequences, not one for the label.
-            Assert.True((line |> Seq.filter (fun c -> c = char 27) |> Seq.length) >= 8))
+            Assert.True(line |> Seq.filter (fun c -> c = char 27) |> Seq.length >= 8))
 
     [<Fact>]
     let ``Reading rollups without color support`` () =
@@ -272,7 +272,7 @@ module ``Including deleted entries in a directory listing`` =
         scratch (fun setup ->
             let directory = populated setup
             let result = run setup [ "browse"; directory; "--deleted" ]
-            let line = result.Output.Split('\n') |> Array.find (fun text -> text.Contains "emptied")
+            let line = result.Output.Split '\n' |> Array.find (fun text -> text.Contains "emptied")
             Assert.Contains("Directory", line)
             Assert.Contains("Deleted", line))
 

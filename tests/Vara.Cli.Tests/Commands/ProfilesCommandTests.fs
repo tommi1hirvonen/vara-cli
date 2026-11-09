@@ -176,7 +176,7 @@ module ``Interactive profiles command`` =
 
             let broken (env: CliEnv) : CliEnv =
                 { interactive log [] env with
-                    Prompts = { (scripted log []) with Select = fun _ _ _ -> failwith "the terminal went away" } }
+                    Prompts = { scripted log [] with Select = fun _ _ _ -> failwith "the terminal went away" } }
 
             let result = profilesWith broken CancellationToken.None (docsConfig setup)
             Assert.Equal(1, result.ExitCode)

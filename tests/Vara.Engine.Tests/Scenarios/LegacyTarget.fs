@@ -38,7 +38,7 @@ let restore (rig: Rig) : unit =
     copyTree (Path.Combine(folder, "vara")) (Path.Combine(rig.Target, ".vara"))
     copyTree (Path.Combine(folder, "mirror")) (Path.Combine(rig.Target, mirrorPrefix rig))
     let database = Path.Combine(rig.Target, ".vara", "profile.db")
-    use connection = new SqliteConnection($"Data Source={database};Pooling=False")
+    use connection = new SqliteConnection $"Data Source={database};Pooling=False"
     connection.Open()
     use command = connection.CreateCommand()
 

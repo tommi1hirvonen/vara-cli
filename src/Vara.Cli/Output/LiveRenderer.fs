@@ -9,7 +9,7 @@ open Spectre.Console.Rendering
 open Vara.Domain
 
 let private barGlyph = '━'
-let private remainingStyle = Style(Color.Grey)
+let private remainingStyle = Style Color.Grey
 /// How long the moving segment of an indeterminate bar is.
 let private pulseLength = 8
 
@@ -51,10 +51,10 @@ let private spansLine (spans: Span list) : IRenderable =
 
 /// A table with the rounded border every bordered widget uses, its numeric columns right-aligned.
 let private tableOf (table: Table) : IRenderable =
-    let widget = Spectre.Console.Table().Border(TableBorder.Rounded)
+    let widget = Spectre.Console.Table().Border TableBorder.Rounded
 
     for column in table.Columns do
-        let spectreColumn = TableColumn(Text(column.Header))
+        let spectreColumn = TableColumn(Text column.Header)
 
         match column.Align with
         | Align.Right -> spectreColumn.RightAligned() |> ignore
@@ -78,7 +78,7 @@ let rec private renderLine (frame: int) (line: Line) : IRenderable =
     | Line.Box(title, lines) ->
         let panel = Panel(Rows(lines |> List.map (renderLine frame)))
         panel.Border <- BoxBorder.Rounded
-        if title.Length > 0 then panel.Header <- PanelHeader(title)
+        if title.Length > 0 then panel.Header <- PanelHeader title
         panel :> IRenderable
 
 let private render (frame: int) (display: Display) : IRenderable =

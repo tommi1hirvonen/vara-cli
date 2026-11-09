@@ -82,7 +82,7 @@ let parseDate (env: CliEnv) (optionName: string) (text: string) : Result<DateTim
 /// Whether the session can ask a question: input is not redirected and the console shows a live display.
 let canPrompt (env: CliEnv) : bool =
     env.Capabilities.InputIsInteractive
-    && (OutputMode.choose false env.Capabilities = OutputMode.Live)
+    && OutputMode.choose false env.Capabilities = OutputMode.Live
 
 /// A refusal when two options that exclude each other are both given.
 let mutuallyExclusive (env: CliEnv) (firstGiven: bool) (secondGiven: bool) (first: string) (second: string) : Outcome voption =

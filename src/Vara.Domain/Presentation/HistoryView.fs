@@ -20,7 +20,7 @@ module HistoryView =
     let timestamp (value: DateTimeOffset) : string =
         value.ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.InvariantCulture)
 
-    let private number (value: int) : string = value.ToString(CultureInfo.InvariantCulture)
+    let private number (value: int) : string = value.ToString CultureInfo.InvariantCulture
 
     /// The colour of each kind of change, the same in a file's history and in a snapshot's rollup.
     let toneOfKind (kind: ChangeKind) : Tone =
@@ -73,7 +73,7 @@ module HistoryView =
                 snapshots
                 |> List.sortByDescending _.SnapshotId
                 |> List.map (fun snapshot ->
-                    [ plain (snapshot.SnapshotId.ToString(CultureInfo.InvariantCulture))
+                    [ plain (snapshot.SnapshotId.ToString CultureInfo.InvariantCulture)
                       plain (timestamp snapshot.StartedAt)
                       span (toneOfStatus snapshot.Status) (statusName snapshot.Status)
                       plain (number snapshot.Stats.FilesAdded)
@@ -107,7 +107,7 @@ module HistoryView =
                         | ChangeKind.Deleted -> "Deleted (deleted)"
                         | kind -> kindName kind
 
-                    [ plain (version.VersionId.ToString(CultureInfo.InvariantCulture))
+                    [ plain (version.VersionId.ToString CultureInfo.InvariantCulture)
                       plain (timestamp version.Row.RecordedAt)
                       span (toneOfKind version.Row.Kind) change
                       plain (ByteSize.format (sizeOf version.Row)) ])
@@ -244,7 +244,7 @@ module HistoryView =
         let isSource (path: string) : bool = sourceRoots |> Set.exists (fun root -> String.Equals(root, normalizeScope path, StringComparison.OrdinalIgnoreCase))
 
         let label (directory: RollupDirectory) (name: string) : Span list =
-            plain (name + (if isSource directory.DirectoryPath then " [source]" else "")) :: countsSpans directory.Counts
+            plain (name + if isSource directory.DirectoryPath then " [source]" else "") :: countsSpans directory.Counts
 
         let visible =
             directories
@@ -304,7 +304,7 @@ module HistoryView =
                 |> List.concat
 
             let textLines =
-                (note @ files)
+                note @ files
                 |> List.mapi (fun position text ->
                     Line.Spans [ plain (indent + marker (children.Length + position)); plain text ])
 
@@ -359,7 +359,7 @@ module HistoryView =
     /// A snapshot as the directory restore's picker lists it, scoped to the directory.
     let directoryChoice (candidate: DirectoryCandidate) : Span list =
         let net =
-            if candidate.NetBytes >= 0L then "+" + ByteSize.format candidate.NetBytes else "-" + ByteSize.format (-candidate.NetBytes)
+            if candidate.NetBytes >= 0L then "+" + ByteSize.format candidate.NetBytes else "-" + ByteSize.format -candidate.NetBytes
 
         let links = if candidate.TotalLinks > 0 then $", {candidate.TotalLinks} link(s)" else ""
 

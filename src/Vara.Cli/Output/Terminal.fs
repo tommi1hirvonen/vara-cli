@@ -8,13 +8,13 @@ let successStyle = Style(Color.PaleGreen1, decoration = Decoration.Bold)
 let partialFailureStyle = Style(Color.LightGoldenrod2, decoration = Decoration.Bold)
 let errorStyle = Style(Color.IndianRed, decoration = Decoration.Bold)
 let neutralStyle = Style(Color.LightSkyBlue1, decoration = Decoration.Bold)
-let detailStyle = Style(Color.Grey)
+let detailStyle = Style Color.Grey
 /// The colours of the kinds of change a snapshot records; the same wherever a kind is shown.
-let addedStyle = Style(Color.PaleGreen1)
-let changedStyle = Style(Color.LightGoldenrod2)
-let movedStyle = Style(Color.LightSkyBlue1)
-let deletedStyle = Style(Color.IndianRed)
-let linkedStyle = Style(Color.Plum2)
+let addedStyle = Style Color.PaleGreen1
+let changedStyle = Style Color.LightGoldenrod2
+let movedStyle = Style Color.LightSkyBlue1
+let deletedStyle = Style Color.IndianRed
+let linkedStyle = Style Color.Plum2
 
 let styleOf (outcome: Outcome) : Style =
     match outcome with
@@ -46,7 +46,7 @@ let capabilitiesOf (console: IAnsiConsole) : Capabilities =
 
 /// Standard error, so hard errors stay visible when standard output is redirected.
 let standardError: IAnsiConsole =
-    AnsiConsole.Create(AnsiConsoleSettings(Out = AnsiConsoleOutput(System.Console.Error)))
+    AnsiConsole.Create(AnsiConsoleSettings(Out = AnsiConsoleOutput System.Console.Error))
 
 /// Writes text literally, so paths and messages are never parsed as markup.
 let writeLine (console: IAnsiConsole) (style: Style) (text: string) : unit = console.WriteLine(text, style)

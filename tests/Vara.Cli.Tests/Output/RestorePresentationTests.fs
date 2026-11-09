@@ -38,7 +38,7 @@ let private liveConsole () : TestConsole =
 let private envOf (console: TestConsole) (mode: OutputMode) : CliEnv =
     { Console = console
       Capabilities =
-        { IsTerminal = (mode = OutputMode.Live)
+        { IsTerminal = mode = OutputMode.Live
           SupportsColor = true
           NoColorRequested = false
           InputIsInteractive = true }

@@ -25,9 +25,9 @@ module Diff =
         | [] -> false
         | cover :: rest ->
             String.Equals(path, cover, StringComparison.OrdinalIgnoreCase)
-            || (path.Length > cover.Length
-                && path[cover.Length] = '/'
-                && path.StartsWith(cover, StringComparison.OrdinalIgnoreCase))
+            || path.Length > cover.Length
+               && path[cover.Length] = '/'
+               && path.StartsWith(cover, StringComparison.OrdinalIgnoreCase)
             || isCovered path rest
 
     /// The change an entry represents against the manifest, or ValueNone when it is unchanged.
@@ -54,9 +54,9 @@ module Diff =
     /// not seen is deleted unless a failure covers it, because then nobody knows whether it still exists.
     /// `tracked` must compare keys case-insensitively. Only the set of seen paths is mutated, and it is local.
     let run (tracked: TrackedPaths) (scanned: ScanEntry seq) : DiffResult =
-        let seen = HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        let seen = HashSet<string> StringComparer.OrdinalIgnoreCase
 
-        let step (struct (pending, failures)) (entry: ScanEntry) =
+        let step struct (pending, failures) (entry: ScanEntry) =
             let failures =
                 match entry with
                 | ScanEntry.File file ->
@@ -71,7 +71,7 @@ module Diff =
             | ValueSome change -> struct (change :: pending, failures)
             | ValueNone -> struct (pending, failures)
 
-        let struct (pending, failures) = Seq.fold step (struct ([], [])) scanned
+        let struct (pending, failures) = Seq.fold step struct ([], []) scanned
         let failures = List.rev failures
         let covered = failures |> List.map (fun failure -> forward (MirrorPath.value failure.Covers))
 

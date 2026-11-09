@@ -181,7 +181,7 @@ module ``Outcome severity determines process exit code`` =
     let ``A refused run exits with the hard-error code and names the busy target`` () =
         scratch (fun setup ->
             let target = (AbsolutePath.tryCreate setup.Target).Value
-            use _held = (RunLock.tryAcquire "other" target |> Result.defaultWith (fun _ -> failwith "no lock"))
+            use _held = RunLock.tryAcquire "other" target |> Result.defaultWith (fun _ -> failwith "no lock")
             let result = invoke [| "backup"; "docs"; "--config"; setup.Config |]
             Assert.Equal(1, result.ExitCode)
             Assert.Contains("Another operation is already using target", result.Errors)
@@ -227,7 +227,7 @@ module ``Dry-run mode reports planned changes without executing them`` =
     let ``Dry run refuses to start while a real run is in progress for the same target`` () =
         scratch (fun setup ->
             let target = (AbsolutePath.tryCreate setup.Target).Value
-            use _held = (RunLock.tryAcquire "other" target |> Result.defaultWith (fun _ -> failwith "no lock"))
+            use _held = RunLock.tryAcquire "other" target |> Result.defaultWith (fun _ -> failwith "no lock")
             let result = invoke [| "backup"; "docs"; "--config"; setup.Config; "--dry-run" |]
             Assert.Equal(1, result.ExitCode)
             Assert.Contains("Another operation is already using target", result.Errors))

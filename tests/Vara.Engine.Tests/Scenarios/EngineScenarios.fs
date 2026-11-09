@@ -168,7 +168,7 @@ let runFs (rig: Rig) (variation: Variation) : Ended =
             let totals = result.Totals
 
             Returned
-                { Cancelled = (result.Status = Vara.Domain.SnapshotStatus.Cancelled)
+                { Cancelled = result.Status = Vara.Domain.SnapshotStatus.Cancelled
                   Added = totals.FilesAdded
                   Changed = totals.FilesChanged
                   Moved = totals.FilesMoved
@@ -189,7 +189,7 @@ let private rows (target: string) (sql: string) : string list =
     if not (File.Exists database) then
         []
     else
-        use connection = new SqliteConnection($"Data Source={database};Pooling=False")
+        use connection = new SqliteConnection $"Data Source={database};Pooling=False"
         connection.Open()
         use command = connection.CreateCommand()
         command.CommandText <- sql
@@ -291,7 +291,7 @@ let private changes (observed: Observed) : int = observed.Added + observed.Chang
 let private legacyDatabase (target: string) : unit =
     let database = Path.Combine(target, ".vara", "profile.db")
     Directory.CreateDirectory(Path.GetDirectoryName database |> nonNull) |> ignore
-    use connection = new SqliteConnection($"Data Source={database};Pooling=False")
+    use connection = new SqliteConnection $"Data Source={database};Pooling=False"
     connection.Open()
     use command = connection.CreateCommand()
 

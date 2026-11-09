@@ -67,7 +67,7 @@ module Kernel32 =
             raise (IOException($"Failed to resolve the real path of '{path}' (Win32 error {error}).", error))
 
         if required > uint32 Int32.MaxValue then
-            raise (IOException($"The resolved path of '{path}' is too long to represent."))
+            raise (IOException $"The resolved path of '{path}' is too long to represent.")
 
         if int required <= stackBufferSize then
             let buffer = NativePtr.stackalloc<char> stackBufferSize

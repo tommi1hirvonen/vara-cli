@@ -130,7 +130,7 @@ let create (env: CliEnv) : Command =
 
                                 match sides with
                                 | Error error -> HistorySession.fail env (HistoryError.render error)
-                                | Ok(struct (leftHash, rightHash)) ->
+                                | Ok struct (leftHash, rightHash) ->
                                     use leftContent = ContentStore.openRead target.Layout leftHash
                                     use rightContent = ContentStore.openRead target.Layout rightHash
                                     let leftBinary = ShowCommand.looksBinary leftContent

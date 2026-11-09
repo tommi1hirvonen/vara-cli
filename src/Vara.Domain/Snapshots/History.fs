@@ -171,9 +171,9 @@ module Prefix =
         | ValueSome remainder when remainder.Length = 0 -> ValueNone
         | ValueSome remainder ->
             match remainder.IndexOfAny separators with
-            | -1 -> ValueSome(struct (remainder, true))
+            | -1 -> ValueSome struct (remainder, true)
             | 0 -> ValueNone
-            | index -> ValueSome(struct (remainder.Substring(0, index), false))
+            | index -> ValueSome struct (remainder.Substring(0, index), false)
 
 /// What a directory restore may plan from: the path of a file at the original source location, derived from its
 /// mirror path (`C\Users\x` is `C:\Users\x`).
@@ -255,7 +255,7 @@ module History =
     /// The newest admitted row of every path, keyed without regard to letter case. The one pass allocates the
     /// dictionary and nothing else per row.
     let private latestPerPath (moment: Moment) (versions: FileVersion seq) : Dictionary<string, FileVersion> =
-        let latest = Dictionary<string, FileVersion>(StringComparer.OrdinalIgnoreCase)
+        let latest = Dictionary<string, FileVersion> StringComparer.OrdinalIgnoreCase
 
         for version in versions do
             if admits moment version then
@@ -280,7 +280,7 @@ module History =
     /// under the path it was moved from, and so on back; each path is visited once. `rowsOf` returns the rows
     /// recorded for one path, in any order.
     let versionsOf (rowsOf: MirrorPath -> FileVersion list) (path: MirrorPath) : FileVersion list =
-        let visited = HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        let visited = HashSet<string> StringComparer.OrdinalIgnoreCase
 
         let rec walk (current: MirrorPath voption) (collected: FileVersion list) : FileVersion list =
             match current with
@@ -335,8 +335,8 @@ module History =
     /// The newest row of every path at a moment, and the newest of every path overall, from one pass over the rows.
     /// A deletion is a row like any other here, so both include the paths whose latest row deletes them.
     let reduce (moment: Moment) (versions: FileVersion seq) : struct (Dictionary<string, FileVersion> * Dictionary<string, FileVersion>) =
-        let atMoment = Dictionary<string, FileVersion>(StringComparer.OrdinalIgnoreCase)
-        let latest = Dictionary<string, FileVersion>(StringComparer.OrdinalIgnoreCase)
+        let atMoment = Dictionary<string, FileVersion> StringComparer.OrdinalIgnoreCase
+        let latest = Dictionary<string, FileVersion> StringComparer.OrdinalIgnoreCase
 
         let keep (rows: Dictionary<string, FileVersion>) (version: FileVersion) : unit =
             let key = pathOf version
@@ -365,14 +365,14 @@ module History =
         let prefix = Prefix.ofDirectory directory
         let struct (atMoment, latest) = reduce moment versions
 
-        let movedTo = Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        let movedTo = Dictionary<string, string> StringComparer.OrdinalIgnoreCase
 
         for version in latest.Values do
             match version.Row.Kind, version.Row.PreviousPath with
             | ChangeKind.Moved, ValueSome previous -> movedTo[MirrorPath.value previous] <- pathOf version
             | _ -> ()
 
-        let entries = Dictionary<string, Entry>(StringComparer.OrdinalIgnoreCase)
+        let entries = Dictionary<string, Entry> StringComparer.OrdinalIgnoreCase
 
         // Something was recorded in the directory when any row at the moment, live or deleted, belongs under it.
         let anyTracked =
@@ -383,7 +383,7 @@ module History =
             if not (isDeleted version) then
                 match Prefix.immediateChild prefix (pathOf version) with
                 | ValueNone -> ()
-                | ValueSome(struct (name, isLeaf)) ->
+                | ValueSome struct (name, isLeaf) ->
                     if isLeaf then
                         entries[name] <-
                             { Name = name
@@ -408,7 +408,7 @@ module History =
             if isDeleted version then
                 match Prefix.immediateChild prefix (pathOf version) with
                 | ValueNone -> ()
-                | ValueSome(struct (name, isLeaf)) ->
+                | ValueSome struct (name, isLeaf) ->
                     if includeDeleted && not (entries.ContainsKey name) then
                         entries[name] <-
                             if isLeaf then
@@ -420,9 +420,9 @@ module History =
                                 { Name = name
                                   Kind = EntryKind.File
                                   Status =
-                                    (match movedTo.TryGetValue(pathOf version) with
-                                     | true, target -> EntryStatus.Moved target
-                                     | false, _ -> EntryStatus.Deleted)
+                                    match movedTo.TryGetValue(pathOf version) with
+                                    | true, target -> EntryStatus.Moved target
+                                    | false, _ -> EntryStatus.Deleted
                                   Size = ValueSome size }
                             else
                                 { Name = name
@@ -484,8 +484,8 @@ module History =
     let rollup (directory: string) (includeFiles: bool) (changes: FileVersion seq) : RollupDirectory list =
         let prefix = Prefix.ofDirectory directory
         let scope = prefix.TrimEnd '\\'
-        let counts = Dictionary<string, RollupCounts>(StringComparer.OrdinalIgnoreCase)
-        let files = Dictionary<string, FileVersion list>(StringComparer.OrdinalIgnoreCase)
+        let counts = Dictionary<string, RollupCounts> StringComparer.OrdinalIgnoreCase
+        let files = Dictionary<string, FileVersion list> StringComparer.OrdinalIgnoreCase
 
         let parentOf (path: string) : string =
             match path.LastIndexOf '\\' with
@@ -551,7 +551,7 @@ module History =
             |> Seq.sortBy _.VersionId
             |> Array.ofSeq
 
-        let state = Dictionary<string, FileVersion>(StringComparer.OrdinalIgnoreCase)
+        let state = Dictionary<string, FileVersion> StringComparer.OrdinalIgnoreCase
 
         let offered (snapshot: SnapshotInfo) : bool =
             match snapshot.Status with
@@ -582,7 +582,7 @@ module History =
                         | ChangeKind.Moved -> struct (added, changed, moved + 1, deleted, net + size)
                         | ChangeKind.Deleted -> struct (added, changed, moved, deleted + 1, net - size)
                         | ChangeKind.Linked -> struct (added, changed, moved, deleted, net))
-                    (struct (0, 0, 0, 0, 0L))
+                    struct (0, 0, 0, 0, 0L)
 
             for version in rows do
                 state[pathOf version] <- version
@@ -599,7 +599,7 @@ module History =
                             match live.Row.Content with
                             | RowContent.Linked _ -> struct (files, bytes, links + 1)
                             | RowContent.Regular content -> struct (files + 1, bytes + content.Size, links))
-                        (struct (0, 0L, 0))
+                        struct (0, 0L, 0)
 
                 Some
                     { Snapshot = snapshot
@@ -648,7 +648,7 @@ module History =
         match tooLarge leftSize, tooLarge rightSize with
         | ValueNone, ValueNone ->
             match contentOf left, contentOf right with
-            | ValueSome leftContent, ValueSome rightContent -> Ok(struct (leftContent.Hash, rightContent.Hash))
+            | ValueSome leftContent, ValueSome rightContent -> Ok struct (leftContent.Hash, rightContent.Hash)
             | leftContent, rightContent ->
                 Error(HistoryError.DiffLinked(path, leftContent.IsNone, rightContent.IsNone))
         | oversizedLeft, oversizedRight -> Error(HistoryError.DiffTooLarge(path, maxDiffBytes, oversizedLeft, oversizedRight))

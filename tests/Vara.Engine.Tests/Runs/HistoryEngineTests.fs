@@ -70,7 +70,7 @@ type ExplodingStream(inner: Stream) =
 /// Folds the write-ahead log into the database file and closes for good, so that the file is as it will stay. The
 /// connection is not pooled, so nothing closes (and changes the file) later.
 let private settle (database: string) : unit =
-    use connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={database};Pooling=False")
+    use connection = new Microsoft.Data.Sqlite.SqliteConnection $"Data Source={database};Pooling=False"
     connection.Open()
     use command = connection.CreateCommand()
     command.CommandText <- "PRAGMA wal_checkpoint(TRUNCATE);"
@@ -122,7 +122,7 @@ module ``Manifest queries`` =
                 let state = History.stateAt Moment.Latest versions
                 Assert.Equal(2, state.Length)
 
-                match (SqliteManifest.snapshots handle) with
+                match SqliteManifest.snapshots handle with
                 | [ only ] ->
                     Assert.Equal(SnapshotStatus.Complete, only.Status)
                     Assert.Equal(2, only.Stats.FilesAdded)

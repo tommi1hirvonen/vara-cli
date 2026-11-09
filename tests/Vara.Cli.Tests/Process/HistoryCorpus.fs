@@ -49,7 +49,7 @@ let private cells (line: string) : string =
 /// C# build folds and shortens the cells of a wide table where the F# build prints them whole: only what cannot be
 /// shortened is observed, row by row.
 let private rowsOf (project: string -> string option) (output: string) : string list =
-    output.Split('\n') |> Seq.map cells |> Seq.choose project |> List.ofSeq
+    output.Split '\n' |> Seq.map cells |> Seq.choose project |> List.ofSeq
 
 let private firstMatch (pattern: string) (line: string) : string option =
     let found = Regex.Match(line, pattern)
@@ -108,7 +108,7 @@ let private streamLines (label: string) (setup: Scratch) (run: Run) : string lis
 /// scratch directory taken out wherever the wrapping left it whole.
 let private unified (setup: Scratch) (output: string) : string =
     let flat =
-        output.Split('\n')
+        output.Split '\n'
         |> Seq.filter (fun line -> not (line.Contains "ETA "))
         |> Seq.collect (fun line -> line |> Seq.filter (fun c -> not (Char.IsWhiteSpace c)))
         |> Array.ofSeq

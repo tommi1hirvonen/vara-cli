@@ -89,7 +89,7 @@ let snapshotsOf (setup: Scratch) : SnapshotInfo list =
 /// A time between the first two snapshots, as text a date option accepts.
 let betweenFirstTwo (setup: Scratch) : string =
     match snapshotsOf setup with
-    | first :: second :: _ -> (first.StartedAt + (second.StartedAt - first.StartedAt) / 2.0).ToString("o")
+    | first :: second :: _ -> (first.StartedAt + (second.StartedAt - first.StartedAt) / 2.0).ToString "o"
     | _ -> failwith "expected two snapshots"
 
 /// The version ids recorded for a source file, oldest first.
@@ -119,7 +119,7 @@ let createJunction (junction: string) (target: string) : unit =
 
 /// Marks a snapshot with the status, as the manifest of a run that ended that way would hold it.
 let setStatus (setup: Scratch) (snapshotId: int64) (status: string) : unit =
-    use connection = new SqliteConnection($"Data Source={databaseOf setup};Pooling=False")
+    use connection = new SqliteConnection $"Data Source={databaseOf setup};Pooling=False"
     connection.Open()
     use command = connection.CreateCommand()
     command.CommandText <- "UPDATE snapshots SET status = $status WHERE id = $id"
@@ -191,7 +191,7 @@ module ``List snapshots`` =
             backupOnce setup
             let result = invoke [| "snapshots"; "docs"; "--config"; setup.Config |]
             // Two rows, newest first.
-            let firstTwo = result.Output.Split('\n') |> Array.filter (fun line -> line.Contains "Complete")
+            let firstTwo = result.Output.Split '\n' |> Array.filter (fun line -> line.Contains "Complete")
             Assert.Equal(2, firstTwo.Length)
             Assert.StartsWith("│ 2", firstTwo[0].Replace("|", "│")))
 
@@ -241,7 +241,7 @@ module ``File version history`` =
             let console = (new TestConsole()).EmitAnsiSequences()
             let live (env: CliEnv) = { env with Console = console; Capabilities = liveCapabilities }
             runEnv live setup [ "history"; sourceFile setup "a.txt" ] |> ignore
-            let lines = console.Output.Split('\n')
+            let lines = console.Output.Split '\n'
             let added = lines |> Array.find (fun line -> line.Contains "Added")
             let changed = lines |> Array.find (fun line -> line.Contains "Changed")
             // Each kind has its own colour sequence before its name.

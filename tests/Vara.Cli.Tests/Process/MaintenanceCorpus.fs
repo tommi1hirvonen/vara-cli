@@ -101,7 +101,7 @@ let private headline (pattern: string) (output: string) : string list =
 let private findings (setup: Scratch) (output: string) : string =
     let despaced (value: string) = String(value |> Seq.filter (fun c -> not (Char.IsWhiteSpace c)) |> Array.ofSeq)
 
-    output.Split('\n')
+    output.Split '\n'
     |> Seq.map _.TrimEnd('\r')
     |> Seq.skipWhile (fun line -> not (line.StartsWith "Checked " && line.Contains "blob(s):"))
     |> Seq.collect (fun line -> line |> Seq.filter (fun c -> not (Char.IsWhiteSpace c)) |> Seq.map string)

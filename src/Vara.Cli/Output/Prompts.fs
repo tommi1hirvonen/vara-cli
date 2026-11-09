@@ -41,7 +41,7 @@ module Prompts =
                 prompt.Title <- Markup.Escape title
                 prompt.PageSize <- pageSize
                 prompt.UseConverter(fun index -> labels[index]) |> ignore
-                prompt.AddChoices([| 0 .. labels.Length - 1 |]) |> ignore
+                prompt.AddChoices [| 0 .. labels.Length - 1 |] |> ignore
                 prompt.DefaultValue <- defaultIndex
                 console.Prompt prompt
           Confirm = fun question -> console.Confirm(Markup.Escape question, false)

@@ -76,7 +76,7 @@ module ByteSize =
     /// "512 B", "1.5 KB", "2 GB": two decimals at most, binary units.
     let format (bytes: int64) : string =
         match scale (float bytes) 0 with
-        | struct (_, 0) -> bytes.ToString(CultureInfo.InvariantCulture) + " B"
+        | struct (_, 0) -> bytes.ToString CultureInfo.InvariantCulture + " B"
         | struct (value, unit) -> value.ToString("0.##", CultureInfo.InvariantCulture) + " " + units[unit]
 
 module Elapsed =
@@ -197,11 +197,11 @@ module Display =
                       [ cell leftWidth (ratio (tracker.Shown.Bytes + tracker.ShownCredited) tracker.TotalBytes)
                         cell rightWidth files ]
                   Line.Row [ cell leftWidth (ByteSize.format rate + "/s"); cell rightWidth eta ] ]
-                @ (if tracker.Ended.IsSome then [] else activeLines tracker)
+                @ if tracker.Ended.IsSome then [] else activeLines tracker
             | Basis.Items ->
                 // Items have no byte count or throughput: the count and the ETA share the one row.
                 [ barLine; Line.Row [ cell leftWidth files; cell rightWidth eta ] ]
-                @ (if tracker.Ended.IsSome then [] else activeLines tracker)
+                @ if tracker.Ended.IsSome then [] else activeLines tracker
 
     /// The backup's progress screen.
     let view (width: int) (now: DateTimeOffset) (tracker: Tracker) : Display = viewWith backupWording width now tracker

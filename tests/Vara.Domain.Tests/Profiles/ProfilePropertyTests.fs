@@ -30,7 +30,7 @@ let private toggleTrailingSeparator (path: AbsolutePath) : AbsolutePath =
     let text = AbsolutePath.value path
 
     let toggled =
-        if text.EndsWith @"\" && text.Length > 3 then text.TrimEnd('\\') else text + @"\"
+        if text.EndsWith @"\" && text.Length > 3 then text.TrimEnd '\\' else text + @"\"
 
     Option.get (AbsolutePath.tryCreate toggled)
 

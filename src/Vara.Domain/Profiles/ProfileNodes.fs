@@ -5,7 +5,7 @@ module Vara.Domain.ProfileNodes
 open System.Globalization
 
 let private count (value: int) : ConfigNode =
-    ConfigNode.Scalar(value.ToString(CultureInfo.InvariantCulture))
+    ConfigNode.Scalar(value.ToString CultureInfo.InvariantCulture)
 
 /// A list is written only when it has entries; the loader reads an absent list as empty.
 let private listField (key: string) (values: string list) : (string * ConfigNode) list =

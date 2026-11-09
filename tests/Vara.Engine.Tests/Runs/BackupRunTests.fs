@@ -67,7 +67,7 @@ let runOk (env: BackupEnv) (profile: Profile) : RunResult =
 
 let query (setup: Setup) (sql: string) : string list =
     let database = Path.Combine(setup.TargetDir, ".vara", "profile.db")
-    use connection = new SqliteConnection($"Data Source={database};Pooling=False")
+    use connection = new SqliteConnection $"Data Source={database};Pooling=False"
     connection.Open()
     use command = connection.CreateCommand()
     command.CommandText <- sql
@@ -160,7 +160,7 @@ module ``Concurrent run prevention`` =
         within (fun setup ->
             write setup "a.txt" "a" |> ignore
             let profile = profileOf setup "p" None
-            use _held = (RunLock.tryAcquire "p" (absolute setup.TargetDir) |> Result.defaultWith (fun _ -> failwith "no lock"))
+            use _held = RunLock.tryAcquire "p" (absolute setup.TargetDir) |> Result.defaultWith (fun _ -> failwith "no lock")
 
             match runWith quiet profile with
             | Error(BackupRefusal.TargetBusy(target, name)) ->
@@ -176,7 +176,7 @@ module ``Concurrent run prevention`` =
         within (fun setup ->
             let first = profileOf setup "first" None
             let second = profileOf setup "second" None
-            use _held = (RunLock.tryAcquire "first" (absolute setup.TargetDir) |> Result.defaultWith (fun _ -> failwith "no lock"))
+            use _held = RunLock.tryAcquire "first" (absolute setup.TargetDir) |> Result.defaultWith (fun _ -> failwith "no lock")
 
             match runWith quiet second with
             | Error refusal ->
@@ -344,7 +344,7 @@ module ``Dry-run mode reports planned changes without executing them`` =
     [<Fact>]
     let ``Dry run refuses to start while a real run is in progress for the same target`` () =
         within (fun setup ->
-            use _held = (RunLock.tryAcquire "other" (absolute setup.TargetDir) |> Result.defaultWith (fun _ -> failwith "no lock"))
+            use _held = RunLock.tryAcquire "other" (absolute setup.TargetDir) |> Result.defaultWith (fun _ -> failwith "no lock")
 
             match BackupRun.dryRun quiet (profileOf setup "p" None) with
             | Error(BackupRefusal.TargetBusy _) -> ()

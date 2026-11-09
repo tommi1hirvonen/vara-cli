@@ -135,7 +135,7 @@ module SqliteManifest =
             | directory when directory.Length = 0 -> ()
             | directory -> Directory.CreateDirectory directory |> ignore
 
-            let connection = new SqliteConnection($"Data Source={databasePath}")
+            let connection = new SqliteConnection $"Data Source={databasePath}"
             connection.Open()
             // WAL lets the single writer commit without locking the file, and NORMAL skips an fsync per commit while
             // never corrupting the database: only a very recent commit can be lost in a power failure.
@@ -157,9 +157,8 @@ module SqliteManifest =
         | ValueSome connection -> connection
         | ValueNone ->
             raise (
-                InvalidOperationException(
+                InvalidOperationException
                     "This profile has no recorded backup state, so its manifest cannot be written to without first running a backup."
-                )
             )
 
     let private addText (command: SqliteCommand) (name: string) (value: string) : unit =
@@ -318,7 +317,7 @@ module SqliteManifest =
     /// Exactly one row decides per path (the one with the highest id), so a path recorded under several casings
     /// resolves the same way every time. The keys compare case-insensitively and keep the latest row's casing.
     let private readCurrentState (handle: ManifestHandle) (asOf: DateTimeOffset voption) : TrackedPaths =
-        let result = TrackedPaths(StringComparer.OrdinalIgnoreCase)
+        let result = TrackedPaths StringComparer.OrdinalIgnoreCase
 
         match handle.Connection with
         | ValueNone -> result
@@ -353,7 +352,7 @@ module SqliteManifest =
                 if reader.GetString 6 = "Linked" then
                     result[path] <- TrackedState.Linked(if reader.IsDBNull 7 then ValueNone else ValueSome(reader.GetString 7))
                 else
-                    match (if reader.IsDBNull 1 then ValueNone else ContentHash.tryCreate (reader.GetString 1)) with
+                    match if reader.IsDBNull 1 then ValueNone else ContentHash.tryCreate (reader.GetString 1) with
                     | ValueSome hash ->
                         let quick =
                             if reader.IsDBNull 4 || reader.IsDBNull 5 then
@@ -386,7 +385,7 @@ module SqliteManifest =
         if not (File.Exists databasePath) then
             { Connection = ValueNone }
         else
-            let connection = new SqliteConnection($"Data Source={databasePath};Mode=ReadOnly")
+            let connection = new SqliteConnection $"Data Source={databasePath};Mode=ReadOnly"
             connection.Open()
             { Connection = ValueSome connection }
 

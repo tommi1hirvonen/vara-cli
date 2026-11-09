@@ -163,7 +163,7 @@ module ``Manifest queries and the prune writer`` =
     let ``the read-only queries still do not write`` () =
         within (fun setup ->
             threeVersions setup |> ignore
-            use connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={databaseOf setup};Pooling=False")
+            use connection = new Microsoft.Data.Sqlite.SqliteConnection $"Data Source={databaseOf setup};Pooling=False"
             connection.Open()
             use command = connection.CreateCommand()
             command.CommandText <- "PRAGMA wal_checkpoint(TRUNCATE);"
@@ -311,7 +311,7 @@ module ``Unreferenced content garbage collection`` =
         within (fun setup ->
             threeVersions setup |> ignore
             let target = absolute setup.TargetDir
-            use _held = (RunLock.tryAcquire "other" target |> Result.defaultWith (fun _ -> failwith "no lock"))
+            use _held = RunLock.tryAcquire "other" target |> Result.defaultWith (fun _ -> failwith "no lock")
 
             match PruneRun.run (pruneEnv setup (fun () -> false) (ResizeArray())) "p" target keepNothing ValueNone with
             | Error(BackupRefusal.TargetBusy _ as refusal) ->

@@ -37,7 +37,7 @@ let parseSpec (specText: string) : ScenarioId list =
         else
             requirement, found
 
-    specText.Split('\n') |> Array.fold step (None, []) |> snd |> List.rev
+    specText.Split '\n' |> Array.fold step (None, []) |> snd |> List.rev
 
 let private isTestAttribute (attribute: Attribute) : bool =
     match attribute.GetType().Name with
@@ -48,7 +48,7 @@ let private isTestAttribute (attribute: Attribute) : bool =
 
 let private testsOf (declaringType: Type) : ScenarioId list =
     declaringType.GetMethods(BindingFlags.Public ||| BindingFlags.Static ||| BindingFlags.DeclaredOnly)
-    |> Seq.filter (fun method -> method.GetCustomAttributes(true) |> Seq.cast<Attribute> |> Seq.exists isTestAttribute)
+    |> Seq.filter (fun method -> method.GetCustomAttributes true |> Seq.cast<Attribute> |> Seq.exists isTestAttribute)
     |> Seq.map (fun method -> comparable { Requirement = declaringType.Name; Scenario = method.Name })
     |> List.ofSeq
 

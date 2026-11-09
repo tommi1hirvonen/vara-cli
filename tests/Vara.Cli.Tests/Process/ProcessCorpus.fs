@@ -23,7 +23,7 @@ type Run =
 let fsharpDll: string = Path.Combine(AppContext.BaseDirectory, "vara.dll")
 
 let start (dll: string) (arguments: string list) : Run =
-    let info = ProcessStartInfo("dotnet")
+    let info = ProcessStartInfo "dotnet"
     info.ArgumentList.Add dll
 
     for argument in arguments do
@@ -40,7 +40,7 @@ let start (dll: string) (arguments: string list) : Run =
 
 /// The JSON object without the members that differ between two runs.
 let normalizedJson (json: string) : string =
-    let node = JsonNode.Parse(json) |> nonNull
+    let node = JsonNode.Parse json |> nonNull
     let obj = node.AsObject()
     obj.Remove "startedAt" |> ignore
     obj.Remove "completedAt" |> ignore

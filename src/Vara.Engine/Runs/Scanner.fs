@@ -63,7 +63,7 @@ module Scanner =
         if List.isEmpty source.IncludeGlobs && List.isEmpty source.ExcludeGlobs then
             ValueNone
         else
-            let matcher = Matcher(StringComparison.OrdinalIgnoreCase)
+            let matcher = Matcher StringComparison.OrdinalIgnoreCase
             matcher.AddIncludePatterns(if List.isEmpty source.IncludeGlobs then [ "**/*" ] else source.IncludeGlobs)
 
             if not (List.isEmpty source.ExcludeGlobs) then
@@ -83,7 +83,7 @@ module Scanner =
         seq {
             let listing =
                 try
-                    Ok(Directory.EnumerateFileSystemEntries(directory) |> Seq.toArray)
+                    Ok(Directory.EnumerateFileSystemEntries directory |> Seq.toArray)
                 with ex when isIoFailure ex ->
                     Error()
 
@@ -142,9 +142,9 @@ module Scanner =
 
                         let reported =
                             not (ScanRules.isExcluded excludes relative)
-                            && (match matcher with
-                                | ValueNone -> true
-                                | ValueSome matches -> ScanRules.matchesGlobs matches relative)
+                            && match matcher with
+                               | ValueNone -> true
+                               | ValueSome matches -> ScanRules.matchesGlobs matches relative
 
                         if reported then
                             yield entryOf entryPath relative attributes

@@ -199,9 +199,9 @@ module ``Windows Terminal progress indicator`` =
         let clear = TerminalProgress.sequence Indicator.Hidden
 
         for body in
-            [ (fun (_: Observers) -> Task.FromResult 0)
-              (fun _ -> Task.FromCanceled<int>(Threading.CancellationToken(true)))
-              (fun _ -> raise (InvalidOperationException "boom")) ] do
+            [ fun (_: Observers) -> Task.FromResult 0
+              fun _ -> Task.FromCanceled<int>(Threading.CancellationToken true)
+              fun _ -> raise (InvalidOperationException "boom") ] do
             let rig, screen = rigAndScreen OutputMode.Live true (TimeSpan.FromSeconds 60.0)
 
             try

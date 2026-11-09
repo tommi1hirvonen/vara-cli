@@ -70,7 +70,7 @@ module Signatures =
         )
         |> ignore
 
-        let hashes = Dictionary<string, ContentHash>(StringComparer.OrdinalIgnoreCase)
+        let hashes = Dictionary<string, ContentHash> StringComparer.OrdinalIgnoreCase
 
         for i in 0 .. files.Length - 1 do
             match slots[i] with

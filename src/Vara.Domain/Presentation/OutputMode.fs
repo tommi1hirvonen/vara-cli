@@ -55,7 +55,7 @@ module TerminalProgress =
         | Indicator.Hidden -> "\u001b]9;4;0;0\u0007"
         | Indicator.Indeterminate -> "\u001b]9;4;3;0\u0007"
         | Indicator.Percentage percent ->
-            "\u001b]9;4;1;" + Math.Clamp(percent, 0, 100).ToString(Globalization.CultureInfo.InvariantCulture) + "\u0007"
+            "\u001b]9;4;1;" + Math.Clamp(percent, 0, 100).ToString Globalization.CultureInfo.InvariantCulture + "\u0007"
 
     /// Whether the sequences are written at all: only for the live display, in Windows Terminal, which sets
     /// `WT_SESSION` (progress-reporting: "Terminal progress compatibility").

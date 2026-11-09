@@ -220,7 +220,7 @@ module ``Hardlinked mirror entries are read-only`` =
 
 module ``Mirror writes are confined to the target root`` =
     let private escapes (action: unit -> unit) =
-        Assert.Throws<MirrorPathEscapesTargetRootException>(action) |> ignore
+        Assert.Throws<MirrorPathEscapesTargetRootException> action |> ignore
 
     [<Fact>]
     let ``Placing a file whose mirror path would escape the target root`` () =

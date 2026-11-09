@@ -7,7 +7,7 @@ open Vara.Domain
 /// A mirror path resolved outside the target root. An `IOException`, so the per-operation failure handling that
 /// catches an unreadable or unwritable path catches this too, instead of the run aborting.
 type MirrorPathEscapesTargetRootException(mirrorPath: string, resolved: string, targetRoot: string) =
-    inherit IOException($"Mirror path '{mirrorPath}' resolves to '{resolved}', which is outside the target root '{targetRoot}'.")
+    inherit IOException $"Mirror path '{mirrorPath}' resolves to '{resolved}', which is outside the target root '{targetRoot}'."
 
 /// The effect the content store needs that tests vary: making a hard link (`newLink existing`).
 /// A test passes a function that raises, in place of the C# test hooks.

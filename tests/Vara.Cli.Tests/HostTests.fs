@@ -18,7 +18,7 @@ let private invoke (root: RootCommand) (args: string array) (cancellationToken: 
 
 let private rootWith (name: string) (errorConsole: TestConsole) handler =
     let root = Composition.rootCommand ()
-    root.Subcommands.Add(Command(name) |> CommandAction.set errorConsole handler)
+    root.Subcommands.Add(Command name |> CommandAction.set errorConsole handler)
     root
 
 [<Fact>]
@@ -27,7 +27,7 @@ let ``the first Ctrl+C requests a cooperative stop and the second forces a hard-
     let cancellation = GracefulCancellation(fun code -> forcedExit <- Some code)
 
     Assert.True(cancellation.RequestCancellation())
-    Assert.True(cancellation.Token.IsCancellationRequested)
+    Assert.True cancellation.Token.IsCancellationRequested
     Assert.Equal(None, forcedExit)
 
     Assert.False(cancellation.RequestCancellation())

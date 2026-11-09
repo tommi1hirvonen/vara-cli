@@ -140,7 +140,7 @@ module ProfileDraft =
           RetentionEntry = None
           ConcurrencyEntry = None }
 
-    let private countText (count: int) : string = count.ToString(Globalization.CultureInfo.InvariantCulture)
+    let private countText (count: int) : string = count.ToString Globalization.CultureInfo.InvariantCulture
 
     /// A draft that holds a saved profile's values.
     let ofProfile (profile: Profile) : ProfileDraft =

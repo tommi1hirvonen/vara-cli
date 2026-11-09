@@ -148,9 +148,9 @@ module ProfileEditorView =
           Line.Text(Tone.Plain, "Exclude: " + listText source.ExcludeEntries)
           Line.Text(Tone.Plain, "Include globs: " + listText source.IncludeGlobEntries)
           Line.Text(Tone.Plain, "Exclude globs: " + listText source.ExcludeGlobEntries) ]
-        @ (match ProfileDraft.validate session.Saved session.Draft with
-           | Ok _ -> []
-           | Error error -> [ Line.Text(Tone.Error, validationError + ProfileDraft.describe error) ])
+        @ match ProfileDraft.validate session.Saved session.Draft with
+          | Ok _ -> []
+          | Error error -> [ Line.Text(Tone.Error, validationError + ProfileDraft.describe error) ]
 
     /// The screen for a state. The main menu lists every saved profile by name, target root and source count.
     let view (state: EditorState) : Display =
@@ -162,17 +162,17 @@ module ProfileEditorView =
         | EditorState.Exited -> []
         | EditorState.Editing(session, page) ->
             noticeLines session.Notice
-            @ (match page with
-               | Page.Fields
-               | Page.Sources
-               | Page.Retention
-               | Page.Concurrency -> [ draftBox session ]
-               | Page.Source index ->
-                   List.tryItem index session.Draft.DraftSources
-                   |> Option.map (sourceBox session)
-                   |> Option.defaultValue []
-               | Page.Entries(index, list) ->
-                   [ Line.Text(Tone.Plain, "Current entries: " + listText (List.tryItem index session.Draft.DraftSources |> Option.map (SourceDraft.entries list) |> Option.defaultValue [])) ])
+            @ match page with
+              | Page.Fields
+              | Page.Sources
+              | Page.Retention
+              | Page.Concurrency -> [ draftBox session ]
+              | Page.Source index ->
+                  List.tryItem index session.Draft.DraftSources
+                  |> Option.map (sourceBox session)
+                  |> Option.defaultValue []
+              | Page.Entries(index, list) ->
+                  [ Line.Text(Tone.Plain, "Current entries: " + listText (List.tryItem index session.Draft.DraftSources |> Option.map (SourceDraft.entries list) |> Option.defaultValue [])) ]
 
     // ---- Questions ----
 

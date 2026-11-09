@@ -44,7 +44,7 @@ let private twoVersions (setup: Scratch) : unit =
 
 /// The lines of a run's output that are progress.
 let private progressLines (result: Invocation) : string list =
-    result.Output.Split('\n') |> Array.map _.TrimEnd('\r') |> Array.filter (fun line -> line.Contains "Files ") |> List.ofArray
+    result.Output.Split '\n' |> Array.map _.TrimEnd('\r') |> Array.filter (fun line -> line.Contains "Files ") |> List.ofArray
 
 module ``Check command verifies stored content against the manifest`` =
     [<Fact>]

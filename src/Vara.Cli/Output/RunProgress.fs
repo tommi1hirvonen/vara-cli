@@ -46,7 +46,7 @@ let private shown (screen: Screen) (run: (ProgressEvent -> unit) -> Task<'a>) (o
         let cell = ref screen.Initial
         let closed = ref false
         let lastSequence = ref ""
-        let live = (screen.Mode = OutputMode.Live)
+        let live = screen.Mode = OutputMode.Live
 
         let writeIndicator (tracker: Tracker) : unit =
             match screen.WriteIndicator with

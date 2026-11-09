@@ -136,7 +136,7 @@ module ``Progress bar row includes a leading phase description`` =
     let ``Transfer phase in progress`` () =
         let bar = barOf (shown (transferring 100L 1 |> step 200 (BytesCopied 50L)))
         Assert.StartsWith(" Backing up...", bar.Label)
-        Assert.Equal(" 50.0%".PadLeft(Display.trailingWidth), bar.Trailing)
+        Assert.Equal(" 50.0%".PadLeft Display.trailingWidth, bar.Trailing)
 
     [<Fact>]
     let ``Bar length is consistent across phases`` () =
@@ -173,7 +173,7 @@ module ``Numeric progress fields do not shift layout as values change`` =
             let tracker =
                 transferring total files
                 |> step 200 (BytesCopied copied)
-                |> fun t -> (Seq.fold (fun t _ -> step 300 FileTransferred t) t (Seq.truncate 5 (Seq.initInfinite id)))
+                |> fun t -> Seq.fold (fun t _ -> step 300 FileTransferred t) t (Seq.truncate 5 (Seq.initInfinite id))
                 |> fun t -> { t with Shown = { Bytes = copied; Files = doneFiles } }
 
             rowsOf (Display.view width (after elapsed) tracker)
@@ -479,7 +479,7 @@ module ``Progress display updates are rate-limited`` =
     let ``Transfer completes before a truthful refresh`` () =
         // Started and finished between two redraws: the path is simply not in the list when it is next drawn.
         let tracker = transferring 100L 1 |> step 10 (FileStarted "a") |> step 11 (FileFinished "a")
-        Assert.Empty(tracker.Active)
+        Assert.Empty tracker.Active
         Assert.Empty(textLines (shown tracker))
 
     [<Fact>]

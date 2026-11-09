@@ -162,7 +162,7 @@ module ``File version history`` =
 
             let history = History.versionsOf lookup (mirror (pathAt 0))
             let distinct = asked |> Seq.distinct |> Seq.length
-            distinct = asked.Count && (history |> List.map _.VersionId |> List.distinct |> List.length) = history.Length)
+            distinct = asked.Count && history |> List.map _.VersionId |> List.distinct |> List.length = history.Length)
 
     [<Fact>]
     let ``No version history remains for a previously tracked path`` () =

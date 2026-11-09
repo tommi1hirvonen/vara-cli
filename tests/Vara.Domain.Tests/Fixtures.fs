@@ -35,7 +35,7 @@ let failure (covers: string) (reason: ScanFailureReason) : ScanFailure =
       Reason = reason }
 
 let tracked (entries: (string * TrackedState) list) : TrackedPaths =
-    let paths = TrackedPaths(StringComparer.OrdinalIgnoreCase)
+    let paths = TrackedPaths StringComparer.OrdinalIgnoreCase
 
     for path, state in entries do
         paths[path] <- state

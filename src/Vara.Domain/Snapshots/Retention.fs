@@ -33,7 +33,7 @@ module Retention =
         /// The Monday that starts the ISO-8601 week of the date: the C# build's week bucket.
         let week (date: DateOnly) : DateOnly =
             let sinceMonday = (int date.DayOfWeek - int DayOfWeek.Monday + 7) % 7
-            date.AddDays(-sinceMonday)
+            date.AddDays -sinceMonday
 
         let month (date: DateOnly) : DateOnly = DateOnly(date.Year, date.Month, 1)
         let year (date: DateOnly) : DateOnly = DateOnly(date.Year, 1, 1)

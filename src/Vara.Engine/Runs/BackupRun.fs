@@ -131,7 +131,7 @@ module BackupRun =
                         // Planning failed before execution returned a batch; the initial one is still open.
                         recordFailure env snapshotId batch
                         return Flow.rethrow failure
-                    | Ok(struct (ended, scanFailures)) ->
+                    | Ok struct (ended, scanFailures) ->
                         match ended.Failure with
                         | ValueSome failure ->
                             recordFailure env snapshotId ended.Batch

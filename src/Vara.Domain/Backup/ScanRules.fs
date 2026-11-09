@@ -20,9 +20,9 @@ module ScanRules =
             | [] -> false
             | exclude :: rest ->
                 String.Equals(path, exclude, StringComparison.OrdinalIgnoreCase)
-                || (path.Length > exclude.Length
-                    && path[exclude.Length] = '/'
-                    && path.StartsWith(exclude, StringComparison.OrdinalIgnoreCase))
+                || path.Length > exclude.Length
+                   && path[exclude.Length] = '/'
+                   && path.StartsWith(exclude, StringComparison.OrdinalIgnoreCase)
                 || any path rest
 
         match normalizedExcludes with
@@ -34,7 +34,7 @@ module ScanRules =
     /// globbing package; the rule that decides which form of the path it sees lives here.
     let matchesGlobs (matcher: string -> bool) (relativePath: string) : bool = matcher (forward relativePath)
 
-    let private isDriveLetter (c: char) : bool = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+    let private isDriveLetter (c: char) : bool = c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 
     let private isSeparator (c: char) : bool = c = '\\' || c = '/'
 

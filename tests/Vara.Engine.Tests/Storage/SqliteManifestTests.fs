@@ -48,7 +48,7 @@ let private write (handle: ManifestHandle) (rows: ManifestRow list) : int64 =
 
 /// Every column of every file_versions row, in id order, as text.
 let dumpRows (path: string) : string list =
-    use connection = new SqliteConnection($"Data Source={path};Pooling=False")
+    use connection = new SqliteConnection $"Data Source={path};Pooling=False"
     connection.Open()
     use command = connection.CreateCommand()
 
@@ -86,7 +86,7 @@ let legacySchema =
 
 let createLegacy (path: string) =
     Directory.CreateDirectory(Path.GetDirectoryName path |> nonNull) |> ignore
-    use connection = new SqliteConnection($"Data Source={path};Pooling=False")
+    use connection = new SqliteConnection $"Data Source={path};Pooling=False"
     connection.Open()
     use command = connection.CreateCommand()
     command.CommandText <- legacySchema
@@ -178,7 +178,7 @@ module ``Manifest batches`` =
             SqliteManifest.beginSnapshot handle (at 0) |> ignore
             SqliteManifest.reconcileIncompleteSnapshots handle (at 7)
             SqliteManifest.close handle
-            use connection = new SqliteConnection($"Data Source={path};Pooling=False")
+            use connection = new SqliteConnection $"Data Source={path};Pooling=False"
             connection.Open()
             use command = connection.CreateCommand()
             command.CommandText <- "SELECT status FROM snapshots"

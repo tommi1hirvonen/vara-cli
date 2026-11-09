@@ -221,7 +221,7 @@ module ``Outcome severity is visually distinct`` =
         scratch (fun setup ->
             write setup "a.txt" "alpha"
             let result = invokeEnv liveEnv CancellationToken.None (args setup [])
-            let lines = result.Output.Split('\n')
+            let lines = result.Output.Split '\n'
             let headline = lines |> Array.find (fun line -> line.Contains "Backup completed")
             let detail = lines |> Array.find (fun line -> line.Contains "Added:       1")
             Assert.True(hasEscape headline)

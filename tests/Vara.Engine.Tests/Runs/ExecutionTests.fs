@@ -74,7 +74,7 @@ let private finish (rig: Rig) (ended: ExecutionEnd) : unit =
 
 let private persistedRows (rig: Rig) : int =
     let database = Path.Combine(rig.Layout.MirrorRoot, ".vara", "profile.db")
-    use connection = new SqliteConnection($"Data Source={database};Pooling=False")
+    use connection = new SqliteConnection $"Data Source={database};Pooling=False"
     connection.Open()
     use command = connection.CreateCommand()
     command.CommandText <- "SELECT COUNT(*) FROM file_versions"
@@ -362,7 +362,7 @@ module ``Failures of the run itself`` =
 
             match ended.Failure with
             | ValueSome failure ->
-                let aggregate = Assert.IsType<AggregateException>(failure.SourceException)
+                let aggregate = Assert.IsType<AggregateException> failure.SourceException
                 Assert.Equal("worker crash", Assert.Single(aggregate.InnerExceptions).Message)
             | ValueNone -> Assert.Fail "expected a failure"
 
