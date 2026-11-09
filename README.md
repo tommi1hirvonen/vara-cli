@@ -80,7 +80,7 @@ unions; there are no interfaces, service classes or dependency-injection contain
 |---|---|
 | `Vara.Domain` | The pure core: the profile and configuration model and its validation, scan, diff and move-planning decisions, run state, retention evaluation, history and integrity queries over manifest rows, and the views that describe a command's output as plain data (`Display`, `Tracker`, the history, prune and check views, the profile editor's state machine). It touches no file system, clock, randomness or console. |
 | `Vara.Engine` | The effect shell: the directory scanner, the SQLite manifest (`SqliteManifest`), the content store and hard links, content hashing, the per-profile run lock, the YAML configuration file, and the runs that apply the domain's decisions (`BackupRun`, `RestoreRun`, `PruneRun`, `CheckRun`). Effects are passed in as functions or small records of functions, so a test replaces one with a function that fails. |
-| `Vara.Cli` | The composition root and command surface: `Composition` assembles the functions once, `System.CommandLine` defines each subcommand, and `Spectre.Console` renders a `Display` live, as plain text, or as JSON. Spectre.Console types appear only in the renderers, the prompts and the console environment. |
+| `Vara.Cli` | The command surface: `CliEnv.live` defines the live effects, `Program.main` partially applies `Composition.withCommands` to that environment, and `Composition` passes it to each command factory while building the command tree. `System.CommandLine` defines each subcommand, and `Spectre.Console` renders a `Display` live, as plain text, or as JSON. Spectre.Console types appear only in the renderers, the prompts and the console environment. |
 
 Each project has a mirrored xUnit test project under `tests/` (`Vara.Domain.Tests`,
 `Vara.Engine.Tests`, `Vara.Cli.Tests`), plus `Vara.Testing`, which holds the spec-coverage
@@ -412,10 +412,14 @@ The code is idiomatic F#, designed from the specifications. These rules apply to
 - **Dependencies are parameters.** A function takes the functions it needs, not an object
   that holds them. Effects that travel together may be grouped as a record of functions,
   when three or more are used together (`Links`, `ExecutionEnv`, `BackupEnv`, `CliEnv`).
-  Everything is assembled once, by partial application, in `Vara.Cli`'s `Composition`.
+  `CliEnv.live` defines the live CLI dependencies; `Program.main` partially applies
+  `Composition.withCommands` to that environment, and `Composition` passes it to command
+  factories. Invocation-specific dependencies, such as a backup environment tied to the
+  command's cancellation token, are created when that command runs.
 - **Compose, don't sequence.** Build behavior from small functions joined with `|>`,
   `Result`, `Option` and `Seq` combinators, and a computation expression where a flow
-  reads in order. Put the data argument last, so that partial application works.
+  reads in order. Put the data argument last, so functions can be partially applied when
+  useful.
 - **Types carry the rules.** Unions for alternatives, `[<RequireQualifiedAccess>]` on
   them, records with named fields, single-case unions or units of measure for values that
   could be confused. Matches on the code's own unions are exhaustive, with no wildcard; no
