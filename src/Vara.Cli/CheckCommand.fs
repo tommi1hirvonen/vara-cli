@@ -22,7 +22,7 @@ let private execute (env: CliEnv) (token: CancellationToken) (profile: Profile) 
 
     let run (publish: ProgressEvent -> unit) : Task<CheckResult> =
         Task.Run(fun () ->
-            let handle = SqliteManifest.openReadOnly (Path.Combine(root, ".vara", "profile.db"))
+            let handle = SqliteManifest.openReadOnly (SqliteManifest.pathIn root)
 
             try
                 CheckRun.execute (CheckRun.live store (fun () -> token.IsCancellationRequested) publish) store handle quick

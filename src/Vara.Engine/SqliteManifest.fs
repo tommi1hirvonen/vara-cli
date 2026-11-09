@@ -119,6 +119,11 @@ module SqliteManifest =
     let private parseIso (value: string) : DateTimeOffset =
         DateTimeOffset.Parse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)
 
+    /// Where the manifest of the target rooted at `targetRoot` lives. Every caller asks here, so the layout is stated
+    /// once.
+    let pathIn (targetRoot: string) : string =
+        Path.Combine(targetRoot, ".vara", "profile.db")
+
     /// Opens, or creates, the manifest at `databasePath`. With `createIfMissing` false and no file there, nothing is
     /// created: the handle is empty, so a read-only command leaves no `profile.db` behind.
     let openAt (databasePath: string) (createIfMissing: bool) : ManifestHandle =

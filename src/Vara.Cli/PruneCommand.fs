@@ -18,7 +18,7 @@ open Vara.Engine
 /// prune runs: the run evaluates again and removes only what is both confirmed and still eligible.
 let private eligibleNow (profile: Profile) (policy: RetentionPolicy) : int64 list =
     let root = AbsolutePath.value (Profile.target profile)
-    let handle = SqliteManifest.openReadOnly (Path.Combine(root, ".vara", "profile.db"))
+    let handle = SqliteManifest.openReadOnly (SqliteManifest.pathIn root)
 
     try
         (Retention.evaluate policy (SqliteManifest.snapshots handle)).Eligible

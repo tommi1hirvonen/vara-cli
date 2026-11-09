@@ -332,7 +332,7 @@ let create (env: CliEnv) : Command =
                 | Error error -> return HistorySession.fail env (ConfigError.render error)
                 | Ok target ->
                     // The manifest stays open only while the plan is made; the restore itself reads blobs, not rows.
-                    let handle = SqliteManifest.openReadOnly (Path.Combine(target.Layout.MirrorRoot, ".vara", "profile.db"))
+                    let handle = SqliteManifest.openReadOnly (SqliteManifest.pathIn target.Layout.MirrorRoot)
 
                     try
                         if request.Recursive then

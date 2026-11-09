@@ -44,7 +44,7 @@ module BackupRun =
         | None -> defaultTransferConcurrency
 
     let private databasePath (profile: Profile) : string =
-        Path.Combine(AbsolutePath.value (Profile.target profile), ".vara", "profile.db")
+        SqliteManifest.pathIn (AbsolutePath.value (Profile.target profile))
 
     /// How many scanned entries pass between two reports of the running count. A display redraws far less often than
     /// the scan yields entries, so reporting each one would only allocate; a hundred keeps the count moving visibly.

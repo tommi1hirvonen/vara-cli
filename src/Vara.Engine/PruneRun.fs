@@ -121,7 +121,7 @@ module PruneRun =
         |> Result.map (fun held ->
             use _held = held
             let root = AbsolutePath.value target
-            let handle = SqliteManifest.openAt (Path.Combine(root, ".vara", "profile.db")) false
+            let handle = SqliteManifest.openAt (SqliteManifest.pathIn root) false
 
             try
                 execute env (ContentStore.layout root) handle policy confirmed

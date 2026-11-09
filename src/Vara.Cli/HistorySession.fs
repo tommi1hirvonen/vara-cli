@@ -36,7 +36,7 @@ let resolve (env: CliEnv) (configPath: string option) (profileName: string optio
 /// Runs the body with the manifest open read-only, then closes it. A target with no manifest is read as empty, and
 /// nothing is created for it.
 let withManifest (target: Target) (body: ManifestHandle -> 'a) : 'a =
-    let handle = SqliteManifest.openReadOnly (System.IO.Path.Combine(target.Layout.MirrorRoot, ".vara", "profile.db"))
+    let handle = SqliteManifest.openReadOnly (SqliteManifest.pathIn target.Layout.MirrorRoot)
 
     try
         body handle

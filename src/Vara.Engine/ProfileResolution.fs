@@ -5,8 +5,6 @@ open System
 open System.IO
 open Vara.Domain
 
-let private manifestPath = Path.Combine(".vara", "profile.db")
-
 /// The profile with that name; letter case is ignored.
 let byName (name: string) (profiles: Profile list) : Result<Profile, ConfigError> =
     profiles
@@ -26,7 +24,7 @@ let findTargetRoot (manifestExists: string -> bool) (startDirectory: string) : s
             |> Option.map (fun current ->
                 current, Directory.GetParent current |> Option.ofObj |> Option.map (fun parent -> parent.FullName)))
         (Some start)
-    |> Seq.tryFind (fun directory -> manifestExists (Path.Combine(directory, manifestPath)))
+    |> Seq.tryFind (fun directory -> manifestExists (SqliteManifest.pathIn directory))
 
 let fromDirectory (startDirectory: string) : Result<DiscoveredRoot, ConfigError> =
     findTargetRoot File.Exists startDirectory
