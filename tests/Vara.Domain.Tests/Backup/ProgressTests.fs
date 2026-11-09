@@ -196,14 +196,15 @@ module ``Lightweight operations reported separately from data transfer`` =
 
 module ``Run summary statistics`` =
     let private result =
-        { Status = SnapshotStatus.Complete
+        { SnapshotId = 7L
+          Status = SnapshotStatus.Complete
           Totals = { FilesAdded = 2; FilesChanged = 1; FilesMoved = 3; FilesDeleted = 4; FilesFailed = 1; BytesTransferred = 2048L }
           FailedPaths = [ "a\\b.txt" ] }
 
     [<Fact>]
     let ``Run completes with a failed file`` () =
         let text = Display.ofRun (TimeSpan.FromSeconds 3.2) result |> textLines |> String.concat "\n"
-        Assert.Contains("Backup completed in 3.2s", text)
+        Assert.Contains("Snapshot #7 completed in 3.2s", text)
         Assert.Contains("Added:       2", text)
         Assert.Contains("Changed:     1", text)
         Assert.Contains("Moved:       3", text)
@@ -214,7 +215,8 @@ module ``Run summary statistics`` =
 
 module ``Backup run outcome reflects failure severity`` =
     let private run (failed: string list) : RunResult =
-        { Status = SnapshotStatus.Complete
+        { SnapshotId = 7L
+          Status = SnapshotStatus.Complete
           Totals = { FilesAdded = 0; FilesChanged = 0; FilesMoved = 0; FilesDeleted = 0; FilesFailed = List.length failed; BytesTransferred = 0L }
           FailedPaths = failed }
 

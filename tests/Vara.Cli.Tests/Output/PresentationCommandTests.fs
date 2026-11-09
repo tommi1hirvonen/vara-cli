@@ -68,7 +68,7 @@ module ``Machine-readable JSON output for the backup command`` =
             write setup "a.txt" "alpha"
             let result = invoke (args setup [])
             Assert.Equal("", result.Json)
-            Assert.Contains("Backup completed", result.Output)
+            Assert.Contains("completed in", result.Output)
 
             let dry = invoke (args setup [ "--dry-run" ])
             Assert.Equal("", dry.Json)
@@ -183,7 +183,7 @@ module ``Sleep-prevention request failure does not block backup`` =
             let result = invokeEnv refusing CancellationToken.None (args setup [])
             Assert.Equal(0, result.ExitCode)
             Assert.Contains("Warning: Windows sleep prevention could not be activated", result.Errors)
-            Assert.Contains("Backup completed", result.Output)
+            Assert.Contains("completed in", result.Output)
             Assert.True(File.Exists(Path.Combine(setup.Target, ".vara", "profile.db"))))
 
 module ``Non-interactive or color-incapable output falls back to plain text`` =
@@ -204,7 +204,7 @@ module ``Non-interactive or color-incapable output falls back to plain text`` =
             let result = invokeEnv noColour CancellationToken.None (args setup [])
             Assert.False(hasEscape result.Output)
             Assert.DoesNotContain("Scanning files", result.Output)
-            Assert.Contains("Backup completed", result.Output))
+            Assert.Contains("completed in", result.Output))
 
     [<Fact>]
     let ``Terminal does not support color`` () =
@@ -213,7 +213,7 @@ module ``Non-interactive or color-incapable output falls back to plain text`` =
             let noColour (env: CliEnv) : CliEnv = { liveEnv env with Capabilities = { live with SupportsColor = false } }
             let result = invokeEnv noColour CancellationToken.None (args setup [])
             Assert.False(hasEscape result.Output)
-            Assert.Contains("Backup completed", result.Output))
+            Assert.Contains("completed in", result.Output))
 
 module ``Outcome severity is visually distinct`` =
     [<Fact>]
@@ -222,7 +222,7 @@ module ``Outcome severity is visually distinct`` =
             write setup "a.txt" "alpha"
             let result = invokeEnv liveEnv CancellationToken.None (args setup [])
             let lines = result.Output.Split '\n'
-            let headline = lines |> Array.find (fun line -> line.Contains "Backup completed")
+            let headline = lines |> Array.find (fun line -> line.Contains "completed in")
             let detail = lines |> Array.find (fun line -> line.Contains "Added:       1")
             Assert.True(hasEscape headline)
             Assert.False(hasEscape detail))

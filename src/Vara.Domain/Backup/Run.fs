@@ -49,7 +49,8 @@ type SnapshotStatus =
 /// The result of a run that was not refused: how it ended, its totals, and the paths that failed.
 /// Scan failures come first, as the source-relative text the scan reported; then failed operations, as mirror paths.
 type RunResult =
-    { Status: SnapshotStatus
+    { SnapshotId: int64
+      Status: SnapshotStatus
       Totals: Counts
       FailedPaths: string list }
 
@@ -144,10 +145,11 @@ module Run =
 
     /// The result of a run whose execution returned: scan failures join the executor's. The failed-path list
     /// puts scan failures first, then failed operations oldest first.
-    let finish (cancelRequested: bool) (scanFailures: ScanFailure list) (state: RunState) : RunResult =
+    let finish (snapshotId: int64) (cancelRequested: bool) (scanFailures: ScanFailure list) (state: RunState) : RunResult =
         let scanFailureCount = List.length scanFailures
 
-        { Status = endStatus cancelRequested
+        { SnapshotId = snapshotId
+          Status = endStatus cancelRequested
           Totals =
             { state.Counts with
                 FilesFailed = state.Counts.FilesFailed + scanFailureCount }

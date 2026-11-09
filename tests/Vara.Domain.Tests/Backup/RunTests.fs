@@ -128,7 +128,7 @@ module ``Progress and outcome`` =
     let ``Scan failures join the failed operations in the result`` () =
         let state, _ = foldAll [ failed "C\\x"; failed "C\\y"; transferred "C\\a" ChangeKind.Added 1L ]
         let scanFailures = [ failure "C\\Users\\john" ScanFailureReason.UnreadableDirectory ]
-        let result = Run.finish false scanFailures state
+        let result = Run.finish 1L false scanFailures state
         Assert.Equal(3, result.Totals.FilesFailed)
         Assert.Equal<string list>([ "C\\Users\\john"; "C\\x"; "C\\y" ], result.FailedPaths)
         Assert.Equal(SnapshotStatus.Complete, result.Status)
@@ -217,7 +217,7 @@ module ``Dry-run mode`` =
         Assert.Equal(0, summary.Added + summary.Changed + summary.Moved + summary.Deleted)
         Assert.Equal(0L, summary.PlannedBytes)
         Assert.Empty summary.Unscanned
-        Assert.Equal(Outcome.Success, Run.outcome (Run.finish false [] (Run.initial (at 0))))
+        Assert.Equal(Outcome.Success, Run.outcome (Run.finish 1L false [] (Run.initial (at 0))))
 
     [<Fact>]
     let ``Dry run reports what a real run would add, change and delete`` () =
@@ -244,7 +244,7 @@ module ``Dry-run mode`` =
 module ``Mapping a run to an outcome`` =
     let private resultOf (cancel: bool) (completions: Completion list) (scanFailures: ScanFailure list) =
         let state, _ = foldAll completions
-        Run.finish cancel scanFailures state
+        Run.finish 1L cancel scanFailures state
 
     [<Fact>]
     let ``A clean run is a success`` () =

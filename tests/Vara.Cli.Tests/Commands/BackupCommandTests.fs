@@ -135,7 +135,7 @@ module ``Backup command accepts profile as a positional argument`` =
             write setup "a.txt" "alpha"
             let result = invoke [| "backup"; "docs"; "--config"; setup.Config |]
             Assert.Equal(0, result.ExitCode)
-            Assert.Contains("Backup completed", result.Output)
+            Assert.Contains("completed in", result.Output)
             Assert.Contains("Added:       1", result.Output)
             Assert.Equal("alpha", File.ReadAllText(mirrorFile setup "a.txt")))
 
@@ -185,7 +185,7 @@ module ``Outcome severity determines process exit code`` =
             let result = invoke [| "backup"; "docs"; "--config"; setup.Config |]
             Assert.Equal(1, result.ExitCode)
             Assert.Contains("Another operation is already using target", result.Errors)
-            Assert.DoesNotContain("Backup completed", result.Output))
+            Assert.DoesNotContain("completed in", result.Output))
 
 module ``Graceful cancellation via CtrlC`` =
     [<Fact>]
@@ -206,7 +206,7 @@ module ``Graceful cancellation via CtrlC`` =
             source.Cancel()
             let result = invokeWith source.Token [| "backup"; "docs"; "--config"; setup.Config |]
             Assert.Equal(2, result.ExitCode)
-            Assert.Contains("Backup cancelled", result.Output)
+            Assert.Contains("cancelled after", result.Output)
             Assert.False(File.Exists(mirrorFile setup "a.txt")))
 
 module ``Dry-run mode reports planned changes without executing them`` =

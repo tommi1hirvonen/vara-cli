@@ -144,7 +144,8 @@ module ``Machine-readable JSON output for the backup command`` =
     [<Fact>]
     let ``JSON output for a completed real run`` () =
         let result =
-            { Status = SnapshotStatus.Cancelled
+            { SnapshotId = 7L
+              Status = SnapshotStatus.Cancelled
               Totals = { FilesAdded = 1; FilesChanged = 2; FilesMoved = 3; FilesDeleted = 4; FilesFailed = 5; BytesTransferred = 99L }
               FailedPaths = [ "a"; "b" ] }
 

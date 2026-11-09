@@ -142,7 +142,7 @@ module BackupRun =
                             recordFailure env snapshotId ended.Batch
                             return Flow.rethrow failure
                         | ValueNone ->
-                            let result = Run.finish (env.ShouldStop()) scanFailures ended.Run
+                            let result = Run.finish snapshotId (env.ShouldStop()) scanFailures ended.Run
                             SqliteManifest.finishSnapshot ended.Batch snapshotId result.Status (env.Clock()) result.Totals
                             SqliteManifest.checkpoint ended.Batch |> SqliteManifest.discard
                             return Ok result

@@ -236,10 +236,10 @@ module Display =
 
         let headline =
             match result.Status with
-            | SnapshotStatus.Cancelled -> "Backup cancelled after " + Elapsed.format elapsed
+            | SnapshotStatus.Cancelled -> $"Snapshot #{result.SnapshotId} cancelled after " + Elapsed.format elapsed
             | SnapshotStatus.Running
             | SnapshotStatus.Complete
-            | SnapshotStatus.Failed -> "Backup completed in " + Elapsed.format elapsed
+            | SnapshotStatus.Failed -> $"Snapshot #{result.SnapshotId} completed in " + Elapsed.format elapsed
 
         [ Line.Text(toneOf outcome, headline)
           count "Added:       " result.Totals.FilesAdded
