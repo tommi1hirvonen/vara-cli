@@ -116,7 +116,7 @@ let private corpus: (string * string) list =
       "order: concurrency error before relative target", "profiles:\n  - name: p\n    target: relative\n    concurrency:\n      scan_concurrency: abc\n    sources:\n      - path: C:\\s\n"
       "order: source error before missing target path", "profiles:\n  - name: p\n    target: relative\n    sources:\n      - path: relative\n" ]
 
-let private describeProfile (profile: Profile) : string list =
+let describeProfile (profile: Profile) : string list =
     let count (value: RetentionCount) = string (RetentionCount.value value)
     let limit (value: ConcurrencyLimit option) = value |> Option.map (ConcurrencyLimit.value >> string) |> Option.defaultValue "-"
     let strings (items: string list) = String.Join("|", List.toSeq items)
@@ -138,7 +138,7 @@ let private describeProfile (profile: Profile) : string list =
       | Some settings -> yield $"concurrency {limit settings.Scan} {limit settings.Transfer}"
       | None -> yield "concurrency none" ]
 
-let private describeCSharpProfile (profile: Vara.Core.Configuration.Profile) : string list =
+let describeCSharpProfile (profile: Vara.Core.Configuration.Profile) : string list =
     let optional (value: Nullable<int>) = if value.HasValue then string value.Value else "-"
     let strings (items: Collections.Generic.IReadOnlyList<string>) = String.Join("|", items)
 

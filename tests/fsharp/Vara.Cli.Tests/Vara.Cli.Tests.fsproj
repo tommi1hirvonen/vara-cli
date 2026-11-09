@@ -12,6 +12,7 @@
     <Compile Include="RestoreCommandTests.fs" />
     <Compile Include="PruneCommandTests.fs" />
     <Compile Include="CheckCommandTests.fs" />
+    <Compile Include="ProfilesCommandTests.fs" />
     <Compile Include="CommandParityTests.fs" />
     <Compile Include="HistoryParityTests.fs" />
     <Compile Include="MaintenanceParityTests.fs" />

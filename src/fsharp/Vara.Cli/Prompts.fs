@@ -5,7 +5,7 @@ namespace Vara.Cli
 open Spectre.Console
 open Vara.Domain
 
-/// Two functions: choose one of several lines, and answer yes or no.
+/// Three functions: choose one of several lines, answer yes or no, and enter a line of text.
 type Prompts =
     {
         /// `Select title choices defaultIndex` shows the choices, each a line of styled spans, with the default
@@ -13,6 +13,8 @@ type Prompts =
         Select: string -> Span list list -> int -> int
         /// `Confirm question` asks a yes or no question whose default is no.
         Confirm: string -> bool
+        /// `Text prompt` asks for a line of text, which may be left blank: a blank entry is `None`.
+        Text: string -> string option
     }
 
 module Prompts =
@@ -42,4 +44,10 @@ module Prompts =
                 prompt.AddChoices([| 0 .. labels.Length - 1 |]) |> ignore
                 prompt.DefaultValue <- defaultIndex
                 console.Prompt prompt
-          Confirm = fun question -> console.Confirm(Markup.Escape question, false) }
+          Confirm = fun question -> console.Confirm(Markup.Escape question, false)
+          Text =
+            fun prompt ->
+                let entry = TextPrompt<string>(Markup.Escape prompt)
+                entry.AllowEmpty <- true
+                let answer = console.Prompt entry
+                if System.String.IsNullOrWhiteSpace answer then None else Some answer }

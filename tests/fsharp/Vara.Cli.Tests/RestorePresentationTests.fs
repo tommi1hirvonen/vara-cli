@@ -51,7 +51,10 @@ let private envOf (console: TestConsole) (mode: OutputMode) : CliEnv =
       OpenStandardOutput = fun () -> IO.Stream.Null
       MakeBackupEnv = BackupRun.live
       Power = PowerRequest.win32
-      TerminalSession = null }
+      TerminalSession = null
+      Alternate = BackupCommandTests.noScreen
+      Persist = fun path _ -> failwith $"unexpected write of {path}"
+      Exit = fun code -> failwith $"unexpected exit {code}" }
 
 let private tableDisplay: Display =
     HistoryView.ofSnapshots
@@ -143,7 +146,8 @@ module ``Prompt functions`` =
               Confirm =
                 fun question ->
                     asked.Add question
-                    true }
+                    true
+              Text = fun prompt -> failwith $"unexpected text prompt: {prompt}" }
 
         let env = { envOf (liveConsole ()) OutputMode.Plain with Prompts = scripted }
         Assert.Equal(2, env.Prompts.Select "Which?" [ []; []; [] ] 0)

@@ -93,3 +93,8 @@ let ``every owned retention-pruning scenario has a test`` () =
 let ``every owned backup-integrity scenario has a test`` () =
     let missing = missingIn "backup-integrity" (fun _ -> [])
     Assert.True(missing.IsEmpty, show missing)
+
+[<Fact>]
+let ``every owned profile-management scenario has a test`` () =
+    let missing = missingIn "profile-management" (fun _ -> [])
+    Assert.True(missing.IsEmpty, show missing)

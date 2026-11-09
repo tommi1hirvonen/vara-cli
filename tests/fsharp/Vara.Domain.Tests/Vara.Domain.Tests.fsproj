@@ -6,6 +6,8 @@
     <Compile Include="ConfigErrorTests.fs" />
     <Compile Include="ProfileValidationTests.fs" />
     <Compile Include="ProfilePropertyTests.fs" />
+    <Compile Include="ProfileEditorTests.fs" />
+    <Compile Include="ProfileEditorPropertyTests.fs" />
     <Compile Include="Fixtures.fs" />
     <Compile Include="ScanRulesTests.fs" />
     <Compile Include="DiffTests.fs" />

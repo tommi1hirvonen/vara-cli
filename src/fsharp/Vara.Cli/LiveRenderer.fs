@@ -109,6 +109,21 @@ let writeSequence (console: IAnsiConsole) (sequence: string) : unit =
     writer.Write sequence
     writer.Flush()
 
+/// The calls of a full-screen session: the alternate screen buffer keeps the user's terminal history and scrollback
+/// untouched, and is cleared before each screen so that no earlier copy of one remains.
+type AlternateScreen =
+    { Enter: unit -> unit
+      Clear: unit -> unit
+      /// Back to the primary screen buffer, with the cursor shown again.
+      Leave: unit -> unit }
+
+/// The alternate screen of a console. The control sequences are written here and nowhere else: the alternate buffer on
+/// (`?1049h`), and off with the cursor shown again (`?1049l`, `?25h`), as the C# build's `RestorePrimaryScreenBuffer` does.
+let alternateScreen (console: IAnsiConsole) : AlternateScreen =
+    { Enter = fun () -> writeSequence console "[?1049h"
+      Clear = fun () -> console.Clear()
+      Leave = fun () -> writeSequence console "[?1049l[?25h" }
+
 /// Runs `body` with a live region and the function that redraws it. The region is left on screen when the body ends,
 /// so the last bar stays above the summary. `draw` is not thread-safe: the caller serializes its calls.
 let run (console: IAnsiConsole) (body: (Display -> unit) -> Task<'a>) : Task<'a> =

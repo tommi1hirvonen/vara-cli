@@ -19,4 +19,5 @@ let withCommands (env: CliEnv) (root: RootCommand) : RootCommand =
     root.Subcommands.Add(DeletedCommand.create env)
     root.Subcommands.Add(PruneCommand.create env)
     root.Subcommands.Add(CheckCommand.create env)
+    root.Subcommands.Add(ProfilesCommand.create env)
     root

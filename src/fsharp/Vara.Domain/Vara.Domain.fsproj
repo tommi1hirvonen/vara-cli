@@ -13,6 +13,11 @@
     <Compile Include="ConfigNode.fs" />
     <Compile Include="ConfigError.fs" />
     <Compile Include="ProfileValidation.fs" />
+    <Compile Include="ConfigWriteError.fs" />
+    <Compile Include="ProfileNodes.fs" />
+    <Compile Include="ProfileDraft.fs" />
+    <Compile Include="ProfileEditor.fs" />
+    <Compile Include="ProfileEditorUpdate.fs" />
     <Compile Include="ContentSignature.fs" />
     <Compile Include="MirrorPath.fs" />
     <Compile Include="ScanRules.fs" />
@@ -33,6 +38,7 @@
     <Compile Include="PathLabel.fs" />
     <Compile Include="Tracker.fs" />
     <Compile Include="Display.fs" />
+    <Compile Include="ProfileEditorView.fs" />
     <Compile Include="HistoryView.fs" />
     <Compile Include="PruneView.fs" />
     <Compile Include="CheckView.fs" />

@@ -14,7 +14,9 @@
     <Compile Include="BackupScenarioTests.fs" />
     <Compile Include="EngineParityTests.fs" />
     <Compile Include="ConfigurationTests.fs" />
+    <Compile Include="ProfileWriterTests.fs" />
     <Compile Include="ParityTests.fs" />
+    <Compile Include="ProfileFileParityTests.fs" />
     <Compile Include="HistoryEngineTests.fs" />
     <Compile Include="MaintenanceEngineTests.fs" />
     <Compile Include="RetentionParityTests.fs" />

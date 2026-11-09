@@ -44,3 +44,32 @@ let parse (configPath: string) (text: string) : Result<ConfigNode list, ConfigEr
             | Some(ConfigNode.Sequence entries) -> Ok entries
             | Some _ -> malformed "'profiles' must be a list"
         | _ -> malformed "the document root must be a mapping")
+
+let rec private toYaml (node: ConfigNode) : YamlNode =
+    match node with
+    | ConfigNode.Scalar text -> YamlScalarNode text :> YamlNode
+    | ConfigNode.Sequence items ->
+        let sequence = YamlSequenceNode()
+
+        for item in items do
+            sequence.Add(toYaml item)
+
+        sequence :> YamlNode
+    | ConfigNode.Mapping fields ->
+        let mapping = YamlMappingNode()
+
+        for key, value in fields do
+            mapping.Add(YamlScalarNode key, toYaml value)
+
+        mapping :> YamlNode
+    | ConfigNode.Unsupported -> invalidOp "A node of an unsupported type cannot be written."
+
+/// The document for these entries under `profiles`. It is built with the DOM API, as `parse` reads it (no reflection, so
+/// it is AOT safe); no comments and no layout of an earlier file survive, and the scalars are quoted as the text needs.
+let render (entries: ConfigNode list) : string =
+    let root = YamlMappingNode()
+    root.Add(YamlScalarNode "profiles", toYaml (ConfigNode.Sequence entries))
+    let stream = YamlStream(YamlDocument root)
+    use writer = new StringWriter()
+    stream.Save(writer, false)
+    writer.ToString()

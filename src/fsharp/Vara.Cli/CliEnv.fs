@@ -27,6 +27,13 @@ type CliEnv =
       /// Receives "has a stop been requested" and returns a backup run's effects.
       MakeBackupEnv: (unit -> bool) -> BackupEnv
       Power: PowerCalls
+      /// The alternate screen of the profile editor: enter it, clear it before each screen, leave it.
+      Alternate: LiveRenderer.AlternateScreen
+      /// Writes the whole list of profiles to the configuration file, durably: the path, then the profiles.
+      Persist: string -> Profile list -> Result<unit, ConfigWriteError>
+      /// Ends the process with an exit code. The profile editor uses it when it is interrupted at a prompt, which only
+      /// leaving the process can end.
+      Exit: int -> unit
       /// The `WT_SESSION` value: set in Windows Terminal.
       TerminalSession: string | null }
 
@@ -42,4 +49,7 @@ module CliEnv =
           OpenStandardOutput = fun () -> Console.OpenStandardOutput()
           MakeBackupEnv = BackupRun.live
           Power = PowerRequest.win32
+          Alternate = LiveRenderer.alternateScreen AnsiConsole.Console
+          Persist = ConfigFile.save
+          Exit = Environment.Exit
           TerminalSession = Environment.GetEnvironmentVariable "WT_SESSION" }

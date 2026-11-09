@@ -47,7 +47,8 @@ type Asked(answer: string -> bool) =
           Confirm =
             fun question ->
                 this.Questions.Add question
-                answer question }
+                answer question
+          Text = fun prompt -> failwith $"unexpected text prompt: {prompt}" }
 
 /// Three snapshots of a.txt, each with content of its own, so that every older snapshot holds a blob nothing else needs.
 let threeSnapshots (setup: Scratch) : unit =

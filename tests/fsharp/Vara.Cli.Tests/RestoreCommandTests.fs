@@ -34,7 +34,8 @@ type private Script(select: int, confirm: bool) =
           Confirm =
             fun question ->
                 this.Questions.Add question
-                confirm }
+                confirm
+          Text = fun prompt -> failwith $"unexpected text prompt: {prompt}" }
 
 let private text (choice: Span list) : string = choice |> List.map (fun span -> span.Text) |> String.concat ""
 

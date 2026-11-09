@@ -250,7 +250,10 @@ module ``Terminal progress compatibility`` =
               OpenStandardOutput = fun () -> IO.Stream.Null
               MakeBackupEnv = BackupRun.live
               Power = PowerRequest.win32
-              TerminalSession = session }
+              TerminalSession = session
+              Alternate = BackupCommandTests.noScreen
+              Persist = fun path _ -> failwith $"unexpected write of {path}"
+              Exit = fun code -> failwith $"unexpected exit {code}" }
 
         ProgressDisplay.show
             env

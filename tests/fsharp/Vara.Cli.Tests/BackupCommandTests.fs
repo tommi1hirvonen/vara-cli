@@ -59,7 +59,14 @@ type Invocation =
 /// Prompts for a test that expects no question: asking one is a failure.
 let noPrompts: Prompts =
     { Select = fun title _ _ -> failwith $"unexpected selection prompt: {title}"
-      Confirm = fun question -> failwith $"unexpected confirmation prompt: {question}" }
+      Confirm = fun question -> failwith $"unexpected confirmation prompt: {question}"
+      Text = fun prompt -> failwith $"unexpected text prompt: {prompt}" }
+
+/// A full-screen session for a test that expects none: using the alternate screen is a failure.
+let noScreen: LiveRenderer.AlternateScreen =
+    { Enter = fun () -> failwith "unexpected alternate screen"
+      Clear = fun () -> failwith "unexpected clear"
+      Leave = fun () -> failwith "unexpected leave" }
 
 /// Power calls that succeed and count their requests, so that no test keeps the machine awake.
 let countingPower (requests: int ref) : PowerCalls =
@@ -95,7 +102,10 @@ let invokeEnv (customize: CliEnv -> CliEnv) (token: CancellationToken) (args: st
               OpenStandardOutput = fun () -> Stream.Null
               MakeBackupEnv = BackupRun.live
               Power = countingPower (ref 0)
-              TerminalSession = null }
+              TerminalSession = null
+              Alternate = noScreen
+              Persist = fun path _ -> failwith $"unexpected write of {path}"
+              Exit = fun code -> failwith $"unexpected exit {code}" }
 
     let root = Composition.rootCommand () |> Composition.withCommands env
 

@@ -2,7 +2,7 @@
 
 Once every capability has an F# implementation that passes its scenario and parity tests, the F# `vara.exe` can replace the C# build. Until then, two implementations are maintained, C# changes are frozen except for bug fixes, and each fix needs a parity test. Ending that cost is the point of this change.
 
-Design and tasks for this change are written by `fsharp-profile-management`'s final task, using the findings of the whole series.
+Design and tasks for this change were written by `fsharp-profile-management`'s final task, using the findings of the whole series. The known gaps between the two builds (the exit code of a cancelled maintenance run, the profile editor's exit code and page size, its retention and concurrency screens, the restore's modification time) are recorded in the design and are kept, not fixed, by this change.
 
 ## What Changes
 
@@ -13,8 +13,8 @@ Design and tasks for this change are written by `fsharp-profile-management`'s fi
   - update `Vara.slnx`, `Directory.Build.props` and `Directory.Packages.props`, dropping the C#-only settings and packages.
 
   Users see no change: the executable, commands, output, configuration and on-disk format are the same.
-- Decide what happens to the parity suite, which references the C# projects: remove it, or replace it with a recorded corpus of expected outputs. Scenario and property tests remain the long-term suite.
-- Move the benchmarks to the F# implementation and record a new reference baseline. Remove `LanguageComparisonBenchmarks` and the `benchmarks/Vara.Benchmarks.FSharp` adapter, which exist only to compare the two builds, and decide whether `benchmarks/Measure-GateB.ps1` stays as an optional manual release check (its CPU-time, memory and size rules can be asserted; its wall-clock numbers are advisory). Update `benchmarks/baselines/README.md`.
+- Replace the parity suite, which references the C# projects, with a recorded corpus: the C# build's results for the loader cases, the retention boundaries, the writer's files and the process outputs are recorded once, stored as data, and compared with the F# results by plain functions. Scenario and property tests remain the long-term suite.
+- Port the engine benchmarks to F# and record a new reference baseline. Remove `LanguageComparisonBenchmarks` and the `benchmarks/Vara.Benchmarks.FSharp` adapter, which exist only to compare the two builds. Keep `benchmarks/Measure-GateB.ps1` as an optional manual release check of the published F# build against the baseline (its CPU-time, memory and size rules are asserted; its wall-clock numbers are advisory). Update `benchmarks/baselines/README.md`.
 - Update `README.md` and the build and publish instructions.
 - Archive the series' changes as needed, and end the C# behavior freeze.
 
@@ -31,7 +31,7 @@ This change is idiomatic F#, not a translation of the C# code. C# type and metho
 - **Pure core, effect shell.** Decisions never touch the file system, the clock, randomness or the console. The shell passes in values and performs the effects.
 - **Mutation stays inside one function.** It is allowed in a hot loop, a pooled buffer or interop, when a benchmark or the API requires it. It never lives in a field and is never shared between functions. Allocation rules (struct unions, `voption`) change a value's representation, not the architecture.
 - **No catch-all modules.** No `Helper`, `Manager`, `Service`, `Util` or `I`-prefixed names. One module per concept, with files in dependency order.
-- **Review.** The change's tasks include a convention review.
+- **Review.** The change's tasks include a convention review, and its last task keeps this section in the proposals that follow.
 
 **Established by `fsharp-backup-engine`** (apply these in addition to the rules above)
 - **Failures have three levels.** A refusal to start is a `Result` error. A per-operation I/O failure is a value (`Completion.Failed`) that the run records and continues past. Anything else is an exception: record it, then rethrow it with its original stack through `ExceptionDispatchInfo` (there is no `reraise()` in `task {}`).
@@ -80,6 +80,16 @@ This change is idiomatic F#, not a translation of the C# code. C# type and metho
 - **Parity of state.** A process parity test compares the rows and blob names a command leaves, with the C# build run on a copy of the same target. A report that the C# console folds at 80 columns is compared as its characters after the headline. Snapshot times are set in the manifest to give the tiers something to decide. An in-process retention parity test generates timestamps around day, ISO-Monday week, month and year boundaries in non-zero offsets; the instants of one case are distinct, because the C# order of equal instants follows the input.
 - **Benchmarks.** A change that adds no code to the scan, the executor or the pipeline records that `git diff` over those modules is empty. `Tracker` and `Display` are shared by the backup display, so their existing tests must pass unchanged.
 
+**Established by `fsharp-profile-management`** (apply these in addition to the rules above)
+- **An interactive command is an Elm-style loop.** `ProfileEditor.update : EditorState -> Input -> EditorState * Effect list` and `ProfileEditorView.view`/`ask` are pure and live in `Vara.Domain`; `ProfilesCommand` is the thin loop that clears the screen, shows `view`, asks the `Question` through `Prompts`, calls `update`, and performs the effects. A screen is a union case, not a bag of flags; an input is a union per screen (`MenuInput`, `FieldsInput`, and so on). The one wildcard is the last case of `update`, which ignores an input for a screen that is not showing.
+- **Validity is computed, not stored.** A draft keeps raw text (`ProfileDraft`, counts as text), and `ProfileDraft.validate` applies the loader's `validateProfiles` to the saved profiles' nodes with the draft's node in place of the profile it replaces (found by the original name). The editor, Save and the loader cannot disagree, and a screen's validity never depends on an earlier state. The editor words only the duplicate-name error itself.
+- **A write is an effect with a result.** `Effect.Persist` is performed by the loop, and its result comes back as the input `Persisted` or `PersistFailed`, so a failed write leaves the draft and the screen as they were and a retry needs no re-entry. `ConfigWriteError` (the path and the reason) is a value, rendered without a stack trace.
+- **The durable write is a record of file functions.** `ConfigFile.writeDurablyWith` takes `DurableFiles` (create the directory, write a temporary file, commit it to disk, replace or move, delete), so a test records the order or makes a step fail; `ConfigFile.save` is `ProfileNodes.ofProfiles`, `YamlConfig.render`, `writeDurably`. An I/O failure is a value; any other exception leaves with its stack; the temporary file is removed in a `finally`.
+- **`Prompts` has three functions** (`Select`, `Confirm`, `Text`; a blank text entry is `None`), and `CliEnv` gained `Alternate` (enter, clear, leave the alternate screen: the only place that writes those sequences is `LiveRenderer.alternateScreen`), `Persist` and `Exit`. A cancellation callback restores the screen and calls `Exit`, because a blocked prompt never sees the first Ctrl+C; an answer that arrives after a cancellation is the editor's `Interrupt`, so nothing more is written.
+- **Parity of files, both ways.** A file written by the F# writer loads in the C# loader and the other way round, over every optional field, several sources and unusual characters (a quote, a colon, a hash, brackets, a comma, an accent); both are compared as profile descriptions, never as text. The interactive editor has no process parity test, because a child process cannot be driven through prompts.
+- **Test pitfalls found.** The test record literals of `Prompts` and `CliEnv` must name every field, so a new field touches every helper. A scripted prompt picks a choice by the start of its text, and a `Do` step changes the world between two prompts (a cancellation, a file made writable). A record literal in a lambda needs a multi-line lambda, because `;` ends the field. A `Gen.sequence` is not in FsCheck 3's F# module: fold the generators. In a Python edit script, write Windows paths in raw strings (`` is a backspace). Directories without write permission are made with `icacls /deny` and restored in a `finally`.
+- **Benchmarks.** The change adds no code to the scan, the executor or the pipeline; its task records that `git diff` over those modules is empty.
+
 **Specific to this change**
 - This change adds almost no code, so its convention review is a whole-codebase audit against the rules above, run before the C# code is removed. Findings that need design work become ordinary changes; mechanical ones are fixed here.
 - The cutover must not leave adapters, shims or compatibility layers that exist only to bridge C# and F#. If the parity suite is kept as a recorded corpus, it is plain data and a comparison function, not a harness class hierarchy.
@@ -101,4 +111,5 @@ None. The shipped behavior is unchanged (`skip_specs: true`).
 - **Code:** the C# sources and tests are removed, and the F# projects are moved.
 - **Distribution:** the published `vara.exe` is the F# build.
 - **Benchmarks:** a new F# reference baseline.
-- **Dependencies:** requires every other change in the series.
+- **Tests:** the parity tests that run or reference the C# build are replaced by a recorded corpus, and `portable-distribution` joins the spec-coverage tests.
+- **Dependencies:** requires every other change in the series, the last being `fsharp-profile-management`.
