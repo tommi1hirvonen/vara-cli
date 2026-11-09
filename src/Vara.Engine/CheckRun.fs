@@ -51,6 +51,7 @@ module CheckRun =
 
     /// Verifies the blobs in order, stopping before the next one once a stop has been requested. The second value says
     /// whether it stopped early.
+    [<TailCall>]
     let rec private verifyAll
         (env: CheckEnv)
         (quick: bool)

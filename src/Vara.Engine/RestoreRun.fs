@@ -98,6 +98,7 @@ module RestoreRun =
 
     /// Applies the step to each item in order, stopping before the next item once a stop has been requested. The
     /// second value says whether it stopped early. The step is never interrupted: the item in progress finishes.
+    [<TailCall>]
     let rec private applyAll (env: RestoreEnv) (step: 'T -> Done -> Done) (items: 'T list) (progress: Done) : struct (Done * bool) =
         match items with
         | [] -> struct (progress, false)

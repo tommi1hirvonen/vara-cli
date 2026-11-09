@@ -69,6 +69,7 @@ type Display = Line list
 module ByteSize =
     let private units = [| "B"; "KB"; "MB"; "GB"; "TB" |]
 
+    [<TailCall>]
     let rec private scale (value: float) (unit: int) : struct (float * int) =
         if value >= 1024.0 && unit < units.Length - 1 then scale (value / 1024.0) (unit + 1) else struct (value, unit)
 

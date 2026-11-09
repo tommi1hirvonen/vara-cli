@@ -45,6 +45,7 @@ module PruneRun =
     /// Deletes each blob in order, stopping before the next one once a stop has been requested (the blob in progress
     /// finishes). The second value says whether it stopped early. Anything but an I/O failure leaves with the stack it
     /// was raised with.
+    [<TailCall>]
     let rec private deleteAll
         (env: PruneEnv)
         (blobs: ContentHash list)

@@ -19,6 +19,7 @@ let private interruptExitCode: int = Outcome.exitCode Outcome.Success
 let private requiresTerminal = "'profiles' requires an interactive terminal."
 
 /// The input a question gets from the user: a choice sends its input, or leads on to a further question.
+[<TailCall>]
 let rec private answer (prompts: Prompts) (question: Question) : Input =
     match question with
     | Question.Choose(title, choices) ->
@@ -47,6 +48,7 @@ let rec private advance (env: CliEnv) (configPath: string) (state: EditorState) 
 
 /// One screen after another until the editor has exited. An answer that comes after a cancellation is the editor's own
 /// `Interrupt`, so a draft the user was still editing is never written.
+[<TailCall>]
 let rec private loop (env: CliEnv) (configPath: string) (token: CancellationToken) (state: EditorState) : unit =
     match ProfileEditorView.ask state with
     | None -> ()

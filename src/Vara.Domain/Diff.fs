@@ -19,6 +19,7 @@ module Diff =
 
     /// True when `path` equals one of the covered paths or lies beneath one, compared at segment boundaries,
     /// case-insensitively and with either separator: `C\Users\john` hides `C\Users\john\a.txt`, not `C\Users\john2\a.txt`.
+    [<TailCall>]
     let rec private isCovered (path: string) (covered: string list) : bool =
         match covered with
         | [] -> false

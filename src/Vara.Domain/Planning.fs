@@ -60,6 +60,7 @@ module Planning =
         | false, _ -> ValueNone
 
     /// The first candidate, in deleted-path order, that was not already consumed and whose content is exactly `hash`.
+    [<TailCall>]
     let rec private firstMatch
         (consumed: HashSet<string>)
         (hash: ContentHash)

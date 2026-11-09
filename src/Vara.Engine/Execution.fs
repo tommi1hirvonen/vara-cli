@@ -136,6 +136,7 @@ module Execution =
         with ex when isIoFailure ex ->
             Completion.Failed(failedPath operation)
 
+    [<TailCall>]
     let rec private runMetadata
         (env: ExecutionEnv)
         (snapshotId: int64)
