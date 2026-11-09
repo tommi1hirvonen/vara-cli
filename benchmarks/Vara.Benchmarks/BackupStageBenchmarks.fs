@@ -127,7 +127,7 @@ type BackupPlannerBenchmarks() =
 
         diff <-
             { Pending = [ PendingChange.Add scannedFile ]
-              Deleted = [ (oldPath, state) ]
+              Deleted = [ struct (oldPath, state) ]
               Failures = [] }
 
     [<GlobalCleanup>]

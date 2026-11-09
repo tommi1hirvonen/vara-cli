@@ -8,7 +8,7 @@ open Vara.Domain
 open Vara.Domain.Tests.Fixtures
 
 let private deletedPaths (result: DiffResult) : string list =
-    result.Deleted |> List.map (fun (path, _) -> MirrorPath.value path)
+    result.Deleted |> List.map (fun struct (path, _) -> MirrorPath.value path)
 
 module ``Incremental change detection`` =
     [<Fact>]

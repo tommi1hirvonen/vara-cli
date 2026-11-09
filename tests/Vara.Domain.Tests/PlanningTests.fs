@@ -17,7 +17,7 @@ let private candidateList (contents: (string * FileContent) list) =
     contents |> List.map (fun (path, content) -> mirror path, content)
 
 let private hashes (entries: (string * string) list) : Dictionary<string, ContentHash> =
-    let map = Dictionary<string, ContentHash>(StringComparer.OrdinalIgnoreCase)
+    let map = Dictionary<string, ContentHash> StringComparer.OrdinalIgnoreCase
 
     for path, text in entries do
         map[path] <- hash text
@@ -135,7 +135,7 @@ module ``Move and rename detection`` =
 
     [<Fact>]
     let ``Deleted links are not move candidates`` () =
-        let candidates = Planning.moveCandidates [ (mirror "C\\l", TrackedState.Linked ValueNone) ]
+        let candidates = Planning.moveCandidates [ struct (mirror "C\\l", TrackedState.Linked ValueNone) ]
         Assert.Equal(0, candidates.Count)
 
 module ``Properties of planning`` =

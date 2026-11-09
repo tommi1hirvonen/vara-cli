@@ -10,11 +10,11 @@ type MoveCandidates = Dictionary<int64, (MirrorPath * FileContent) list>
 /// Turns a diff into a plan. The shell reads file content between `sizeMatchedAdds` and `plan`, so that no
 /// function here reads a file.
 module Planning =
-    let moveCandidates (deleted: (MirrorPath * TrackedState) list) : MoveCandidates =
+    let moveCandidates (deleted: struct (MirrorPath * TrackedState) list) : MoveCandidates =
         let grouped = MoveCandidates()
 
         // `deleted` is walked backwards so that consing keeps each size's candidates in deleted-path order.
-        for path, state in List.rev deleted do
+        for struct (path, state) in List.rev deleted do
             match state with
             | TrackedState.Regular content ->
                 match grouped.TryGetValue content.Size with
@@ -126,13 +126,13 @@ module Planning =
                     let transfer = { Source = file; TransferKind = TransferKind.Added }
                     struct (metadata, transfer :: transfers, totalBytes + file.Size)
 
-        let struct (metadata, transfers, totalBytes) = List.fold step (struct ([], [], 0L)) diff.Pending
+        let struct (metadata, transfers, totalBytes) = List.fold step struct ([], [], 0L) diff.Pending
 
         // The deletions come last, after every move has had its chance to consume one.
         let metadata =
             diff.Deleted
             |> List.fold
-                (fun metadata (path, state) ->
+                (fun metadata (struct (path, state)) ->
                     if consumed.Contains(MirrorPath.value path) then
                         metadata
                     else

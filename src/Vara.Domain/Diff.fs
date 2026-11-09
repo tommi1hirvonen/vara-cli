@@ -9,7 +9,7 @@ type DiffResult =
       Pending: PendingChange list
       /// Tracked paths the scan did not see and no failure hides, in the manifest's order. This order is the
       /// tie-break for move resolution.
-      Deleted: (MirrorPath * TrackedState) list
+      Deleted: struct (MirrorPath * TrackedState) list
       /// Every failure the scan reported, in the order it reported them.
       Failures: ScanFailure list }
 
@@ -77,11 +77,9 @@ module Diff =
 
         let deleted =
             tracked
-            |> Seq.choose (fun (KeyValue(path, state)) ->
-                if seen.Contains path || isCovered (forward path) covered then
-                    None
-                else
-                    Some(MirrorPath.ofString path, state))
+            |> Seq.filter (fun (KeyValue(path, _)) ->
+                not (seen.Contains path || not covered.IsEmpty && isCovered (forward path) covered))
+            |> Seq.map (fun (KeyValue(path, state)) -> struct (MirrorPath.ofString path, state))
             |> Seq.toList
 
         { Pending = List.rev pending
