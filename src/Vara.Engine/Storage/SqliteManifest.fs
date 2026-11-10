@@ -1,6 +1,7 @@
 namespace Vara.Engine
 
 open System
+open System.Collections.Generic
 open System.Globalization
 open System.IO
 open Microsoft.Data.Sqlite
@@ -325,56 +326,87 @@ module SqliteManifest =
         parameters.AddWithValue("$id", snapshotId) |> ignore
         command.ExecuteNonQuery() |> ignore
 
+    /// The row that decides a path: its id, and its state unless it is a regular row without a hash (content the
+    /// engine can neither place nor move, which still decides the path and so still shadows older rows).
+    [<Struct>]
+    type private Winner = { WinnerId: int64; WinnerState: TrackedState voption }
+
+    /// The winning row of every logical path: the one with the highest id over all casings of the path, compared the
+    /// way the file system does (letters of every script), with the paths whose winner is a deletion left out. The SQL
+    /// column folds only A-Z, so it returns the latest row of each of its own groups, deletions included, and the rows
+    /// are folded here in id order into a dictionary that folds all letters. A deletion removes the key, and any other
+    /// row removes it and sets it again, so the surviving key is spelled as the latest row spells it and no older row
+    /// of another casing outlives a newer one. The removal comes before anything else is decided about a row.
+    let private resolve (connection: SqliteConnection) (transaction: SqliteTransaction | null) : Dictionary<string, Winner> =
+        let winners = Dictionary<string, Winner> StringComparer.OrdinalIgnoreCase
+        use command = connection.CreateCommand()
+
+        // Left unset when there is none: the connection then supplies the open batch's transaction, as for any read.
+        if not (isNull transaction) then
+            command.Transaction <- transaction
+
+        command.CommandText <-
+            """
+            SELECT fv.id, fv.relative_path, fv.content_hash, fv.size, fv.source_modified_at,
+                   fv.quick_hash, fv.quick_hash_scheme, fv.change_kind, fv.link_target
+            FROM file_versions fv
+            INNER JOIN (
+                SELECT relative_path, MAX(id) AS max_id
+                FROM file_versions
+                GROUP BY relative_path
+            ) latest ON fv.relative_path = latest.relative_path AND fv.id = latest.max_id
+            ORDER BY fv.id
+            """
+
+        use reader = command.ExecuteReader()
+
+        while reader.Read() do
+            let path = reader.GetString 1
+            let kind = reader.GetString 7
+            winners.Remove path |> ignore
+
+            if kind <> "Deleted" then
+                let state =
+                    if kind = "Linked" then
+                        ValueSome(TrackedState.Linked(if reader.IsDBNull 8 then ValueNone else ValueSome(reader.GetString 8)))
+                    else
+                        match if reader.IsDBNull 2 then ValueNone else ContentHash.tryCreate (reader.GetString 2) with
+                        | ValueSome hash ->
+                            let quick =
+                                if reader.IsDBNull 5 || reader.IsDBNull 6 then
+                                    ValueNone
+                                else
+                                    ValueSome
+                                        { QuickHash = reader.GetString 5
+                                          QuickScheme = reader.GetInt32 6 }
+
+                            ValueSome(
+                                TrackedState.Regular
+                                    { Hash = hash
+                                      Size = reader.GetInt64 3
+                                      SourceModifiedAt = parseIso (reader.GetString 4)
+                                      Quick = quick }
+                            )
+                        | ValueNone -> ValueNone
+
+                winners[path] <- { WinnerId = reader.GetInt64 0; WinnerState = state }
+
+        winners
+
     /// The manifest's view of every tracked path as of the latest snapshot: the latest non-deleted version of each.
-    /// Exactly one row decides per path (the one with the highest id), so a path recorded under several casings
-    /// resolves the same way every time. The keys compare case-insensitively and keep the latest row's casing.
+    /// Exactly one row decides per path (the one with the highest id over every casing of it, letters of every script
+    /// folded), so a path recorded under several casings resolves the same way every time, and a deletion recorded
+    /// under any casing removes the path. The keys compare case-insensitively and keep the latest row's casing.
     let currentState (handle: ManifestHandle) : TrackedPaths =
         let result = TrackedPaths StringComparer.OrdinalIgnoreCase
 
         match handle.Connection with
         | ValueNone -> result
         | ValueSome connection ->
-            use command = connection.CreateCommand()
-
-            command.CommandText <-
-                """
-                SELECT fv.relative_path, fv.content_hash, fv.size, fv.source_modified_at,
-                       fv.quick_hash, fv.quick_hash_scheme, fv.change_kind, fv.link_target
-                FROM file_versions fv
-                INNER JOIN (
-                    SELECT relative_path, MAX(id) AS max_id
-                    FROM file_versions
-                    GROUP BY relative_path
-                ) latest ON fv.relative_path = latest.relative_path AND fv.id = latest.max_id
-                WHERE fv.change_kind != $deleted
-                """
-
-            addText command "$deleted" "Deleted"
-            use reader = command.ExecuteReader()
-
-            while reader.Read() do
-                let path = reader.GetString 0
-
-                if reader.GetString 6 = "Linked" then
-                    result[path] <- TrackedState.Linked(if reader.IsDBNull 7 then ValueNone else ValueSome(reader.GetString 7))
-                else
-                    match if reader.IsDBNull 1 then ValueNone else ContentHash.tryCreate (reader.GetString 1) with
-                    | ValueSome hash ->
-                        let quick =
-                            if reader.IsDBNull 4 || reader.IsDBNull 5 then
-                                ValueNone
-                            else
-                                ValueSome
-                                    { QuickHash = reader.GetString 4
-                                      QuickScheme = reader.GetInt32 5 }
-
-                        result[path] <-
-                            TrackedState.Regular
-                                { Hash = hash
-                                  Size = reader.GetInt64 2
-                                  SourceModifiedAt = parseIso (reader.GetString 3)
-                                  Quick = quick }
-                    | ValueNone -> () // a regular row without a hash is not content the engine can place or move
+            for entry in resolve connection null do
+                match entry.Value.WinnerState with
+                | ValueSome state -> result[entry.Key] <- state
+                | ValueNone -> () // a regular row without a hash is not content the engine can place or move
 
             result
 
@@ -549,8 +581,9 @@ module SqliteManifest =
     /// Removes the listed snapshots in one transaction and returns how many went. A row that is the current state of
     /// its path (the highest id for the path, when that row is not a deletion) is never removed, so the live state
     /// survives the expiry of its snapshot, and a snapshot that still has such a row stays. An id that is not
-    /// recorded is ignored. The highest id is taken over all rows including deletions: excluding them first would
-    /// protect a stale row from before the deletion.
+    /// recorded is ignored. The highest id is taken over all rows including deletions, and over all casings of the
+    /// path with the letters of every script folded, as `currentState` does: excluding deletions first would protect a
+    /// stale row from before the deletion, and a row of another casing is not the path's current one.
     let removeSnapshots (handle: ManifestHandle) (snapshotIds: int64 list) : int =
         match snapshotIds with
         | [] -> 0
@@ -567,21 +600,24 @@ module SqliteManifest =
                 let removed =
                     use transaction = connection.BeginTransaction()
 
+                    // The keep set can hold every path ever recorded, so it goes through a table, not into the statement.
+                    execute connection transaction "CREATE TEMP TABLE live_rows (id INTEGER PRIMARY KEY)"
+
+                    use insert = connection.CreateCommand()
+                    insert.Transaction <- transaction
+                    insert.CommandText <- "INSERT INTO live_rows (id) VALUES ($id)"
+                    let parameter = insert.CreateParameter()
+                    parameter.ParameterName <- "$id"
+                    insert.Parameters.Add parameter |> ignore
+
+                    for winner in (resolve connection transaction).Values do
+                        parameter.Value <- winner.WinnerId
+                        insert.ExecuteNonQuery() |> ignore
+
                     execute
                         connection
                         transaction
-                        $"""
-                        DELETE FROM file_versions
-                        WHERE snapshot_id IN ({idList})
-                          AND id NOT IN (
-                              SELECT fv.id
-                              FROM file_versions fv
-                              INNER JOIN (
-                                  SELECT relative_path, MAX(id) AS max_id FROM file_versions GROUP BY relative_path
-                              ) latest ON fv.relative_path = latest.relative_path AND fv.id = latest.max_id
-                              WHERE fv.change_kind != 'Deleted'
-                          )
-                        """
+                        $"DELETE FROM file_versions WHERE snapshot_id IN ({idList}) AND id NOT IN (SELECT id FROM live_rows)"
 
                     let removed =
                         use command = connection.CreateCommand()
@@ -592,6 +628,7 @@ module SqliteManifest =
 
                         command.ExecuteNonQuery()
 
+                    execute connection transaction "DROP TABLE live_rows"
                     transaction.Commit()
                     removed
 

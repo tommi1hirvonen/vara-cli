@@ -278,3 +278,45 @@ module ``Incremental change detection`` =
             let again = SqliteManifest.openAt path true
             Assert.Equal(2, (SqliteManifest.currentState again).Count)
             SqliteManifest.close again)
+
+    let private stateOf (path: string) : TrackedPaths =
+        let handle = SqliteManifest.openAt path true
+
+        try
+            SqliteManifest.currentState handle
+        finally
+            SqliteManifest.close handle
+
+    [<Fact>]
+    let ``Several recorded casings of a non-ASCII path`` () =
+        for older, newer in [ "Äiti.txt", "äiti.txt"; "äiti.txt", "Äiti.txt" ] do
+            TempDir.using (fun root ->
+                let path = database root
+                let handle = SqliteManifest.openAt path true
+                write handle [ regular older "aa11" 10L ChangeKind.Added 1 ] |> ignore
+                write handle [ regular newer "bb22" 11L ChangeKind.Changed 2 ] |> ignore
+                SqliteManifest.close handle
+
+                // Asked twice, from fresh connections: the same single entry, spelled as the newer row spells it.
+                for _ in 1..2 do
+                    let state = stateOf path
+                    Assert.Equal(1, state.Count)
+                    Assert.Equal<string list>([ newer ], List.ofSeq state.Keys)
+
+                    match state[older] with
+                    | TrackedState.Regular content -> Assert.Equal("bb22", ContentHash.value content.Hash)
+                    | _ -> Assert.Fail "expected regular content")
+
+    [<Fact>]
+    let ``Deletion recorded under another casing of a non-ASCII path`` () =
+        TempDir.using (fun root ->
+            let path = database root
+            let handle = SqliteManifest.openAt path true
+            write handle [ regular "Äiti.txt" "aa11" 10L ChangeKind.Added 1 ] |> ignore
+            write handle [ regular "äiti.txt" "bb22" 11L ChangeKind.Changed 2 ] |> ignore
+            write handle [ regular "äiti.txt" "bb22" 11L ChangeKind.Deleted 3 ] |> ignore
+            SqliteManifest.close handle
+
+            let state = stateOf path
+            Assert.Equal(0, state.Count)
+            Assert.False(state.ContainsKey "Äiti.txt"))

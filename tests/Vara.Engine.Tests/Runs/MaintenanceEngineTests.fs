@@ -246,6 +246,75 @@ module ``Unreferenced content garbage collection`` =
             Assert.Equal(ProgressEvent.TransferStarting(0L, 2), events[0])
             Assert.Equal(2, events |> Seq.filter (fun event -> event = ProgressEvent.FileTransferred) |> Seq.length))
 
+    /// A target whose manifest holds the given rows, one list per snapshot (ids 1, 2, ...), each hash backed by a blob.
+    let private seeded (setup: Setup) (snapshots: (string * string * ChangeKind) list list) : unit =
+        let at (minutes: int) = DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero).AddMinutes(float minutes)
+        Directory.CreateDirectory(Path.GetDirectoryName(databaseOf setup) |> nonNull) |> ignore
+        ContentStore.ensureDirectories (store setup)
+        let handle = SqliteManifest.openAt (databaseOf setup) true
+
+        try
+            snapshots
+            |> List.iteri (fun index rows ->
+                let snapshot = SqliteManifest.beginSnapshot handle (at index)
+                let mutable batch = SqliteManifest.beginBatch handle
+
+                for path, hashText, kind in rows do
+                    let blob = blobOf setup (hash hashText)
+                    Directory.CreateDirectory(Path.GetDirectoryName blob |> nonNull) |> ignore
+                    File.WriteAllText(blob, hashText)
+
+                    SqliteManifest.record
+                        batch
+                        snapshot
+                        { RowPath = MirrorPath.ofString path
+                          PreviousPath = ValueNone
+                          Content =
+                            RowContent.Regular
+                                { Hash = hash hashText
+                                  Size = 10L
+                                  SourceModifiedAt = at 0
+                                  Quick = ValueNone }
+                          Kind = kind
+                          RecordedAt = at index }
+
+                SqliteManifest.finishSnapshot batch snapshot SnapshotStatus.Complete (at index) (Run.initial (at index)).Counts
+                batch <- SqliteManifest.checkpoint batch
+                SqliteManifest.discard batch)
+        finally
+            SqliteManifest.close handle
+
+    [<Fact>]
+    let ``Path deleted under another casing no longer keeps its snapshot or content`` () =
+        within (fun setup ->
+            seeded
+                setup
+                [ [ "Äiti.txt", "aa11", ChangeKind.Added ]
+                  [ "äiti.txt", "bb22", ChangeKind.Changed ]
+                  [ "äiti.txt", "bb22", ChangeKind.Deleted ] ]
+
+            let result = writer setup (fun handle -> PruneRun.execute (pruneEnv setup (fun () -> false) (ResizeArray())) (store setup) handle keepNothing ValueNone)
+            Assert.Equal<int64 list>([ 3L ], snapshotIds setup)
+            // The content only the expired records referenced goes; the deletion row still names bb22.
+            Assert.False(File.Exists(blobOf setup (hash "aa11")))
+            Assert.True(File.Exists(blobOf setup (hash "bb22")))
+            Assert.Equal(1, result.BlobsRemoved))
+
+    [<Fact>]
+    let ``Current record of a path recorded under several casings is kept`` () =
+        for older, newer in [ "Äiti.txt", "äiti.txt"; "äiti.txt", "Äiti.txt" ] do
+            within (fun setup ->
+                seeded setup [ [ older, "aa11", ChangeKind.Added ]; [ newer, "bb22", ChangeKind.Changed ] ]
+                let removed = writer setup (fun handle -> SqliteManifest.removeSnapshots handle [ 1L ])
+                Assert.Equal(1, removed)
+                Assert.Equal<int64 list>([ 2L ], snapshotIds setup)
+                let rows = query setup "SELECT snapshot_id, content_hash FROM file_versions"
+                Assert.Equal<string list>([ "2|bb22" ], rows)
+                Assert.True(File.Exists(blobOf setup (hash "bb22")))
+                let state = reader setup SqliteManifest.currentState
+                Assert.Equal(1, state.Count)
+                Assert.True(state.ContainsKey older))
+
     [<Fact>]
     let ``No unreferenced content to remove`` () =
         within (fun setup ->

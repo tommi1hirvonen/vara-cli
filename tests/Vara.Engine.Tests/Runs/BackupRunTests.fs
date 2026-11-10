@@ -502,3 +502,33 @@ module ``Run observers`` =
             | Error refusal -> failwith (BackupRefusal.render refusal)
 
             Assert.Equal<int list>([ BackupRun.scanReportInterval; BackupRun.scanReportInterval * 2 ], List.ofSeq dryCounts))
+
+module ``Incremental change detection`` =
+    [<Theory>]
+    [<InlineData("äiti.txt", "Äiti.txt")>]
+    [<InlineData("Äiti.txt", "äiti.txt")>]
+    let ``File with a non-ASCII name changes casing and content`` (before: string, after: string) =
+        within (fun setup ->
+            write setup before "first content" |> ignore
+            let profile = profileOf setup "p" None
+            runOk quiet profile |> ignore
+
+            File.Move(Path.Combine(setup.SourceDir, before), Path.Combine(setup.SourceDir, after))
+            File.WriteAllText(Path.Combine(setup.SourceDir, after), "second content, longer")
+
+            let first = runOk quiet profile
+            Assert.Equal(1, first.Totals.FilesChanged)
+            Assert.Equal(0, first.Totals.FilesAdded + first.Totals.FilesMoved + first.Totals.FilesDeleted)
+
+            let second = runOk quiet profile
+            Assert.Equal(0, second.Totals.FilesAdded + second.Totals.FilesChanged + second.Totals.FilesMoved + second.Totals.FilesDeleted)
+            Assert.Equal(0L, second.Totals.BytesTransferred)
+
+            let handle = SqliteManifest.openReadOnly (Path.Combine(setup.TargetDir, ".vara", "profile.db"))
+
+            try
+                let state = SqliteManifest.currentState handle
+                Assert.Equal(1, state.Count)
+                Assert.Equal<string list>([ mirrorKey setup after ], List.ofSeq state.Keys)
+            finally
+                SqliteManifest.close handle)
