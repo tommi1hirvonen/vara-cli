@@ -3,6 +3,7 @@ namespace Vara.Engine
 open System
 open System.IO
 open Vara.Domain
+open System.Threading
 
 /// A mirror path resolved outside the target root. An `IOException`, so the per-operation failure handling that
 /// catches an unreadable or unwritable path catches this too, instead of the run aborting.
@@ -21,7 +22,12 @@ type StoreLayout =
       /// The mirror root with every reparse point followed, ending in a directory separator, so that a containment
       /// test is a prefix test. Resolved on first use and kept: the root does not move during a run, and resolving it
       /// opens a handle, which every mirror write would otherwise pay for again.
-      MirrorRootPrefix: Lazy<string> }
+      MirrorRootPrefix: Lazy<string>
+      /// Forces a written staging file's data to persistent storage (`FlushFileBuffers`). A test replaces it to
+      /// observe that it runs before the blob has its content name.
+      Flush: FileStream -> unit
+      /// One lock per two-character blob directory name, serializing the check and repair of a present blob.
+      HashLocks: Lock array }
 
 /// The content-addressed store for one target: a live mirror, deduplicated blobs under `.vara/versions/<hash[0..2]>`,
 /// and staging under `.vara/tmp` for atomic writes. Every function takes the layout and the effects it uses.
@@ -40,7 +46,9 @@ module ContentStore =
                  if resolved.EndsWith Path.DirectorySeparatorChar then
                      resolved
                  else
-                     resolved + string Path.DirectorySeparatorChar) }
+                     resolved + string Path.DirectorySeparatorChar)
+          Flush = fun stream -> stream.Flush true
+          HashLocks = Array.init 256 (fun _ -> Lock()) }
 
     let realLinks: Links = { Create = Kernel32.createHardLink }
 
@@ -99,8 +107,40 @@ module ContentStore =
             tryDelete source
             tryDelete link
 
-    /// Reads the stream once, writing it to a temp file while hashing it, then makes the temp file the blob for
-    /// that hash, or discards it when the blob already exists. The source stream is not disposed.
+    /// The lock for a content name: its two-character directory name, the store's own fan-out, folded into the table.
+    let private lockIndex (hash: ContentHash) : int =
+        let text = ContentHash.value hash
+        (int text[0] * 31 + int text[1]) % 256
+
+    /// With the blob present: discards the staging file when the blob has the size of the content just read, and
+    /// otherwise overwrites the blob in place from the staging file. In place keeps every hard link to the blob seeing
+    /// the repaired content. The read-only attribute is cleared for the overwrite and always restored. On a failure
+    /// the staging file is deleted and the exception propagates; the blob stays damaged and the next store repairs it.
+    let private repairIfDamaged (store: StoreLayout) (temp: string) (blob: string) (size: int64) : unit =
+        try
+            if FileInfo(blob).Length <> size then
+                let attributes = File.GetAttributes blob
+                clearReadOnly blob
+
+                try
+                    use staged = new FileStream(temp, FileMode.Open, FileAccess.Read, FileShare.Read)
+                    use target = new FileStream(blob, FileMode.Create, FileAccess.Write, FileShare.None)
+                    staged.CopyTo(target, bufferSize)
+                    target.Flush()
+                    store.Flush target
+                finally
+                    if attributes.HasFlag FileAttributes.ReadOnly then
+                        ensureReadOnly blob
+        finally
+            tryDelete temp
+
+    /// Reads the stream once, writing it to a temp file while hashing it. The temp file is flushed to persistent
+    /// storage before it takes its content name, so a power loss cannot leave a truncated blob under a valid name.
+    /// It then becomes the blob for that hash, or is discarded when a blob of the same size already exists. A present
+    /// blob of a different size is damaged and is overwritten in place, so every hard link to it sees the complete
+    /// content; the check and the repair run under a lock per content name, so parallel stores of the same content
+    /// never rewrite the blob at the same time and none reads it while it is rewritten.
+    /// The source stream is not disposed.
     let storeFromStream
         (store: StoreLayout)
         (content: Stream)
@@ -114,12 +154,14 @@ module ContentStore =
             use sink = new BufferedStream(tempFile, bufferSize)
             use tee = new TeeStream(source, sink, onBytesWritten)
             let hash = Hashing.hashStream tee
+            sink.Flush()
+            store.Flush tempFile
             struct (hash, tee.TotalBytesCopied)
 
         let blob = blobPath store hash
 
         if File.Exists blob then
-            File.Delete temp
+            lock store.HashLocks[lockIndex hash] (fun () -> repairIfDamaged store temp blob size)
         else
             Directory.CreateDirectory(Path.GetDirectoryName blob |> nonNull) |> ignore
 

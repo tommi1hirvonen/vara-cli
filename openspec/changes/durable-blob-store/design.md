@@ -48,3 +48,15 @@ If the repair is interrupted, the blob is still of the wrong size and the next s
 - [In-place repair is not atomic] → The blob was already damaged; a later store repairs it again, and the lock keeps other transfers out while it runs.
 - [Two content names that share a stripe wait for each other during a repair] → Repairs are rare and short, and the lock is not taken for new content.
 - [The race fix cannot be proven by one run of a test] → The concurrency test repeats the parallel store many times against a fresh damaged blob each time; it fails on an implementation without the lock, though not on every iteration.
+
+### Measured cost
+
+1,000 new files of 4 KiB through `storeFromStream` on the internal system drive (no external drive was available), release build, "before" taken by replacing `Flush` with a no-op through the seam, three alternating rounds. Timings are noisy on this machine (Defender); allocations are stable.
+
+| Variant | Time per 1,000 files | Allocated |
+| --- | --- | --- |
+| Without flush | 2680, 2026, 2291 ms | 84.6 MiB |
+| With flush | 2519, 3064, 2757 ms | 84.6 MiB |
+
+The flush adds no allocations. The timing difference is within the noise of this machine, roughly 0 to 1 ms per stored file on an SSD. The cost on an external drive is not measured; <insufficient data> for that case, and the quiet-machine gate on the target hardware remains for the author.
+

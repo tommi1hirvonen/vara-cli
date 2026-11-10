@@ -326,3 +326,135 @@ module ``Crash and interruption safety`` =
             File.SetAttributes(orphan, FileAttributes.ReadOnly)
             ContentStore.cleanupOrphanedTemp layout
             Assert.Empty(Directory.EnumerateFiles layout.TempRoot))
+
+/// A stream that yields some bytes and then fails, like a source file that becomes unreadable partway through.
+type private FailingStream(bytesBeforeFailure: int) =
+    inherit Stream()
+    let mutable served = 0
+    override _.CanRead = true
+    override _.CanSeek = false
+    override _.CanWrite = false
+    override _.Length = raise (NotSupportedException())
+    override _.Position
+        with get () = raise (NotSupportedException())
+        and set _ = raise (NotSupportedException())
+    override _.Flush() = ()
+    override _.Seek(_, _) = raise (NotSupportedException())
+    override _.SetLength _ = raise (NotSupportedException())
+    override _.Write(_, _, _) = raise (NotSupportedException())
+
+    override _.Read(buffer: byte[], offset: int, count: int) =
+        if served >= bytesBeforeFailure then
+            raise (IOException "Simulated read failure.")
+
+        let n = min count (bytesBeforeFailure - served)
+        Array.fill buffer offset n 7uy
+        served <- served + n
+        n
+
+let private allBlobs (layout: StoreLayout) : string list =
+    Directory.EnumerateFiles(layout.VersionsRoot, "*", SearchOption.AllDirectories) |> Seq.toList
+
+/// Makes the blob shorter than its content, the way an unflushed rename leaves it.
+let private truncateBlob (layout: StoreLayout) (hash: ContentHash) (length: int64) : unit =
+    let blob = ContentStore.blobPath layout hash
+    File.SetAttributes(blob, FileAttributes.Normal)
+    use stream = new FileStream(blob, FileMode.Open, FileAccess.Write)
+    stream.SetLength length
+    File.SetAttributes(blob, FileAttributes.ReadOnly)
+
+module ``Stored content is complete and durable under its content name`` =
+    [<Fact>]
+    let ``Store interrupted while the content is being written`` () =
+        TempDir.using (fun root ->
+            let layout = newStore root
+            use stream = new FailingStream(300_000)
+            Assert.Throws<IOException>(fun () -> ContentStore.storeFromStream layout stream ValueNone |> ignore) |> ignore
+            Assert.Empty(allBlobs layout)
+            // What the interrupted store left in staging is removed by the existing cleanup.
+            ContentStore.cleanupOrphanedTemp layout
+            Assert.Empty(Directory.EnumerateFiles layout.TempRoot))
+
+    [<Fact>]
+    let ``Content reaches persistent storage before it takes its name`` () =
+        TempDir.using (fun root ->
+            let layout = newStore root
+            let calls = ref 0
+            let blobExistedAtFlush = ref false
+
+            let observed =
+                { layout with
+                    Flush =
+                        fun stream ->
+                            calls.Value <- calls.Value + 1
+                            blobExistedAtFlush.Value <- Directory.EnumerateFiles(layout.VersionsRoot, "*", SearchOption.AllDirectories) |> Seq.isEmpty |> not
+                            layout.Flush stream }
+
+            let hash = store observed "content to flush"
+            Assert.Equal(1, calls.Value)
+            Assert.False blobExistedAtFlush.Value
+            Assert.True(ContentStore.hasContent layout hash))
+
+module ``A damaged stored blob is repaired when its content is stored again`` =
+    let private content = String('r', 10_000)
+
+    [<Fact>]
+    let ``Present blob is shorter than the content it is named for`` () =
+        TempDir.using (fun root ->
+            let layout = newStore root
+            let hash = store layout content
+            truncateBlob layout hash 100L
+            let again = store layout content
+            Assert.Equal(hash, again)
+            Assert.Equal(content, File.ReadAllText(ContentStore.blobPath layout hash))
+            Assert.Empty(Directory.EnumerateFiles layout.TempRoot))
+
+    [<Fact>]
+    let ``Mirror entries linked to a damaged blob see the repaired content`` () =
+        TempDir.using (fun root ->
+            let layout = newStore root
+            let hash = store layout content
+            place layout realLinks true hash "C\\a.txt" ValueNone
+            truncateBlob layout hash 100L
+            Assert.Equal(100L, FileInfo(mirrorFile layout "C\\a.txt").Length)
+            store layout content |> ignore
+            Assert.Equal(content, File.ReadAllText(mirrorFile layout "C\\a.txt")))
+
+    [<Fact>]
+    let ``Present blob of the expected size is left untouched`` () =
+        TempDir.using (fun root ->
+            let layout = newStore root
+            let hash = store layout content
+            let blob = ContentStore.blobPath layout hash
+            File.SetLastWriteTimeUtc(blob, DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc))
+            let before = File.GetLastWriteTimeUtc blob
+            let bytes = File.ReadAllBytes blob
+            store layout content |> ignore
+            Assert.Equal(before, File.GetLastWriteTimeUtc blob)
+            Assert.Equal<byte[]>(bytes, File.ReadAllBytes blob)
+            Assert.Empty(Directory.EnumerateFiles layout.TempRoot))
+
+    [<Fact>]
+    let ``Several files with the same damaged content are stored in one run`` () =
+        TempDir.using (fun root ->
+            let bytes = Encoding.UTF8.GetBytes(String('p', 300_000))
+
+            for iteration in 1..50 do
+                let layout = newStore (Path.Combine(root, string iteration))
+                let hash = store layout (String('p', 300_000))
+                truncateBlob layout hash 1_000L
+                let withMirror = iteration = 1
+
+                let work (n: int) =
+                    use stream = new MemoryStream(bytes)
+                    ContentStore.storeFromStream layout stream ValueNone |> ignore
+
+                    if withMirror then
+                        place layout realLinks false hash $"C-{n}.txt" ValueNone
+
+                System.Threading.Tasks.Parallel.For(0, 8, work) |> ignore
+                Assert.Equal<byte[]>(bytes, File.ReadAllBytes(ContentStore.blobPath layout hash))
+
+                if withMirror then
+                    for n in 0..7 do
+                        Assert.Equal<byte[]>(bytes, File.ReadAllBytes(mirrorFile layout $"C-{n}.txt")))
