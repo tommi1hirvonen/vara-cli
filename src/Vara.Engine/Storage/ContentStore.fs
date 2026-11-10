@@ -17,7 +17,11 @@ type Links = { Create: string -> string -> unit }
 type StoreLayout =
     { MirrorRoot: string
       VersionsRoot: string
-      TempRoot: string }
+      TempRoot: string
+      /// The mirror root with every reparse point followed, ending in a directory separator, so that a containment
+      /// test is a prefix test. Resolved on first use and kept: the root does not move during a run, and resolving it
+      /// opens a handle, which every mirror write would otherwise pay for again.
+      MirrorRootPrefix: Lazy<string> }
 
 /// The content-addressed store for one target: a live mirror, deduplicated blobs under `.vara/versions/<hash[0..2]>`,
 /// and staging under `.vara/tmp` for atomic writes. Every function takes the layout and the effects it uses.
@@ -28,7 +32,15 @@ module ContentStore =
     let layout (targetRoot: string) : StoreLayout =
         { MirrorRoot = targetRoot
           VersionsRoot = Path.Combine(targetRoot, ".vara", "versions")
-          TempRoot = Path.Combine(targetRoot, ".vara", "tmp") }
+          TempRoot = Path.Combine(targetRoot, ".vara", "tmp")
+          MirrorRootPrefix =
+            lazy
+                (let resolved = Kernel32.resolveRealPath targetRoot
+
+                 if resolved.EndsWith Path.DirectorySeparatorChar then
+                     resolved
+                 else
+                     resolved + string Path.DirectorySeparatorChar) }
 
     let realLinks: Links = { Create = Kernel32.createHardLink }
 
@@ -127,21 +139,15 @@ module ContentStore =
         use tee = new TeeStream(input, output, onBytesCopied)
         tee.CopyTo Stream.Null
 
-    /// Whether `candidate` is the root or inside it, after resolving reparse points on both. Case-insensitive,
-    /// like the file systems the tool targets, and safe against a trailing separator.
-    let private isWithinRoot (root: string) (candidate: string) : bool =
-        let resolvedRoot = Kernel32.resolveRealPath root
-
-        let rootWithSeparator =
-            if resolvedRoot.EndsWith Path.DirectorySeparatorChar then
-                resolvedRoot
-            else
-                resolvedRoot + string Path.DirectorySeparatorChar
-
+    /// Whether `candidate` is the mirror root or inside it, after resolving reparse points on both. Case-insensitive,
+    /// like the file systems the tool targets, and safe against a trailing separator. The root itself has no trailing
+    /// separator in `candidate`, so it is the one case that matches the prefix one character short.
+    let private isWithinMirrorRoot (store: StoreLayout) (candidate: string) : bool =
+        let prefix = store.MirrorRootPrefix.Value
         let resolved = Kernel32.resolveRealPath candidate
 
-        resolved.Equals(resolvedRoot, StringComparison.OrdinalIgnoreCase)
-        || resolved.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase)
+        resolved.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+        || resolved.Length = prefix.Length - 1 && prefix.StartsWith(resolved, StringComparison.OrdinalIgnoreCase)
 
     /// The one place every mirror write resolves its path: raises when the path would leave the target root, for
     /// example a UNC source that has no mirror location or a path with `..` segments.
@@ -149,7 +155,7 @@ module ContentStore =
         let relative = MirrorPath.value mirrorPath
         let combined = Path.Combine(store.MirrorRoot, relative)
 
-        if isWithinRoot store.MirrorRoot combined then
+        if isWithinMirrorRoot store combined then
             combined
         else
             raise (
@@ -161,7 +167,7 @@ module ContentStore =
             )
 
     /// Whether an absolute path lies inside the mirror, for restore destinations.
-    let isWithinMirror (store: StoreLayout) (absolutePath: string) : bool = isWithinRoot store.MirrorRoot absolutePath
+    let isWithinMirror (store: StoreLayout) (absolutePath: string) : bool = isWithinMirrorRoot store absolutePath
 
     /// Places a stored blob at a mirror path: a hard link (marked read-only, since an in-place edit would rewrite the
     /// blob) or, when hard links are unsupported or this blob has hit its link limit, an independent writable copy.

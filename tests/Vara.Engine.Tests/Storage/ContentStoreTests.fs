@@ -276,6 +276,36 @@ module ``Mirror writes are confined to the target root`` =
             Assert.True(File.Exists(mirrorFile layout "C\\sub\\a.txt")))
 
     [<Fact>]
+    let ``Containment is decided at the root's boundary`` () =
+        TempDir.using (fun root ->
+            let layout = newStore root
+            let within (path: string) = ContentStore.isWithinMirror layout path
+            let target = layout.MirrorRoot
+            Assert.True(within target)
+            Assert.True(within (target + "\\"))
+            Assert.True(within (Path.Combine(target, "C", "a.txt")))
+            Assert.True(within (target.ToUpperInvariant()))
+            // A sibling that merely starts with the root's name, and the root's parent, are outside.
+            Assert.False(within (target + "2"))
+            Assert.False(within (Path.Combine(target + "2", "a.txt")))
+            Assert.False(within root))
+
+    [<Fact>]
+    let ``A target root reached through a junction accepts its own files`` () =
+        TempDir.using (fun root ->
+            let real = Path.Combine(root, "real")
+            Directory.CreateDirectory real |> ignore
+            let junction = Path.Combine(root, "via")
+            InteropTests.createJunction junction real
+            let layout = ContentStore.layout junction
+            ContentStore.ensureDirectories layout
+            let hash = store layout "content"
+            place layout realLinks true hash "C\\a.txt" ValueNone
+            Assert.True(File.Exists(Path.Combine(real, "C", "a.txt")))
+            Assert.True(ContentStore.isWithinMirror layout (Path.Combine(real, "C", "a.txt")))
+            Assert.False(ContentStore.isWithinMirror layout root))
+
+    [<Fact>]
     let ``A path through a junction out of the root is refused`` () =
         TempDir.using (fun root ->
             let layout = newStore root
