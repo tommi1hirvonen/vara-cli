@@ -121,6 +121,21 @@ module ``Manifest storage`` =
             SqliteManifest.close handle)
 
     [<Fact>]
+    let ``A target path with connection-string punctuation opens for writing and for reading`` () =
+        TempDir.using (fun root ->
+            let target = Path.Combine(root, "backup;drive=E")
+            let handle = SqliteManifest.openAt (database target) true
+            write handle [ regular "C\\a.txt" "h1" 10L ChangeKind.Added 1 ] |> ignore
+            SqliteManifest.close handle
+
+            let reader = SqliteManifest.openReadOnly (database target)
+            Assert.True((SqliteManifest.currentState reader).ContainsKey "C\\a.txt")
+            SqliteManifest.close reader
+
+            // Closing released the file: it can be deleted at once.
+            File.Delete(database target))
+
+    [<Fact>]
     let ``Lookups in the current state ignore letter case`` () =
         TempDir.using (fun root ->
             let handle = SqliteManifest.openAt (database root) true

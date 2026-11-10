@@ -124,6 +124,15 @@ module SqliteManifest =
     let pathIn (targetRoot: string) : string =
         Path.Combine(targetRoot, ".vara", "profile.db")
 
+    /// A connection to the database file. The path goes through the builder, so a `;` or `=` in it cannot be read as
+    /// connection-string syntax. Pooling is off: closing the connection then releases the file, with nothing to clear.
+    let private connectionTo (databasePath: string) (mode: SqliteOpenMode) : SqliteConnection =
+        let builder = SqliteConnectionStringBuilder()
+        builder.DataSource <- databasePath
+        builder.Mode <- mode
+        builder.Pooling <- false
+        new SqliteConnection(builder.ConnectionString)
+
     /// Opens, or creates, the manifest at `databasePath`. With `createIfMissing` false and no file there, nothing is
     /// created: the handle is empty, so a read-only command leaves no `profile.db` behind.
     let openAt (databasePath: string) (createIfMissing: bool) : ManifestHandle =
@@ -135,7 +144,7 @@ module SqliteManifest =
             | directory when directory.Length = 0 -> ()
             | directory -> Directory.CreateDirectory directory |> ignore
 
-            let connection = new SqliteConnection $"Data Source={databasePath}"
+            let connection = connectionTo databasePath SqliteOpenMode.ReadWriteCreate
             connection.Open()
             // WAL lets the single writer commit without locking the file, and NORMAL skips an fsync per commit while
             // never corrupting the database: only a very recent commit can be lost in a power failure.
@@ -148,8 +157,6 @@ module SqliteManifest =
         match handle.Connection with
         | ValueSome connection ->
             connection.Dispose()
-            // The provider pools connections; without this the database file stays locked after the run.
-            SqliteConnection.ClearPool connection
         | ValueNone -> ()
 
     let private requireConnection (handle: ManifestHandle) : SqliteConnection =
@@ -313,35 +320,29 @@ module SqliteManifest =
         parameters.AddWithValue("$id", snapshotId) |> ignore
         command.ExecuteNonQuery() |> ignore
 
-    /// The latest non-deleted version of every path, optionally only versions recorded at or before `asOf`.
+    /// The manifest's view of every tracked path as of the latest snapshot: the latest non-deleted version of each.
     /// Exactly one row decides per path (the one with the highest id), so a path recorded under several casings
     /// resolves the same way every time. The keys compare case-insensitively and keep the latest row's casing.
-    let private readCurrentState (handle: ManifestHandle) (asOf: DateTimeOffset voption) : TrackedPaths =
+    let currentState (handle: ManifestHandle) : TrackedPaths =
         let result = TrackedPaths StringComparer.OrdinalIgnoreCase
 
         match handle.Connection with
         | ValueNone -> result
         | ValueSome connection ->
             use command = connection.CreateCommand()
-            let restriction = if asOf.IsSome then "WHERE recorded_at <= $asOf" else ""
 
             command.CommandText <-
-                $"""
+                """
                 SELECT fv.relative_path, fv.content_hash, fv.size, fv.source_modified_at,
                        fv.quick_hash, fv.quick_hash_scheme, fv.change_kind, fv.link_target
                 FROM file_versions fv
                 INNER JOIN (
                     SELECT relative_path, MAX(id) AS max_id
                     FROM file_versions
-                    {restriction}
                     GROUP BY relative_path
                 ) latest ON fv.relative_path = latest.relative_path AND fv.id = latest.max_id
                 WHERE fv.change_kind != $deleted
                 """
-
-            match asOf with
-            | ValueSome cutoff -> addText command "$asOf" (toIso (cutoff.ToUniversalTime()))
-            | ValueNone -> ()
 
             addText command "$deleted" "Deleted"
             use reader = command.ExecuteReader()
@@ -372,9 +373,6 @@ module SqliteManifest =
 
             result
 
-    /// The manifest's view of every tracked path as of the latest snapshot.
-    let currentState (handle: ManifestHandle) : TrackedPaths = readCurrentState handle ValueNone
-
     // ---- Read-only queries for the history commands --------------------------------------------------------------
     // Each returns rows (or a reduction a database does better than the domain), and decides nothing: which version
     // was live, how a move chains and what a restore writes are the domain's. None of them writes.
@@ -385,7 +383,7 @@ module SqliteManifest =
         if not (File.Exists databasePath) then
             { Connection = ValueNone }
         else
-            let connection = new SqliteConnection $"Data Source={databasePath};Mode=ReadOnly"
+            let connection = connectionTo databasePath SqliteOpenMode.ReadOnly
             connection.Open()
             { Connection = ValueSome connection }
 
