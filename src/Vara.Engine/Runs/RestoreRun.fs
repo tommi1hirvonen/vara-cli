@@ -25,6 +25,16 @@ type RestoreResult =
       /// A stop was requested before the last planned path was applied. What was applied stays applied.
       Stopped: bool }
 
+/// The stored content of a file does not hash to the value recorded for the version being restored: the blob is damaged.
+/// An `IOException` so that the restore records it as a per-file failure and goes on.
+type RestoredContentMismatchException(expected: ContentHash, actual: ContentHash) =
+    inherit
+        IOException
+            $"The stored content does not match what was recorded for this file (recorded {ContentHash.value expected}, read {ContentHash.value actual}). Run 'vara check' to find damaged content."
+
+    member _.Expected = expected
+    member _.Actual = actual
+
 /// Carries out a `RestorePlan`: the removals, then the writes, each write staged beside its destination and moved into
 /// place, so that a destination is either the restored content or exactly what it was.
 module RestoreRun =
@@ -58,8 +68,10 @@ module RestoreRun =
         | :? UnauthorizedAccessException -> true
         | _ -> false
 
-    /// Writes one file: copy to a staging name, flush it to disk, stamp the modification time, and move it over the
-    /// destination. A failure at any step removes the staging file and leaves the destination as it was.
+    /// Writes one file: copy to a staging name while hashing the bytes, check the hash against the recorded one, flush
+    /// it to disk, stamp the modification time, and move it over the destination. The content is verified before it is
+    /// moved into place. A failure at any step, a hash mismatch included, removes the staging file and leaves the
+    /// destination as it was.
     let private writeFile (env: RestoreEnv) (write: RestoreWrite) : unit =
         Directory.CreateDirectory(Path.GetDirectoryName write.Destination |> nonNull) |> ignore
         let staging = stagingNameFor write.Destination
@@ -71,7 +83,11 @@ module RestoreRun =
                 use target = new FileStream(staging, FileMode.CreateNew, FileAccess.Write)
                 use sink = new BufferedStream(target, bufferSize)
                 use tee = new TeeStream(source, sink, ValueSome(fun delta -> env.Publish(ProgressEvent.BytesCopied delta)))
-                tee.CopyTo Stream.Null
+                let actual = Hashing.hashStreamReporting ignore tee
+
+                if actual <> write.Source then
+                    raise (RestoredContentMismatchException(write.Source, actual))
+
                 sink.Flush()
                 target.Flush true
 

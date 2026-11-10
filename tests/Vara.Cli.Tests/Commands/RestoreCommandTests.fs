@@ -239,6 +239,33 @@ module ``Restore writes are atomic`` =
             Assert.Equal("old", File.ReadAllText destination)
             Assert.Equal<string list>([ destination ], Directory.GetFiles(outDir setup) |> List.ofArray))
 
+module ``Restored content is verified against its recorded hash`` =
+    [<Fact>]
+    let ``Stored content does not match its recorded hash`` () =
+        scratch (fun setup ->
+            twoVersions setup
+            let destination = outFile setup "a.txt"
+            Directory.CreateDirectory(outDir setup) |> ignore
+            File.WriteAllText(destination, "old")
+
+            let hash =
+                match (rowsOf setup |> List.find (fun version -> version.VersionId = (versionIds setup "a.txt").Head)).Row.Content with
+                | RowContent.Regular content -> ContentHash.value content.Hash
+                | RowContent.Linked _ -> failwith "regular row expected"
+
+            // The stored content is damaged in place, keeping its length.
+            let blob = Path.Combine(setup.Target, ".vara", "versions", hash.Substring(0, 2), hash)
+            File.SetAttributes(blob, FileAttributes.Normal)
+            File.WriteAllText(blob, "FIRST CONTENT")
+
+            let result = restore setup [ sourceFile setup "a.txt"; "--version"; string (versionIds setup "a.txt").Head; "--out"; destination; "--force" ]
+            Assert.Equal(1, result.ExitCode)
+            let errors = result.Errors.Replace("\n", "")
+            Assert.Contains("a.txt", errors)
+            Assert.Contains("does not match", errors)
+            Assert.Equal("old", File.ReadAllText destination)
+            Assert.Equal<string list>([ destination ], Directory.GetFiles(outDir setup) |> List.ofArray))
+
 module ``Restore of a deleted file`` =
     [<Fact>]
     let ``Restoring a deleted file`` () =

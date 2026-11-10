@@ -288,6 +288,85 @@ module ``Restore writes are atomic`` =
             // The file that was in progress is closed in the display even though the restore threw.
             Assert.Contains(ProgressEvent.FileFinished destination, events))
 
+module ``Restored content is verified against its recorded hash`` =
+    /// The blob's bytes with the first one changed: damaged content of the same length.
+    let private damaged (real: Stream) : Stream =
+        use real = real
+        use buffer = new MemoryStream()
+        real.CopyTo buffer
+        let bytes = buffer.ToArray()
+        bytes[0] <- bytes[0] ^^^ 0xFFuy
+        new MemoryStream(bytes) :> Stream
+
+    let private readAll (stream: Stream) : byte[] =
+        use stream = stream
+        use buffer = new MemoryStream()
+        stream.CopyTo buffer
+        buffer.ToArray()
+
+    [<Fact>]
+    let ``Stored content does not match its recorded hash`` () =
+        within (fun setup ->
+            write setup "a.txt" "restored content that is long enough" |> ignore
+            runOk quiet (profileOf setup "p" None) |> ignore
+            let destination = Path.Combine(setup.Root, "out", "a.txt")
+            TempDir.write destination "original"
+            let events = ResizeArray()
+
+            let env =
+                { realEnv setup (fun () -> false) events with
+                    OpenBlob = fun hash -> damaged (ContentStore.openRead (store setup) hash) }
+
+            let result = RestoreRun.execute env (planFor setup "a.txt" destination)
+
+            Assert.Equal(0, result.Written)
+            Assert.Equal<string list>([ destination ], result.Failed |> List.map _.Destination)
+            Assert.Contains("does not match", result.Failed.Head.Reason)
+            Assert.Equal("original", File.ReadAllText destination)
+            Assert.Equal<string list>([ destination ], Directory.GetFiles(Path.GetDirectoryName destination |> nonNull) |> List.ofArray))
+
+    [<Fact>]
+    let ``One damaged file in a directory restore`` () =
+        within (fun setup ->
+            for name in [ "a.txt"; "b.txt"; "c.txt" ] do
+                write setup $"d\\{name}" $"content of {name}" |> ignore
+
+            runOk quiet (profileOf setup "p" None) |> ignore
+            let directory = Path.GetDirectoryName(mirrorKey setup "d\\a.txt") |> nonNull
+            let outDir = Path.Combine(setup.Root, "out")
+
+            let plan =
+                withManifest setup (fun handle ->
+                    match Restore.planDirectory directory Moment.Latest (Destination.Explicit outDir) (SqliteManifest.allVersions handle) with
+                    | Ok plan -> plan
+                    | Error error -> failwith (HistoryError.render error))
+
+            let events = ResizeArray()
+            let victim = Text.Encoding.UTF8.GetBytes "content of b.txt"
+
+            let env =
+                { realEnv setup (fun () -> false) events with
+                    OpenBlob =
+                        fun hash ->
+                            let real = ContentStore.openRead (store setup) hash
+                            let bytes = readAll real
+
+                            if bytes = victim then
+                                bytes[0] <- bytes[0] ^^^ 0xFFuy
+
+                            new MemoryStream(bytes) :> Stream }
+
+            let result = RestoreRun.execute env plan
+
+            Assert.False result.Stopped
+            Assert.Equal(2, result.Written)
+            Assert.Equal<string list>([ Path.Combine(outDir, "b.txt") ], result.Failed |> List.map _.Destination)
+            Assert.Contains("does not match", result.Failed.Head.Reason)
+            Assert.True(File.Exists(Path.Combine(outDir, "a.txt")))
+            Assert.True(File.Exists(Path.Combine(outDir, "c.txt")))
+            Assert.False(File.Exists(Path.Combine(outDir, "b.txt")))
+            Assert.Equal(2, Directory.GetFiles outDir |> Array.length))
+
 module ``Graceful cancellation of a directory restore via CtrlC`` =
     let private threeFiles (setup: Setup) : RestorePlan =
         for name in [ "a.txt"; "b.txt"; "c.txt" ] do
