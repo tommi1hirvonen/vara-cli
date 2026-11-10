@@ -151,20 +151,16 @@ module ``One-to-one mirror of source state`` =
             TempDir.write (Path.Combine(root, "marker.txt")) "root"
             TempDir.write (Path.Combine(root, "decoy", "decoyfile.txt")) "decoy"
 
-            let used = DriveInfo.GetDrives() |> Array.map (fun d -> Char.ToUpperInvariant d.Name[0]) |> Set.ofArray
-            // Each suite starts its letter search at a different letter, so tests running in parallel never take the same one.
-            let letter = [ for code in int 'X' .. -1 .. int 'D' -> char code ] |> List.find (fun c -> not (used.Contains c))
-            runCmd $"subst {letter}: \"{root}\""
-            let originalDirectory = Environment.CurrentDirectory
+            TempDir.withSubst root (fun letter ->
+                let originalDirectory = Environment.CurrentDirectory
 
-            try
-                // A bare "L:" resolves to the drive's current directory, here the decoy folder; "L:\" must not.
-                Directory.SetCurrentDirectory $"{letter}:\\decoy"
-                let entries = scan [ source $"{letter}:\\" ]
-                Assert.Equal<string list>([ $"{letter}\\decoy\\decoyfile.txt"; $"{letter}\\marker.txt" ], files entries)
-            finally
-                Directory.SetCurrentDirectory originalDirectory
-                runCmd $"subst {letter}: /d")
+                try
+                    // A bare "L:" resolves to the drive's current directory, here the decoy folder; "L:\" must not.
+                    Directory.SetCurrentDirectory $"{letter}:\\decoy"
+                    let entries = scan [ source $"{letter}:\\" ]
+                    Assert.Equal<string list>([ $"{letter}\\decoy\\decoyfile.txt"; $"{letter}\\marker.txt" ], files entries)
+                finally
+                    Directory.SetCurrentDirectory originalDirectory))
 
 module ``Unreadable files do not abort the run`` =
     [<Fact>]

@@ -74,18 +74,11 @@ module ``One-to-one mirror of source state`` =
     let ``Drive-letter-root source is scanned from the actual drive root`` () =
         within (fun setup ->
             write setup "marker.txt" "root" |> ignore
-            let used = DriveInfo.GetDrives() |> Array.map (fun d -> Char.ToUpperInvariant d.Name[0]) |> Set.ofArray
-            // Each suite starts its letter search at a different letter, so tests running in parallel never take the same one.
-            let letter = [ for code in int 'Q' .. -1 .. int 'D' -> char code ] |> List.find (fun c -> not (used.Contains c))
-            Assert.Equal(0, runCmd $"subst {letter}: \"{setup.SourceDir}\"")
-
-            try
+            TempDir.withSubst setup.SourceDir (fun letter ->
                 let result = runOk quiet (profileFor setup [ sourceOf $"{letter}:\\" ])
                 Assert.Equal(1, result.Totals.FilesAdded)
                 // Mirrored under the drive-letter segment of the target root.
-                Assert.Equal("root", File.ReadAllText(Path.Combine(setup.TargetDir, string letter, "marker.txt")))
-            finally
-                runCmd $"subst {letter}: /d" |> ignore)
+                Assert.Equal("root", File.ReadAllText(Path.Combine(setup.TargetDir, string letter, "marker.txt")))))
 
     [<Fact>]
     let ``UNC source path produces no mirror entries`` () =
