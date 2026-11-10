@@ -190,6 +190,15 @@ module ``Concurrent run prevention`` =
             ignore first)
 
     [<Fact>]
+    let ``Only a handle held elsewhere makes the target busy`` () =
+        // ERROR_SHARING_VIOLATION and ERROR_LOCK_VIOLATION, as the file system reports them.
+        Assert.True(RunLock.isHeldElsewhere (IOException("in use", 0x80070020)))
+        Assert.True(RunLock.isHeldElsewhere (IOException("locked", 0x80070021)))
+        // ERROR_DISK_FULL and ERROR_PATH_NOT_FOUND are failures of their own, not a busy target.
+        Assert.False(RunLock.isHeldElsewhere (IOException("full", 0x80070070)))
+        Assert.False(RunLock.isHeldElsewhere (IOException("gone", 0x80070003)))
+
+    [<Fact>]
     let ``Lock file inaccessible due to filesystem permissions`` () =
         within (fun setup ->
             let profile = profileOf setup "p" None
