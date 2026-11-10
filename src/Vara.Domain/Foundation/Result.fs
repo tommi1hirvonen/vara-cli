@@ -14,8 +14,12 @@ module ResultBuilderInstance =
 module Result =
     /// Applies the function to each item in order and collects the values; the first Error stops it.
     let traverse (f: 'T -> Result<'U, 'E>) (items: 'T list) : Result<'U list, 'E> =
+        let mapItemAndPrepend item values = f item |> Result.map (fun value -> value :: values)
+
+        let accumulateMappedItem collected item = collected |> Result.bind (mapItemAndPrepend item)
+
         items
-        |> List.fold (fun collected item -> collected |> Result.bind (fun values -> f item |> Result.map (fun value -> value :: values))) (Ok [])
+        |> List.fold accumulateMappedItem (Ok [])
         |> Result.map List.rev
 
     let ofOption (error: 'E) (value: 'T option) : Result<'T, 'E> =
