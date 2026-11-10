@@ -289,9 +289,9 @@ module ``Unreferenced content garbage collection`` =
         within (fun setup ->
             seeded
                 setup
-                [ [ "Äiti.txt", "aa11", ChangeKind.Added ]
-                  [ "äiti.txt", "bb22", ChangeKind.Changed ]
-                  [ "äiti.txt", "bb22", ChangeKind.Deleted ] ]
+                [ [ ("Äiti.txt", "aa11", ChangeKind.Added) ]
+                  [ ("äiti.txt", "bb22", ChangeKind.Changed) ]
+                  [ ("äiti.txt", "bb22", ChangeKind.Deleted) ] ]
 
             let result = writer setup (fun handle -> PruneRun.execute (pruneEnv setup (fun () -> false) (ResizeArray())) (store setup) handle keepNothing ValueNone)
             Assert.Equal<int64 list>([ 3L ], snapshotIds setup)
@@ -304,7 +304,7 @@ module ``Unreferenced content garbage collection`` =
     let ``Current record of a path recorded under several casings is kept`` () =
         for older, newer in [ "Äiti.txt", "äiti.txt"; "äiti.txt", "Äiti.txt" ] do
             within (fun setup ->
-                seeded setup [ [ older, "aa11", ChangeKind.Added ]; [ newer, "bb22", ChangeKind.Changed ] ]
+                seeded setup [ [ (older, "aa11", ChangeKind.Added) ]; [ (newer, "bb22", ChangeKind.Changed) ] ]
                 let removed = writer setup (fun handle -> SqliteManifest.removeSnapshots handle [ 1L ])
                 Assert.Equal(1, removed)
                 Assert.Equal<int64 list>([ 2L ], snapshotIds setup)
