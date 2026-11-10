@@ -372,6 +372,38 @@ module ``Failures of the run itself`` =
             Assert.Equal(ended.Run.Counts.FilesAdded, persistedRows rig))
 
     [<Fact>]
+    let ``A failing observer after a checkpoint is kept as the failure with the latest batch`` () =
+        within (fun rig ->
+            for i in 1..5 do
+                sourceFile rig $"f{i}.txt" $"content {i}" |> ignore
+
+            let plan, _ = planFor rig
+            let transferred = ref 0
+
+            let observers =
+                { Observers.none with
+                    FileTransferred =
+                        fun () ->
+                            if Interlocked.Increment(&transferred.contents) = 2 then
+                                raise (InvalidOperationException "observer failure") }
+
+            // A zero interval checkpoints after every completion, so the batch the caller passed in is long closed.
+            let env =
+                { defaultEnv rig with
+                    Observers = observers
+                    CheckpointInterval = TimeSpan.Zero }
+
+            let ended = execute env rig plan
+
+            match ended.Failure with
+            | ValueSome failure -> Assert.Equal("observer failure", failure.SourceException.Message)
+            | ValueNone -> Assert.Fail "expected a failure"
+
+            // The batch that came back is the open one: the snapshot can still be ended on it.
+            finish rig ended
+            Assert.Equal(ended.Run.Counts.FilesAdded, persistedRows rig))
+
+    [<Fact>]
     let ``A failing manifest stops the pool and is kept as the failure`` () =
         within (fun rig ->
             for i in 1..5 do

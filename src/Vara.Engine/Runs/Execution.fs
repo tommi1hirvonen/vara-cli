@@ -247,6 +247,21 @@ module Execution =
         emit (Finished sourcePath)
         emit outcome
 
+    /// Runs an observer call. An observer that throws is a failure of the run, kept like a manifest failure: it stops
+    /// the pool and leaves the recorder, and the batch it holds, intact, so the fold itself never throws. Inline, so
+    /// the hot per-chunk path allocates no closure.
+    let inline private observed (stop: CancellationTokenSource) (recorder: Recorder) ([<InlineIfLambda>] observe: unit -> unit) : Recorder =
+        try
+            observe ()
+            recorder
+        with error ->
+            stop.Cancel()
+
+            if recorder.Failure.IsSome then
+                recorder
+            else
+                { recorder with Failure = ValueSome(ExceptionDispatchInfo.Capture error) }
+
     let private onEvent
         (env: ExecutionEnv)
         (snapshotId: int64)
@@ -256,29 +271,24 @@ module Execution =
         (event: TransferEvent)
         : Recorder =
         match event with
-        | Started path ->
-            env.Observers.FileStarted path
-            recorder
+        | Started path -> observed stop recorder (fun () -> env.Observers.FileStarted path)
         | Bytes count ->
-            match env.Observers.BytesCopied with
-            | ValueSome report -> report count
-            | ValueNone -> ()
-
-            recorder
-        | Finished path ->
-            env.Observers.FileFinished path
-            recorder
+            observed stop recorder (fun () ->
+                match env.Observers.BytesCopied with
+                | ValueSome report -> report count
+                | ValueNone -> ())
+        | Finished path -> observed stop recorder (fun () -> env.Observers.FileFinished path)
         | Completed completion ->
             let next = record env snapshotId recordedAt recorder completion
 
+            // `next` carries the batch a checkpoint just opened, so it is the recorder the observer failure joins.
             match completion with
-            | Completion.Transferred _ when next.Failure.IsNone -> env.Observers.FileTransferred()
-            | _ -> ()
+            | Completion.Transferred _ when next.Failure.IsNone -> observed stop next (fun () -> env.Observers.FileTransferred())
+            | _ ->
+                if next.Failure.IsSome then
+                    stop.Cancel()
 
-            if next.Failure.IsSome then
-                stop.Cancel()
-
-            next
+                next
         | Crashed error ->
             stop.Cancel()
             { recorder with Crashes = error :: recorder.Crashes }
