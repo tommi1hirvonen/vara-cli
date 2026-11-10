@@ -31,6 +31,10 @@ let start (dll: string) (arguments: string list) : Run =
 
     info.RedirectStandardOutput <- true
     info.RedirectStandardError <- true
+    // The child writes UTF-8 (`Program.main` sets it). Left unset, the pipes are decoded with the console code page of
+    // this test host, which another test may or may not have changed, so a table's borders came back as mojibake.
+    info.StandardOutputEncoding <- Text.UTF8Encoding false
+    info.StandardErrorEncoding <- Text.UTF8Encoding false
     info.UseShellExecute <- false
     use proc = Process.Start info |> nonNull
     let err = proc.StandardError.ReadToEndAsync()
