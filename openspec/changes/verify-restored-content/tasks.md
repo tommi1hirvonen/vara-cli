@@ -12,5 +12,5 @@
 
 ## 3. Verification
 
-- [ ] 3.1 Run `dotnet build Vara.slnx` (no warnings) and `dotnet test Vara.slnx`, and verify everything passes. The test `History command corpus` in `Vara.Cli.Tests` fails intermittently on the untouched baseline too (a test-host encoding issue unrelated to this change); note it rather than fixing it here.
+- [ ] 3.1 Run `dotnet build Vara.slnx` (no warnings) and `dotnet test Vara.slnx`, and verify everything passes.
 - [ ] 3.2 Stop and leave the working tree uncommitted for review. Do not archive or sync the change until the author has reviewed and committed the implementation.
