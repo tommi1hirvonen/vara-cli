@@ -92,8 +92,8 @@ module PruneRun =
             let ids = Prune.snapshotsToRemove decision.Eligible confirmed existing
             let snapshotsRemoved = SqliteManifest.removeSnapshots handle ids
 
-            // The rows are gone first, so a crash from here on leaves unreferenced blobs and never a referenced blob
-            // missing; the next prune finds them again.
+            // The rows are durably gone before any blob is deleted, so a crash from here on, power loss included,
+            // leaves unreferenced blobs and never a referenced blob missing; the next prune finds them again.
             let blobs =
                 Prune.blobsToRemove (ContentStore.storedHashes store) (SqliteManifest.referencedHashes handle)
 

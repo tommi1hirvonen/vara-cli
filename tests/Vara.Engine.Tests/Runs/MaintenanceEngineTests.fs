@@ -321,6 +321,66 @@ module ``Unreferenced content garbage collection`` =
             // Nothing was removed.
             Assert.Equal(3, (snapshotIds setup).Length))
 
+/// Simulates an abrupt loss of power: only the main database file survives, so whatever sat in the write-ahead log is
+/// gone. Copies the file (not its `-wal`) and returns the copy's rows as `snapshot ids` and `content hashes`.
+let private survivingManifest (setup: Setup) : int64 list * string list =
+    let copy = Path.Combine(setup.Root, "after-power-loss.db")
+    File.Copy(databaseOf setup, copy, true)
+
+    use connection = new Microsoft.Data.Sqlite.SqliteConnection $"Data Source={copy};Pooling=False;Mode=ReadOnly"
+    connection.Open()
+
+    let column (sql: string) (read: Microsoft.Data.Sqlite.SqliteDataReader -> 'a) : 'a list =
+        use command = connection.CreateCommand()
+        command.CommandText <- sql
+        use reader = command.ExecuteReader()
+        [ while reader.Read() do yield read reader ]
+
+    column "SELECT id FROM snapshots ORDER BY id" (fun r -> r.GetInt64 0),
+    column "SELECT DISTINCT content_hash FROM file_versions WHERE content_hash IS NOT NULL" (fun r -> r.GetString 0)
+
+module ``Snapshot removal is durable before content is removed`` =
+    [<Fact>]
+    let ``Snapshot removal is on persistent storage before the first content removal`` () =
+        within (fun setup ->
+            threeVersions setup |> ignore
+            let ids = snapshotIds setup |> List.sort
+            let seen = ResizeArray<int64 list>()
+
+            let env =
+                { pruneEnv setup (fun () -> false) (ResizeArray()) with
+                    DeleteBlob =
+                        fun hash ->
+                            if seen.Count = 0 then
+                                seen.Add(fst (survivingManifest setup))
+
+                            ContentStore.deleteBlob (store setup) hash }
+
+            writer setup (fun handle -> PruneRun.execute env (store setup) handle keepNothing ValueNone) |> ignore
+            Assert.Equal(1, seen.Count)
+            // Only the newest snapshot, which holds the current row, is left in what survived.
+            Assert.Equal<int64 list>([ ids[2] ], seen[0]))
+
+    [<Fact>]
+    let ``No remaining record references removed content after an abrupt loss`` () =
+        within (fun setup ->
+            threeVersions setup |> ignore
+            let deleted = ResizeArray<string>()
+            let dangling = ResizeArray<string>()
+
+            let env =
+                { pruneEnv setup (fun () -> false) (ResizeArray()) with
+                    DeleteBlob =
+                        fun hash ->
+                            ContentStore.deleteBlob (store setup) hash
+                            deleted.Add(ContentHash.value hash)
+                            let _, referenced = survivingManifest setup
+                            dangling.AddRange(referenced |> List.filter deleted.Contains) }
+
+            let result = writer setup (fun handle -> PruneRun.execute env (store setup) handle keepNothing ValueNone)
+            Assert.Equal(2, result.BlobsRemoved)
+            Assert.Empty dangling)
+
 module ``Graceful cancellation via CtrlC`` =
     [<Fact>]
     let ``Single Ctrl+C before retention evaluation and snapshot removal have started`` () =

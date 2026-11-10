@@ -201,12 +201,17 @@ module SqliteManifest =
         { BatchConnection = connection
           Transaction = connection.BeginTransaction() }
 
+    /// Folds the write-ahead log back into the database file and empties it, so that a plain copy of the file is
+    /// whole. A reader that blocks the truncation is not an error: the fold is then partial and the next one finishes.
+    let private foldWriteAheadLog (connection: SqliteConnection) : unit =
+        execute connection null "PRAGMA wal_checkpoint(TRUNCATE);"
+
     /// Commits the batch, folds the write-ahead log back into the database file so that a plain copy of it is
     /// whole between runs, and opens the transaction that continues the batch.
     let checkpoint (batch: ManifestBatch) : ManifestBatch =
         batch.Transaction.Commit()
         batch.Transaction.Dispose()
-        execute batch.BatchConnection null "PRAGMA wal_checkpoint(TRUNCATE);"
+        foldWriteAheadLog batch.BatchConnection
 
         { batch with
             Transaction = batch.BatchConnection.BeginTransaction() }
@@ -553,35 +558,47 @@ module SqliteManifest =
             let connection = requireConnection handle
             // The ids are numbers, so the list is spelled into the statement as the C# build does.
             let idList = String.Join(",", snapshotIds |> List.map _.ToString(CultureInfo.InvariantCulture))
-            use transaction = connection.BeginTransaction()
 
-            execute
-                connection
-                transaction
-                $"""
-                DELETE FROM file_versions
-                WHERE snapshot_id IN ({idList})
-                  AND id NOT IN (
-                      SELECT fv.id
-                      FROM file_versions fv
-                      INNER JOIN (
-                          SELECT relative_path, MAX(id) AS max_id FROM file_versions GROUP BY relative_path
-                      ) latest ON fv.relative_path = latest.relative_path AND fv.id = latest.max_id
-                      WHERE fv.change_kind != 'Deleted'
-                  )
-                """
+            // The caller deletes stored content next, so this commit must survive a power loss: FULL syncs the log at
+            // commit, where NORMAL would leave the commit revocable. The setting cannot change inside a transaction.
+            execute connection null "PRAGMA synchronous = 'full';"
 
-            let removed =
-                use command = connection.CreateCommand()
-                command.Transaction <- transaction
+            try
+                let removed =
+                    use transaction = connection.BeginTransaction()
 
-                command.CommandText <-
-                    $"DELETE FROM snapshots WHERE id IN ({idList}) AND id NOT IN (SELECT DISTINCT snapshot_id FROM file_versions)"
+                    execute
+                        connection
+                        transaction
+                        $"""
+                        DELETE FROM file_versions
+                        WHERE snapshot_id IN ({idList})
+                          AND id NOT IN (
+                              SELECT fv.id
+                              FROM file_versions fv
+                              INNER JOIN (
+                                  SELECT relative_path, MAX(id) AS max_id FROM file_versions GROUP BY relative_path
+                              ) latest ON fv.relative_path = latest.relative_path AND fv.id = latest.max_id
+                              WHERE fv.change_kind != 'Deleted'
+                          )
+                        """
 
-                command.ExecuteNonQuery()
+                    let removed =
+                        use command = connection.CreateCommand()
+                        command.Transaction <- transaction
 
-            transaction.Commit()
-            removed
+                        command.CommandText <-
+                            $"DELETE FROM snapshots WHERE id IN ({idList}) AND id NOT IN (SELECT DISTINCT snapshot_id FROM file_versions)"
+
+                        command.ExecuteNonQuery()
+
+                    transaction.Commit()
+                    removed
+
+                foldWriteAheadLog connection
+                removed
+            finally
+                execute connection null "PRAGMA synchronous = 'normal';"
 
     /// Every snapshot, newest first.
     let snapshots (handle: ManifestHandle) : SnapshotInfo list =
