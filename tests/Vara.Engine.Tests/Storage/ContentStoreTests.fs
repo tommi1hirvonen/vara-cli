@@ -63,6 +63,24 @@ module ``Content deduplication`` =
             blob.CopyTo copy
             Assert.Equal<byte[]>(data, copy.ToArray()))
 
+    [<Fact>]
+    let ``Storing reports progress in large chunks, not per small read`` () =
+        TempDir.using (fun root ->
+            let layout = newStore root
+            let size = 1024 * 1024
+            use stream = new MemoryStream(Array.zeroCreate<byte> size)
+            let calls = ref 0
+            let reported = ref 0L
+
+            ContentStore.storeFromStream layout stream (ValueSome(fun n ->
+                calls.Value <- calls.Value + 1
+                reported.Value <- reported.Value + n))
+            |> ignore
+
+            Assert.Equal(int64 size, reported.Value)
+            // Reading 4 KiB at a time would be 256 calls for 1 MiB; the hash reads in chunks over 80 KiB.
+            Assert.InRange(calls.Value, 1, 14))
+
 module ``Graceful degradation on filesystems without hardlink support`` =
     [<Fact>]
     let ``exFAT target`` () =

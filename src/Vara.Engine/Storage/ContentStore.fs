@@ -123,14 +123,12 @@ module ContentStore =
         (onBytesWritten: (int64 -> unit) voption)
         : struct (ContentHash * int64) =
         let temp = stagingPath store
-        let source = new BufferedStream(content, bufferSize) // not disposed: that would dispose the caller's stream
 
         let struct (hash, size) =
-            use tempFile = new FileStream(temp, FileMode.CreateNew, FileAccess.Write)
-            use sink = new BufferedStream(tempFile, bufferSize)
-            use tee = new TeeStream(source, sink, onBytesWritten)
+            // No buffering of its own: the hash reads, and so the tee writes, in large chunks, which a buffer would only copy.
+            use tempFile = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.Read, 0)
+            use tee = new TeeStream(content, tempFile, onBytesWritten)
             let hash = Hashing.hashStream tee
-            sink.Flush()
             store.Flush tempFile
             struct (hash, tee.TotalBytesCopied)
 
@@ -152,10 +150,10 @@ module ContentStore =
     let hasContent (store: StoreLayout) (hash: ContentHash) : bool = File.Exists(blobPath store hash)
 
     let private copyWithProgress (source: string) (destination: string) (onBytesCopied: (int64 -> unit) voption) : unit =
-        use input = new BufferedStream(File.OpenRead source, bufferSize)
-        use output = new BufferedStream(new FileStream(destination, FileMode.CreateNew, FileAccess.Write), bufferSize)
+        use input = File.OpenRead source
+        use output = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.Read, 0)
         use tee = new TeeStream(input, output, onBytesCopied)
-        tee.CopyTo Stream.Null
+        tee.CopyTo(Stream.Null, bufferSize)
 
     /// Whether `candidate` is the mirror root or inside it, after resolving reparse points on both. Case-insensitive,
     /// like the file systems the tool targets, and safe against a trailing separator. The root itself has no trailing

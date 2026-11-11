@@ -40,8 +40,6 @@ type RestoredContentMismatchException(expected: ContentHash, actual: ContentHash
 module RestoreRun =
     open FileSupport
 
-    let private bufferSize = 81_920
-
     /// The temporary name beside the destination that the content is staged under.
     let private stagingNameFor (destination: string) : string =
         let directory = Path.GetDirectoryName destination |> nonNull
@@ -56,18 +54,16 @@ module RestoreRun =
         let staging = stagingNameFor write.Destination
 
         try
-            use source = new BufferedStream(env.OpenBlob write.Source, bufferSize)
+            use source = env.OpenBlob write.Source
 
             do
-                use target = new FileStream(staging, FileMode.CreateNew, FileAccess.Write)
-                use sink = new BufferedStream(target, bufferSize)
-                use tee = new TeeStream(source, sink, ValueSome(fun delta -> env.Publish(ProgressEvent.BytesCopied delta)))
+                use target = new FileStream(staging, FileMode.CreateNew, FileAccess.Write, FileShare.Read, 0)
+                use tee = new TeeStream(source, target, ValueSome(fun delta -> env.Publish(ProgressEvent.BytesCopied delta)))
                 let actual = Hashing.hashStreamReporting ignore tee
 
                 if actual <> write.Source then
                     raise (RestoredContentMismatchException(write.Source, actual))
 
-                sink.Flush()
                 target.Flush true
 
             File.SetLastWriteTimeUtc(staging, write.ModifiedAt.UtcDateTime)
