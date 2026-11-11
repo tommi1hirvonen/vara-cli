@@ -32,6 +32,8 @@ type StoreLayout =
 /// The content-addressed store for one target: a live mirror, deduplicated blobs under `.vara/versions/<hash[0..2]>`,
 /// and staging under `.vara/tmp` for atomic writes. Every function takes the layout and the effects it uses.
 module ContentStore =
+    open FileSupport
+    
     // Under 85,000 bytes, so buffers stay off the large object heap.
     let private bufferSize = 81_920
 
@@ -65,31 +67,6 @@ module ContentStore =
         let text = ContentHash.value hash
         Path.Combine(store.VersionsRoot, text.Substring(0, 2), text)
 
-    /// Clears the read-only attribute so an overwrite or delete does not throw. The attribute is shared by every
-    /// name of a hard-linked file, so this affects them all.
-    let private clearReadOnly (path: string) : unit =
-        if File.Exists path then
-            let attributes = File.GetAttributes path
-
-            if attributes.HasFlag FileAttributes.ReadOnly then
-                File.SetAttributes(path, attributes &&& ~~~FileAttributes.ReadOnly)
-
-    let private ensureReadOnly (path: string) : unit =
-        if File.Exists path then
-            let attributes = File.GetAttributes path
-
-            if not (attributes.HasFlag FileAttributes.ReadOnly) then
-                File.SetAttributes(path, attributes ||| FileAttributes.ReadOnly)
-
-    /// Best-effort removal for cleanup; a file that is locked stays.
-    let private tryDelete (path: string) : unit =
-        try
-            clearReadOnly path
-            File.Delete path
-        with
-        | :? IOException
-        | :? UnauthorizedAccessException -> ()
-
     /// Tries a throwaway hard link in the temp directory. False when the volume or the process cannot make one.
     let probeHardlinkSupport (links: Links) (store: StoreLayout) : bool =
         let source = Path.Combine(store.TempRoot, $"probe-src-{Guid.NewGuid():N}.tmp")
@@ -100,9 +77,8 @@ module ContentStore =
                 File.WriteAllBytes(source, [| 0uy |])
                 links.Create link source
                 true
-            with
-            | :? IOException
-            | :? UnauthorizedAccessException -> false
+            with IoFailure _ ->
+                false
         finally
             tryDelete source
             tryDelete link

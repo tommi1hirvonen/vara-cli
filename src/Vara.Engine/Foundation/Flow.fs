@@ -68,6 +68,13 @@ let attempt (work: Task<'T>) : Task<Result<'T, ExceptionDispatchInfo>> =
             return Error(ExceptionDispatchInfo.Capture error)
     }
 
+/// The synchronous `attempt`: runs the work and captures a failure as a value.
+let attemptSync (work: unit -> 'T) : Result<'T, ExceptionDispatchInfo> =
+    try
+        Ok(work ())
+    with error ->
+        Error(ExceptionDispatchInfo.Capture error)
+
 let rethrow (error: ExceptionDispatchInfo) : 'T =
     error.Throw()
     Unchecked.defaultof<'T>

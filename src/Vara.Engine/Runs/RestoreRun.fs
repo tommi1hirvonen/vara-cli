@@ -38,35 +38,14 @@ type RestoredContentMismatchException(expected: ContentHash, actual: ContentHash
 /// Carries out a `RestorePlan`: the removals, then the writes, each write staged beside its destination and moved into
 /// place, so that a destination is either the restored content or exactly what it was.
 module RestoreRun =
+    open FileSupport
+
     let private bufferSize = 81_920
-
-    let private clearReadOnly (path: string) : unit =
-        if File.Exists path then
-            let attributes = File.GetAttributes path
-
-            if attributes.HasFlag FileAttributes.ReadOnly then
-                File.SetAttributes(path, attributes &&& ~~~FileAttributes.ReadOnly)
-
-    let private tryDelete (path: string) : unit =
-        try
-            if File.Exists path then
-                clearReadOnly path
-                File.Delete path
-        with
-        | :? IOException
-        | :? UnauthorizedAccessException -> ()
 
     /// The temporary name beside the destination that the content is staged under.
     let private stagingNameFor (destination: string) : string =
         let directory = Path.GetDirectoryName destination |> nonNull
         Path.Combine(directory, $".vara-restore-{Guid.NewGuid():N}.tmp")
-
-    /// An error that ends one file but not the restore: the path could not be read or written.
-    let private isPerFileFailure (error: exn) : bool =
-        match error with
-        | :? IOException
-        | :? UnauthorizedAccessException -> true
-        | _ -> false
 
     /// Writes one file: copy to a staging name while hashing the bytes, check the hash against the recorded one, flush
     /// it to disk, stamp the modification time, and move it over the destination. The content is verified before it is
@@ -109,7 +88,7 @@ module RestoreRun =
     let private attempt (destination: string) (action: unit -> unit) : Result<unit, RestoreFailure> =
         try
             Ok(action ())
-        with error when isPerFileFailure error ->
+        with IoFailure error ->
             Error { Destination = destination; Reason = error.Message }
 
     /// Applies the step to each item in order, stopping before the next item once a stop has been requested. The

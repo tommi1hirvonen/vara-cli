@@ -30,13 +30,6 @@ module PruneRun =
           ShouldStop = shouldStop
           Publish = publish }
 
-    /// An error that ends one blob but not the prune: the file could not be deleted.
-    let private isPerBlobFailure (error: exn) : bool =
-        match error with
-        | :? IOException
-        | :? System.UnauthorizedAccessException -> true
-        | _ -> false
-
     /// What the garbage collection has done so far. Failures are newest first.
     type private Collected =
         { Removed: int
@@ -62,7 +55,7 @@ module PruneRun =
                         env.DeleteBlob blob
                         env.Publish ProgressEvent.FileTransferred
                         { collected with Removed = collected.Removed + 1 }
-                    with error when isPerBlobFailure error ->
+                    with IoFailure error ->
                         env.Publish ProgressEvent.FileTransferred
 
                         { collected with

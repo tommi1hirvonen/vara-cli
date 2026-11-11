@@ -43,16 +43,12 @@ module Planning =
     /// False only when every candidate has a usable recorded signature and none equals the prefix hash, which
     /// rules every candidate out. A candidate without a usable signature cannot be ruled out, so it forces the read.
     let needsFullHash (candidates: (MirrorPath * FileContent) list) (prefixHash: string) : bool =
-        let rec check (remaining: (MirrorPath * FileContent) list) (everyUsable: bool) (anyEqual: bool) =
-            match remaining with
-            | [] -> not everyUsable || anyEqual
-            | (_, content) :: rest ->
-                match content.Quick with
-                | ValueSome signature when QuickSignature.isUsable signature ->
-                    check rest everyUsable (anyEqual || String.Equals(signature.QuickHash, prefixHash, StringComparison.Ordinal))
-                | _ -> check rest false anyEqual
-
-        check candidates true false
+        candidates
+        |> List.exists (fun (_, content) ->
+            match content.Quick with
+            | ValueSome signature when QuickSignature.isUsable signature ->
+                String.Equals(signature.QuickHash, prefixHash, StringComparison.Ordinal)
+            | _ -> true)
 
     let private supersededHash (state: TrackedState voption) : ContentHash voption =
         match state with

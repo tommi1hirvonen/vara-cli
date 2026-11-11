@@ -44,9 +44,8 @@ module Signatures =
                 ValueSome(Hashing.hashStream replay)
             else
                 ValueNone
-        with
-        | :? IOException
-        | :? UnauthorizedAccessException -> ValueNone
+        with IoFailure _ ->
+            ValueNone
 
     /// Reads, in parallel, the signature of every added file that shares a size with a deleted candidate, keyed by
     /// mirror path. Only a file whose prefix could still match a candidate is read to the end. `openRead` is the

@@ -9,12 +9,6 @@ open Vara.Domain
 /// junctions) are reported and never followed. A directory on a source's literal exclude list is not enumerated, so
 /// nothing beneath it is scanned or fails. Anything unreadable becomes a `ScanFailure` and the walk goes on.
 module Scanner =
-    let private isIoFailure (ex: exn) : bool =
-        match ex with
-        | :? IOException
-        | :? UnauthorizedAccessException -> true
-        | _ -> false
-
     /// The mirror path of a path, or the path itself where there is none (UNC), which is what a failure's coverage
     /// then matches against: nothing tracked, so nothing is shielded by accident.
     let private coverOf (path: string) : MirrorPath =
@@ -33,7 +27,7 @@ module Scanner =
             match FileInfo(path).LinkTarget with
             | null -> ValueNone
             | target -> ValueSome target
-        with ex when isIoFailure ex ->
+        with IoFailure _ ->
             ValueNone
 
     /// The entry for one path found by the walk (or a source that is itself a file). `relative` is the text a
@@ -56,7 +50,7 @@ module Scanner =
                           FileSource = SourcePath.ofString path
                           Size = info.Length
                           ModifiedAt = DateTimeOffset info.LastWriteTimeUtc }
-                with ex when isIoFailure ex ->
+                with IoFailure _ ->
                     failure relative path ScanFailureReason.UnreadableEntry
 
     let private globMatcher (source: Source) : (string -> bool) voption =
@@ -84,7 +78,7 @@ module Scanner =
             let listing =
                 try
                     Ok(Directory.EnumerateFileSystemEntries directory |> Seq.toArray)
-                with ex when isIoFailure ex ->
+                with IoFailure _ ->
                     Error()
 
             match listing with
@@ -95,7 +89,7 @@ module Scanner =
                     let attributes =
                         try
                             ValueSome(File.GetAttributes entry)
-                        with ex when isIoFailure ex ->
+                        with IoFailure _ ->
                             ValueNone
 
                     match attributes with
@@ -122,7 +116,7 @@ module Scanner =
                 // A source may point straight at one file.
                 let fileName = Path.GetFileName path
 
-                match (try ValueSome(File.GetAttributes path) with ex when isIoFailure ex -> ValueNone) with
+                match (try ValueSome(File.GetAttributes path) with IoFailure _ -> ValueNone) with
                 | ValueSome attributes -> yield entryOf path fileName attributes
                 | ValueNone -> yield failure fileName path ScanFailureReason.UnreadableEntry
             elif not (Directory.Exists path) then

@@ -68,12 +68,6 @@ type private TransferEvent =
 /// Carries out a plan: metadata operations in order, then transfers in a bounded pool feeding one recorder that
 /// owns the manifest transaction, the run state and the checkpoint clock.
 module Execution =
-    let private isIoFailure (ex: exn) : bool =
-        match ex with
-        | :? IOException
-        | :? UnauthorizedAccessException -> true
-        | _ -> false
-
     /// The recorder's state between events.
     [<Struct>]
     type private Recorder =
@@ -133,7 +127,7 @@ module Execution =
                 | ValueNone -> ()
 
                 Completion.Linked link
-        with ex when isIoFailure ex ->
+        with IoFailure _ ->
             Completion.Failed(failedPath operation)
 
     [<TailCall>]
@@ -151,15 +145,61 @@ module Execution =
             if env.ShouldStop() || recorder.Failure.IsSome then
                 recorder
             else
-                let completion =
-                    try
-                        Ok(performMetadata env operation)
-                    with error ->
-                        Error(ExceptionDispatchInfo.Capture error)
-
-                match completion with
+                match Flow.attemptSync (fun () -> performMetadata env operation) with
                 | Ok completion -> runMetadata env snapshotId recordedAt (record env snapshotId recordedAt recorder completion) rest
                 | Error failure -> { recorder with Failure = ValueSome failure }
+
+    /// How one file's bytes are reported as the file moves: a callback per pass over its content, and the closing call.
+    [<Struct>]
+    type private FileProgress =
+        { /// For the pass that stores the content.
+          Stored: (int64 -> unit) voption
+          /// For the pass that copies the stored content to the mirror; none when a hard link places it.
+          Mirrored: (int64 -> unit) voption
+          /// Called once the file is placed, with its stored size: reports what the passes did not, so that the file
+          /// adds exactly its size to the total.
+          Settle: int64 -> unit }
+
+    /// The reporting of one file's bytes. Without a display nothing is reported. With hard links the store pass is
+    /// the only pass over the content and reports each chunk as it is. Without them a placement copies the content
+    /// again; the two passes share the file's progress, half each, so that the total reported never exceeds the
+    /// planned bytes.
+    let private fileProgress (env: ExecutionEnv) (emit: TransferEvent -> unit) (plannedSize: int64) : FileProgress =
+        match env.Observers.BytesCopied with
+        | ValueNone ->
+            { Stored = ValueNone
+              Mirrored = ValueNone
+              Settle = ignore }
+        | ValueSome _ when env.SupportsHardlinks ->
+            { Stored = ValueSome(fun (count: int64) -> emit (Bytes count))
+              Mirrored = ValueNone
+              Settle = ignore }
+        | ValueSome _ ->
+            let reported = ref 0L
+            let stored = ref 0L
+            let mirrored = ref 0L
+
+            let advance (target: int64) =
+                let delta = target - reported.Value
+
+                if delta > 0L then
+                    reported.Value <- reported.Value + delta
+                    emit (Bytes delta)
+
+            { Stored =
+                ValueSome(fun (chunk: int64) ->
+                    stored.Value <- stored.Value + chunk
+                    advance (stored.Value / 2L))
+              Mirrored =
+                ValueSome(fun (chunk: int64) ->
+                    mirrored.Value <- mirrored.Value + chunk
+                    advance (plannedSize / 2L + mirrored.Value / 2L))
+              Settle =
+                fun (size: int64) ->
+                    let remainder = size - reported.Value
+
+                    if remainder > 0L then
+                        emit (Bytes remainder) }
 
     /// Streams the source into the store while hashing it, then places it. Raises on I/O failure. A source whose size
     /// or modification time changed since the scan is a failed operation: its content is not placed and no row is
@@ -173,39 +213,14 @@ module Execution =
             | TransferKind.Added -> ChangeKind.Added, ValueNone
             | TransferKind.Changed superseded -> ChangeKind.Changed, superseded
 
-        // Without hard links a placement copies the content again; the two passes share the file's progress,
-        // half each, so the total reported never exceeds the planned bytes.
-        let reported = ref 0L
-
-        let storeCallback, mirrorCallback =
-            match env.Observers.BytesCopied with
-            | ValueNone -> ValueNone, ValueNone
-            | ValueSome _ when env.SupportsHardlinks ->
-                ValueSome(fun (count: int64) -> emit (Bytes count)), ValueNone
-            | ValueSome _ ->
-                let stored = ref 0L
-                let mirrored = ref 0L
-
-                let advance (target: int64) =
-                    let delta = target - reported.Value
-
-                    if delta > 0L then
-                        reported.Value <- reported.Value + delta
-                        emit (Bytes delta)
-
-                ValueSome(fun (chunk: int64) ->
-                    stored.Value <- stored.Value + chunk
-                    advance (stored.Value / 2L)),
-                ValueSome(fun (chunk: int64) ->
-                    mirrored.Value <- mirrored.Value + chunk
-                    advance (file.Size / 2L + mirrored.Value / 2L))
+        let progress = fileProgress env emit file.Size
 
         let struct (hash, size, quick) =
             use source = env.OpenRead sourcePath
             let prefix = Signatures.readPrefix source
             let quick = Signatures.quickOf prefix
             use replay = new PrefixReplayStream(prefix, source)
-            let struct (hash, size) = ContentStore.storeFromStream env.Store replay storeCallback
+            let struct (hash, size) = ContentStore.storeFromStream env.Store replay progress.Stored
             struct (hash, size, quick)
 
         let after = FileInfo sourcePath
@@ -213,13 +228,8 @@ module Execution =
         if after.Length <> file.Size || not ((DateTimeOffset after.LastWriteTimeUtc).Equals file.ModifiedAt) then
             Completion.Failed file.FilePath
         else
-            ContentStore.placeAtMirrorPath env.Links env.Store env.SupportsHardlinks hash file.FilePath mirrorCallback previous
-
-            if not env.SupportsHardlinks && env.Observers.BytesCopied.IsSome then
-                let remainder = size - reported.Value
-
-                if remainder > 0L then
-                    emit (Bytes remainder)
+            ContentStore.placeAtMirrorPath env.Links env.Store env.SupportsHardlinks hash file.FilePath progress.Mirrored previous
+            progress.Settle size
 
             Completion.Transferred
                 { Path = file.FilePath
@@ -240,7 +250,7 @@ module Execution =
             try
                 Completed(transferContent env emit transfer)
             with
-            | ex when isIoFailure ex -> Completed(Completion.Failed transfer.Source.FilePath)
+            | IoFailure _ -> Completed(Completion.Failed transfer.Source.FilePath)
             | ex -> Crashed ex
 
         // The file leaves the active list once its I/O is done, not once its row is written.
