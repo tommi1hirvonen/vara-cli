@@ -137,6 +137,46 @@ module ``One-to-one mirror of source state`` =
             Assert.Equal<string list>([ mirrorOf root "a.txt"; mirrorOf root "sub\\b.txt" ] |> List.sort, files entries))
 
     [<Fact>]
+    let ``Hidden and system files and directories are scanned like any other`` () =
+        TempDir.using (fun root ->
+            let hiddenFile = Path.Combine(root, "hidden.txt")
+            let systemFile = Path.Combine(root, "system.txt")
+            let hiddenDirectory = Path.Combine(root, "hidden-dir")
+            TempDir.write hiddenFile "h"
+            TempDir.write systemFile "s"
+            TempDir.write (Path.Combine(hiddenDirectory, "inside.txt")) "i"
+            File.SetAttributes(hiddenFile, FileAttributes.Hidden)
+            File.SetAttributes(systemFile, FileAttributes.System)
+            File.SetAttributes(hiddenDirectory, FileAttributes.Hidden ||| FileAttributes.Directory)
+
+            let entries = scan [ source root ]
+
+            Assert.Equal<string list>(
+                [ mirrorOf root "hidden-dir\\inside.txt"; mirrorOf root "hidden.txt"; mirrorOf root "system.txt" ],
+                files entries
+            )
+
+            Assert.Empty(failures entries))
+
+    [<Fact>]
+    let ``A scanned file carries the size and modification time of the file`` () =
+        TempDir.using (fun root ->
+            let path = Path.Combine(root, "sub", "a.txt")
+            TempDir.write path "twelve bytes"
+            let modified = DateTime(2024, 3, 5, 10, 20, 30, DateTimeKind.Utc)
+            File.SetLastWriteTimeUtc(path, modified)
+
+            let scanned =
+                scan [ source root ]
+                |> List.pick (function
+                    | ScanEntry.File file -> Some file
+                    | _ -> None)
+
+            Assert.Equal(12L, scanned.Size)
+            Assert.Equal(DateTimeOffset modified, scanned.ModifiedAt)
+            Assert.Equal(path, SourcePath.value scanned.FileSource))
+
+    [<Fact>]
     let ``A source pointing directly at a single file scans just that file`` () =
         TempDir.using (fun root ->
             let file = Path.Combine(root, "single.txt")
