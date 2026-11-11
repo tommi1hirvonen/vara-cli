@@ -32,7 +32,7 @@ let create (env: CliEnv) : Command =
                 return
                     HistorySession.withManifest target (fun handle ->
                         let path = HistorySession.tryResolveFile env target handle raw |> ValueOption.defaultValue raw
-                        let versions = History.versionsOf (SqliteManifest.versionsOfPath handle) (MirrorPath.ofString path)
+                        let versions = History.versionsOf (ManifestQueries.versionsOfPath handle) (MirrorPath.ofString path)
 
                         match versions with
                         | [] -> HistorySession.fail env (HistoryError.render (HistoryError.NoHistory path))

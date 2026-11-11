@@ -82,7 +82,7 @@ let private restoreFile
         | ValueSome path -> return HistorySession.fail env (HistoryError.render (HistoryError.IsDirectory path))
         | ValueNone ->
             let path = resolved |> ValueOption.defaultValue request.Path
-            let history = History.versionsOf (SqliteManifest.versionsOfPath handle) (MirrorPath.ofString path)
+            let history = History.versionsOf (ManifestQueries.versionsOfPath handle) (MirrorPath.ofString path)
 
             // Neither a version nor a date: offer the path's restorable versions (the checks already ruled out a
             // session that cannot be asked).
@@ -155,7 +155,7 @@ let private restoreDirectory
         let directory = resolution.Directory
 
         let candidates () : DirectoryCandidate list =
-            History.directoryCandidates directory (SqliteManifest.snapshots handle) (SqliteManifest.allVersions handle)
+            History.directoryCandidates directory (ManifestQueries.snapshots handle) (ManifestQueries.allVersions handle)
 
         // A snapshot id, a date, a choice from the picker, or the current state.
         let moment: Result<Moment, string> =
@@ -179,7 +179,7 @@ let private restoreDirectory
         let plan =
             moment
             |> Result.bind (fun moment ->
-                Restore.planDirectory directory moment (destinationOf request) (SqliteManifest.allVersions handle)
+                Restore.planDirectory directory moment (destinationOf request) (ManifestQueries.allVersions handle)
                 |> Result.mapError HistoryError.render)
             |> Result.map (Restore.keepExistingRemovals File.Exists)
 

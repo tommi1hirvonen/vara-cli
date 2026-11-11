@@ -247,6 +247,32 @@ module ``Manifest compatibility`` =
             SqliteConnection.ClearAllPools())
 
     [<Fact>]
+    let ``A row with an unknown change kind is refused when the state is read`` () =
+        TempDir.using (fun root ->
+            let path = database root
+            SqliteManifest.close (SqliteManifest.openAt path true)
+
+            let insertUnknownKind () =
+                use connection = new SqliteConnection $"Data Source={path};Pooling=False"
+                connection.Open()
+                use command = connection.CreateCommand()
+
+                command.CommandText <-
+                    """
+                    INSERT INTO snapshots (started_at, status) VALUES ('2026-01-01T00:00:00.0000000+00:00', 'Complete');
+                    INSERT INTO file_versions (snapshot_id, relative_path, content_hash, size, source_modified_at, change_kind, recorded_at)
+                        VALUES (1, 'C\a.txt', 'aa11', 10, '2026-01-01T00:00:00.0000000+00:00', 'Teleported', '2026-01-01T00:00:00.0000000+00:00');
+                    """
+
+                command.ExecuteNonQuery() |> ignore
+
+            insertUnknownKind ()
+            let handle = SqliteManifest.openAt path false
+            Assert.Throws<InvalidDataException>(fun () -> SqliteManifest.currentState handle |> ignore) |> ignore
+            SqliteManifest.close handle
+            SqliteConnection.ClearAllPools())
+
+    [<Fact>]
     let ``Opening a missing database read-only creates no file`` () =
         TempDir.using (fun root ->
             let path = database root

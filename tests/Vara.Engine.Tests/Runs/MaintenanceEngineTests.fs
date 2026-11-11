@@ -53,7 +53,7 @@ let private firstHashOf (setup: Setup) (name: string) : ContentHash =
 let private blobOf (setup: Setup) (hash: ContentHash) : string = ContentStore.blobPath (store setup) hash
 
 let private snapshotIds (setup: Setup) : int64 list =
-    reader setup (fun handle -> SqliteManifest.snapshots handle |> List.map _.SnapshotId |> List.sort)
+    reader setup (fun handle -> ManifestQueries.snapshots handle |> List.map _.SnapshotId |> List.sort)
 
 /// Writes the file again with new content and runs the backup: one more snapshot, with the old content now history.
 let private revise (setup: Setup) (name: string) (text: string) (profile: Profile) : unit =
@@ -90,7 +90,7 @@ module ``Manifest queries and the prune writer`` =
         within (fun setup ->
             let profile = threeVersions setup
             let ids = snapshotIds setup |> List.sort
-            let removed = writer setup (fun handle -> SqliteManifest.removeSnapshots handle ids)
+            let removed = writer setup (fun handle -> ManifestMaintenance.removeSnapshots handle ids)
             // The two older snapshots hold no current row and go; the newest holds a.txt's current row and stays.
             Assert.Equal(2, removed)
             Assert.Equal<int64 list>([ ids[2] ], snapshotIds setup)
@@ -106,7 +106,7 @@ module ``Manifest queries and the prune writer`` =
             let ids = snapshotIds setup |> List.sort
             let before = query setup "SELECT id, snapshot_id FROM file_versions ORDER BY id"
             // Only the oldest is listed, with an id that never existed.
-            let removed = writer setup (fun handle -> SqliteManifest.removeSnapshots handle [ ids[0]; 9_999L ])
+            let removed = writer setup (fun handle -> ManifestMaintenance.removeSnapshots handle [ ids[0]; 9_999L ])
             Assert.Equal(1, removed)
             Assert.Equal<int64 list>([ ids[1]; ids[2] ], snapshotIds setup)
             // The rows of the unlisted snapshots are all still there.
@@ -125,7 +125,7 @@ module ``Manifest queries and the prune writer`` =
             let ids = snapshotIds setup |> List.sort
             // Snapshot 1 holds both Added rows; gone.txt's latest row is the deletion in snapshot 2, which is not
             // current state, so expiring snapshot 1 removes its rows for gone.txt but protects kept.txt's.
-            writer setup (fun handle -> SqliteManifest.removeSnapshots handle [ ids[0] ]) |> ignore
+            writer setup (fun handle -> ManifestMaintenance.removeSnapshots handle [ ids[0] ]) |> ignore
             let rows = query setup "SELECT relative_path, change_kind FROM file_versions ORDER BY id"
             Assert.Contains(rows, fun row -> row.EndsWith "|Deleted")
             Assert.Contains(rows, fun row -> row.Contains "kept.txt")
@@ -141,12 +141,12 @@ module ``Manifest queries and the prune writer`` =
             runOk quiet (profileOf setup "p" None) |> ignore
 
             reader setup (fun handle ->
-                let sizes = SqliteManifest.referencedSizes handle
+                let sizes = ManifestMaintenance.referencedSizes handle
                 Assert.Equal(2, sizes.Length)
-                Assert.Equal<Set<ContentHash>>(sizes |> List.map fst |> Set.ofList, SqliteManifest.referencedHashes handle)
+                Assert.Equal<Set<ContentHash>>(sizes |> List.map fst |> Set.ofList, ManifestMaintenance.referencedHashes handle)
                 Assert.Contains((hashOf setup "a.txt", 5L), sizes)
-                Assert.Equal(2, (SqliteManifest.pathsForHash handle (hashOf setup "a.txt")).Length)
-                Assert.Equal(1, (SqliteManifest.pathsForHash handle (hashOf setup "c.txt")).Length)))
+                Assert.Equal(2, (ManifestMaintenance.pathsForHash handle (hashOf setup "a.txt")).Length)
+                Assert.Equal(1, (ManifestMaintenance.pathsForHash handle (hashOf setup "c.txt")).Length)))
 
     [<Fact>]
     let ``a link row has no hash, so it is never a referenced blob`` () =
@@ -157,7 +157,7 @@ module ``Manifest queries and the prune writer`` =
             InteropTests.createJunction (Path.Combine(setup.SourceDir, "link")) outside
             runOk quiet (profileOf setup "p" None) |> ignore
             Assert.Equal(1, (query setup "SELECT id FROM file_versions WHERE change_kind = 'Linked'").Length)
-            reader setup (fun handle -> Assert.Equal(1, (SqliteManifest.referencedSizes handle).Length)))
+            reader setup (fun handle -> Assert.Equal(1, (ManifestMaintenance.referencedSizes handle).Length)))
 
     [<Fact>]
     let ``the read-only queries still do not write`` () =
@@ -174,9 +174,9 @@ module ``Manifest queries and the prune writer`` =
             let before = fingerprint ()
 
             reader setup (fun handle ->
-                SqliteManifest.referencedHashes handle |> ignore
-                SqliteManifest.referencedSizes handle |> ignore
-                SqliteManifest.pathsForHash handle (hashOf setup "a.txt") |> ignore)
+                ManifestMaintenance.referencedHashes handle |> ignore
+                ManifestMaintenance.referencedSizes handle |> ignore
+                ManifestMaintenance.pathsForHash handle (hashOf setup "a.txt") |> ignore)
 
             Assert.Equal(before, fingerprint ()))
 
@@ -186,7 +186,7 @@ module ``Manifest queries and the prune writer`` =
             Directory.CreateDirectory setup.TargetDir |> ignore
             let result =
                 writer setup (fun handle ->
-                    Assert.Empty(SqliteManifest.referencedHashes handle)
+                    Assert.Empty(ManifestMaintenance.referencedHashes handle)
                     PruneRun.execute (pruneEnv setup (fun () -> false) (ResizeArray())) (store setup) handle keepNothing ValueNone)
 
             Assert.Equal(0, result.SnapshotsRemoved)
@@ -305,7 +305,7 @@ module ``Unreferenced content garbage collection`` =
         for older, newer in [ "Äiti.txt", "äiti.txt"; "äiti.txt", "Äiti.txt" ] do
             within (fun setup ->
                 seeded setup [ [ (older, "aa11", ChangeKind.Added) ]; [ (newer, "bb22", ChangeKind.Changed) ] ]
-                let removed = writer setup (fun handle -> SqliteManifest.removeSnapshots handle [ 1L ])
+                let removed = writer setup (fun handle -> ManifestMaintenance.removeSnapshots handle [ 1L ])
                 Assert.Equal(1, removed)
                 Assert.Equal<int64 list>([ 2L ], snapshotIds setup)
                 let rows = query setup "SELECT snapshot_id, content_hash FROM file_versions"

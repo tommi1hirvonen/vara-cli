@@ -12,7 +12,11 @@
     <Compile Include="Foundation\Streams.fs" />
     <Compile Include="Foundation\Hashing.fs" />
     <Compile Include="Storage\ContentStore.fs" />
+    <Compile Include="Storage\ManifestSql.fs" />
+    <Compile Include="Storage\ManifestSchema.fs" />
     <Compile Include="Storage\SqliteManifest.fs" />
+    <Compile Include="Storage\ManifestQueries.fs" />
+    <Compile Include="Storage\ManifestMaintenance.fs" />
     <Compile Include="Runs\Scanner.fs" />
     <Compile Include="Runs\Signatures.fs" />
     <Compile Include="Runs\Execution.fs" />

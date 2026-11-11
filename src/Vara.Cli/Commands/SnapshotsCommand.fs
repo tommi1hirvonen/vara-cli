@@ -30,7 +30,7 @@ let create (env: CliEnv) : Command =
             match HistorySession.resolve env configPath name with
             | Error error -> return HistorySession.fail env (ConfigError.render error)
             | Ok target ->
-                let snapshots = HistorySession.withManifest target SqliteManifest.snapshots
+                let snapshots = HistorySession.withManifest target ManifestQueries.snapshots
                 HistorySession.show env (HistoryView.ofSnapshots snapshots)
                 return Outcome.Success
         }

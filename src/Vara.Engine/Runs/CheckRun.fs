@@ -83,7 +83,7 @@ module CheckRun =
 
     /// The check of one target: the referenced blobs against the stored ones.
     let execute (env: CheckEnv) (store: StoreLayout) (handle: ManifestHandle) (quick: bool) : CheckResult =
-        let referenced = SqliteManifest.referencedSizes handle
+        let referenced = ManifestMaintenance.referencedSizes handle
         let stored = ContentStore.storedHashes store
 
         // The sum saturates, as the C# build's does, instead of overflowing on absurd sizes.
@@ -94,7 +94,7 @@ module CheckRun =
         env.Publish(ProgressEvent.TransferStarting(totalBytes, referenced.Length))
 
         let struct (verified, stopped) =
-            verifyAll env quick stored (SqliteManifest.pathsForHash handle) referenced Check.empty
+            verifyAll env quick stored (ManifestMaintenance.pathsForHash handle) referenced Check.empty
 
         let referencedSet = referenced |> List.map fst |> Set.ofList
         Check.finish (Set.difference stored referencedSet |> Set.toList) stopped verified

@@ -20,7 +20,7 @@ let private eligibleNow (profile: Profile) (policy: RetentionPolicy) : int64 lis
     let handle = SqliteManifest.openReadOnly (SqliteManifest.pathIn root)
 
     try
-        (Retention.evaluate policy (SqliteManifest.snapshots handle)).Eligible
+        (Retention.evaluate policy (ManifestQueries.snapshots handle)).Eligible
     finally
         SqliteManifest.close handle
 

@@ -90,7 +90,7 @@ let create (env: CliEnv) : Command =
                         return
                             HistorySession.withManifest target (fun handle ->
                                 let path = HistorySession.tryResolveFile env target handle raw |> ValueOption.defaultValue raw
-                                let history = History.versionsOf (SqliteManifest.versionsOfPath handle) (MirrorPath.ofString path)
+                                let history = History.versionsOf (ManifestQueries.versionsOfPath handle) (MirrorPath.ofString path)
                                 let versionId = if version.HasValue then ValueSome version.Value else ValueNone
 
                                 let hash =

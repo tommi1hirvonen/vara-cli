@@ -67,11 +67,11 @@ let create (env: CliEnv) : Command =
                         HistorySession.withManifest target (fun handle ->
                             let resolution = HistorySession.resolveDirectory env target handle raw
 
-                            match SqliteManifest.snapshots handle |> List.tryFind (fun snapshot -> snapshot.SnapshotId = snapshotId) with
+                            match ManifestQueries.snapshots handle |> List.tryFind (fun snapshot -> snapshot.SnapshotId = snapshotId) with
                             | None -> HistorySession.fail env (HistoryError.render (HistoryError.UnknownSnapshot(snapshotId, target.Name)))
                             | Some snapshot ->
                                 let rollup =
-                                    History.rollup resolution.Directory includeFiles (SqliteManifest.snapshotVersions handle snapshotId)
+                                    History.rollup resolution.Directory includeFiles (ManifestQueries.snapshotVersions handle snapshotId)
 
                                 match rollup with
                                 | [] ->

@@ -74,7 +74,7 @@ let rowsOf (setup: Scratch) : FileVersion list =
     let handle = SqliteManifest.openReadOnly (databaseOf setup)
 
     try
-        SqliteManifest.allVersions handle |> List.ofSeq
+        ManifestQueries.allVersions handle |> List.ofSeq
     finally
         SqliteManifest.close handle
 
@@ -82,7 +82,7 @@ let snapshotsOf (setup: Scratch) : SnapshotInfo list =
     let handle = SqliteManifest.openReadOnly (databaseOf setup)
 
     try
-        SqliteManifest.snapshots handle |> List.sortBy _.SnapshotId
+        ManifestQueries.snapshots handle |> List.sortBy _.SnapshotId
     finally
         SqliteManifest.close handle
 

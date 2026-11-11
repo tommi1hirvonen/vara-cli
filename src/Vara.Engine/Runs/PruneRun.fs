@@ -79,16 +79,16 @@ module PruneRun =
               Failed = []
               Stopped = true }
         else
-            let snapshots = SqliteManifest.snapshots handle
+            let snapshots = ManifestQueries.snapshots handle
             let existing = snapshots |> List.map _.SnapshotId |> Set.ofList
             let decision = Retention.evaluate policy snapshots
             let ids = Prune.snapshotsToRemove decision.Eligible confirmed existing
-            let snapshotsRemoved = SqliteManifest.removeSnapshots handle ids
+            let snapshotsRemoved = ManifestMaintenance.removeSnapshots handle ids
 
             // The rows are durably gone before any blob is deleted, so a crash from here on, power loss included,
             // leaves unreferenced blobs and never a referenced blob missing; the next prune finds them again.
             let blobs =
-                Prune.blobsToRemove (ContentStore.storedHashes store) (SqliteManifest.referencedHashes handle)
+                Prune.blobsToRemove (ContentStore.storedHashes store) (ManifestMaintenance.referencedHashes handle)
 
             // With nothing to remove, no total is published, so no bar for zero items is drawn.
             if not blobs.IsEmpty then

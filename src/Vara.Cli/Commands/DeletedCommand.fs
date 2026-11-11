@@ -53,7 +53,7 @@ let create (env: CliEnv) : Command =
                                 | Some raw -> (HistorySession.resolveDirectory env target handle raw).Directory
                                 | None -> ""
 
-                            let deleted = History.recentlyDeleted scope since (SqliteManifest.allVersions handle)
+                            let deleted = History.recentlyDeleted scope since (ManifestQueries.allVersions handle)
                             HistorySession.show env (HistoryView.ofDeleted deleted)
                             Outcome.Success)
         }

@@ -55,7 +55,7 @@ let create (env: CliEnv) : Command =
                         HistorySession.withManifest target (fun handle ->
                             let resolution = HistorySession.resolveDirectory env target handle raw
 
-                            match History.listing resolution.Directory moment includeDeleted (SqliteManifest.allVersions handle) with
+                            match History.listing resolution.Directory moment includeDeleted (ManifestQueries.allVersions handle) with
                             | Error error -> HistorySession.fail env (HistoryError.render error)
                             | Ok entries ->
                                 HistorySession.show env (HistoryView.ofListing entries)

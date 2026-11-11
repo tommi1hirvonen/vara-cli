@@ -50,15 +50,15 @@ let private context (env: CliEnv) (target: Target) : PathContext =
 
 /// The recorded path a file argument names, by the flexible forms; none when no reading matches a recorded path.
 let tryResolveFile (env: CliEnv) (target: Target) (handle: ManifestHandle) (raw: string) : string voption =
-    PathInput.resolve (context env target) (SqliteManifest.hasPath handle) raw
+    PathInput.resolve (context env target) (ManifestQueries.hasPath handle) raw
 
 /// The recorded directory a path argument names, by the same flexible forms; none when it matches no directory.
 let tryResolveTrackedDirectory (env: CliEnv) (target: Target) (handle: ManifestHandle) (raw: string) : string voption =
-    PathInput.resolve (context env target) (fun candidate -> SqliteManifest.hasPrefix handle (Prefix.ofDirectory candidate)) raw
+    PathInput.resolve (context env target) (fun candidate -> ManifestQueries.hasPrefix handle (Prefix.ofDirectory candidate)) raw
 
 /// Whether something is recorded under the directory, live or deleted, at any time.
 let isDirectoryTracked (handle: ManifestHandle) (directory: string) : bool =
-    SqliteManifest.hasPrefix handle (Prefix.ofDirectory directory)
+    ManifestQueries.hasPrefix handle (Prefix.ofDirectory directory)
 
 /// The directory a directory argument names. `.` or blank is the mirror root, or, from inside a source, that source
 /// directory when it has history.

@@ -91,7 +91,7 @@ let private withManifest (setup: Setup) (body: ManifestHandle -> 'a) : 'a =
 /// The version of a source file that the manifest holds latest, as the history sees it.
 let private latestVersion (setup: Setup) (name: string) : FileVersion =
     withManifest setup (fun handle ->
-        SqliteManifest.allVersions handle
+        ManifestQueries.allVersions handle
         |> History.stateAt Moment.Latest
         |> Array.find (fun version -> MirrorPath.value version.Row.RowPath = mirrorKey setup name))
 
@@ -116,13 +116,13 @@ module ``Manifest queries`` =
             runOk quiet (profileOf setup "p" None) |> ignore
 
             withManifest setup (fun handle ->
-                let versions = SqliteManifest.allVersions handle |> List.ofSeq
+                let versions = ManifestQueries.allVersions handle |> List.ofSeq
                 Assert.Equal(2, versions.Length)
                 Assert.All(versions, fun version -> Assert.Equal(ChangeKind.Added, version.Row.Kind))
                 let state = History.stateAt Moment.Latest versions
                 Assert.Equal(2, state.Length)
 
-                match SqliteManifest.snapshots handle with
+                match ManifestQueries.snapshots handle with
                 | [ only ] ->
                     Assert.Equal(SnapshotStatus.Complete, only.Status)
                     Assert.Equal(2, only.Stats.FilesAdded)
@@ -139,7 +139,7 @@ module ``Manifest queries`` =
             runOk quiet profile |> ignore
 
             withManifest setup (fun handle ->
-                let ids = SqliteManifest.snapshots handle |> List.map _.SnapshotId
+                let ids = ManifestQueries.snapshots handle |> List.map _.SnapshotId
                 Assert.Equal<int64 list>(ids |> List.sortDescending, ids)
                 Assert.Equal(2, ids.Length)))
 
@@ -154,7 +154,7 @@ module ``Manifest queries`` =
 
             withManifest setup (fun handle ->
                 let history =
-                    History.versionsOf (SqliteManifest.versionsOfPath handle) (MirrorPath.ofString (mirrorKey setup "new.txt"))
+                    History.versionsOf (ManifestQueries.versionsOfPath handle) (MirrorPath.ofString (mirrorKey setup "new.txt"))
 
                 Assert.Equal<ChangeKind list>(
                     [ ChangeKind.Moved; ChangeKind.Deleted; ChangeKind.Added ],
@@ -169,11 +169,11 @@ module ``Manifest queries`` =
 
             withManifest setup (fun handle ->
                 let key = mirrorKey setup "Docs\\A.txt"
-                Assert.True(SqliteManifest.hasPath handle (key.ToUpperInvariant()))
-                Assert.False(SqliteManifest.hasPath handle (key + "x"))
+                Assert.True(ManifestQueries.hasPath handle (key.ToUpperInvariant()))
+                Assert.False(ManifestQueries.hasPath handle (key + "x"))
                 let docs = key.Substring(0, key.IndexOf("Docs", StringComparison.OrdinalIgnoreCase) + 4)
-                Assert.True(SqliteManifest.hasPrefix handle ((Prefix.ofDirectory docs).ToUpperInvariant()))
-                Assert.False(SqliteManifest.hasPrefix handle "nothing\\")))
+                Assert.True(ManifestQueries.hasPrefix handle ((Prefix.ofDirectory docs).ToUpperInvariant()))
+                Assert.False(ManifestQueries.hasPrefix handle "nothing\\")))
 
     [<Fact>]
     let ``No query writes`` () =
@@ -186,11 +186,11 @@ module ``Manifest queries`` =
             let stamp = File.GetLastWriteTimeUtc database
 
             withManifest setup (fun handle ->
-                SqliteManifest.allVersions handle |> Seq.length |> ignore
-                SqliteManifest.snapshots handle |> ignore
-                SqliteManifest.versionsOfPath handle (MirrorPath.ofString (mirrorKey setup "a.txt")) |> ignore
-                SqliteManifest.hasPath handle "x" |> ignore
-                SqliteManifest.hasPrefix handle "x\\" |> ignore)
+                ManifestQueries.allVersions handle |> Seq.length |> ignore
+                ManifestQueries.snapshots handle |> ignore
+                ManifestQueries.versionsOfPath handle (MirrorPath.ofString (mirrorKey setup "a.txt")) |> ignore
+                ManifestQueries.hasPath handle "x" |> ignore
+                ManifestQueries.hasPrefix handle "x\\" |> ignore)
 
             settle database
             Assert.Equal(before, hashOf database)
@@ -202,9 +202,9 @@ module ``Manifest queries`` =
             let before = Directory.Exists setup.TargetDir
 
             withManifest setup (fun handle ->
-                Assert.Empty(SqliteManifest.allVersions handle)
-                Assert.Empty(SqliteManifest.snapshots handle)
-                Assert.False(SqliteManifest.hasPrefix handle "x\\"))
+                Assert.Empty(ManifestQueries.allVersions handle)
+                Assert.Empty(ManifestQueries.snapshots handle)
+                Assert.False(ManifestQueries.hasPrefix handle "x\\"))
 
             Assert.Equal(before, Directory.Exists setup.TargetDir)
             Assert.False(Directory.Exists(Path.Combine(setup.TargetDir, ".vara"))))
@@ -337,7 +337,7 @@ module ``Restored content is verified against its recorded hash`` =
 
             let plan =
                 withManifest setup (fun handle ->
-                    match Restore.planDirectory directory Moment.Latest (Destination.Explicit outDir) (SqliteManifest.allVersions handle) with
+                    match Restore.planDirectory directory Moment.Latest (Destination.Explicit outDir) (ManifestQueries.allVersions handle) with
                     | Ok plan -> plan
                     | Error error -> failwith (HistoryError.render error))
 
@@ -377,7 +377,7 @@ module ``Graceful cancellation of a directory restore via CtrlC`` =
         let directory = Path.GetDirectoryName(mirrorKey setup "d\\a.txt") |> nonNull
 
         withManifest setup (fun handle ->
-            match Restore.planDirectory directory Moment.Latest (Destination.Explicit(Path.Combine(setup.Root, "out"))) (SqliteManifest.allVersions handle) with
+            match Restore.planDirectory directory Moment.Latest (Destination.Explicit(Path.Combine(setup.Root, "out"))) (ManifestQueries.allVersions handle) with
             | Ok plan -> plan
             | Error error -> failwith (HistoryError.render error))
 
