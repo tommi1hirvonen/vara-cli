@@ -10,8 +10,8 @@ any case regressed beyond its tolerance or is missing from the candidate run.
 
 .EXAMPLE
 ./benchmarks/Compare-BenchmarkResults.ps1 `
-    -Baseline benchmarks/baselines/2026-11-06-csharp-net11 `
-    -Candidate benchmarks/baselines/2027-01-15-csharp-net11
+    -Baseline benchmarks/baselines/2026-11-12-fsharp-net11 `
+    -Candidate benchmarks/baselines/2027-01-15-fsharp-net11
 #>
 [CmdletBinding()]
 param(

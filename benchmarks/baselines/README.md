@@ -6,26 +6,18 @@ every individual measurement), plus the GitHub Markdown and CSV reports for read
 
 | Baseline | Code | Notes |
 |---|---|---|
-| [2026-11-09-fsharp-net11](./2026-11-09-fsharp-net11/) | the working tree of `fsharp-cutover` on top of commit `62f996e` (the F# build, after the C# projects were removed), machine below | **Current reference baseline.** `--job short`, command below. Allocations are the asserted figures (budget 5%). `release-check.json` holds the CPU time, peak memory and executable size of the published `vara.exe` (asserted by `Measure-GateB.ps1`) and its wall-clock time (advisory); `release-check.md` is a verification run against it. Scenario 1's CPU figures were recorded with an interquartile range of 14.6% on a machine with Defender active, so re-record them with `Measure-GateB.ps1 -Record` on a quiet machine before relying on them |
-| [2026-11-06-csharp-net11](./2026-11-06-csharp-net11/) | commit `3692197` (the C# build) | History: the last C# reference. The scenario names are the same as in the current baseline, so `Compare-BenchmarkResults.ps1` compares the two |
-| [2026-11-08-csharp-async-net11](./2026-11-08-csharp-async-net11/) | the C# build after `csharp-async-backup-recording` | History: C# against C#, `--job short` |
-| [2026-11-08-csharp-vs-fsharp-slice](./2026-11-08-csharp-vs-fsharp-slice/) | exploratory F# spike (code not kept) | History: compares the C# and F# builds, as evidence behind the migration. Not a regression baseline |
-| [2026-11-08-csharp-vs-fsharp-engine](./2026-11-08-csharp-vs-fsharp-engine/) | after `fsharp-backup-engine` | History: compares the C# and F# builds (`LanguageComparisonBenchmarks`, since removed). Not a regression baseline |
-| [2026-11-08-gate-b](./2026-11-08-gate-b/) | after `fsharp-backup-presentation` | History: the migration's Gate B, native C# `vara.exe` against F#. Not a regression baseline |
+| [2026-11-12-fsharp-net11](./2026-11-12-fsharp-net11/) | commit `e60a4bf` (the F# build) | **Current reference baseline.** `--job short`, command below. Allocations are the asserted figures (budget 5%). `release-check.json` is carried over from the earlier 2026-11-09 F# baseline (CPU time, peak memory and executable size of the published `vara.exe`, asserted by `Measure-GateB.ps1`). It predates the durable-blob-store and later commits, and its scenario 1 was recorded with an interquartile range of 14.6% on a machine with Defender active, so re-record it with `Measure-GateB.ps1 -Record` on a quiet machine before relying on it. The BenchmarkDotNet figures were also recorded with Defender active |
 
-The folders dated before 2026-11-09 compare the two builds, or record the C# build; they are kept as history, and nothing in the repository runs the C# build any more.
+The C# baselines and the earlier F# baselines were removed on 2026-11-12 (they remain in git history before this change). A C# against F# comparison on this machine, with the C# build at commit `826e890` and the F# build at `e60a4bf`, found F# allocations equal or lower except `BackupDifferBenchmarks.Diff` for `Added` and `Changed` (+27%; `Deleted` is -58%). Scan time is far lower in F# (the single-pass directory read). Single-threaded transfer (`TransferConcurrency=1`, which is also the pipeline default) is 1.2-1.7x slower in F# because the `durable-blob-store` commit (`bd4cda5`) flushes every blob to disk; before it, F# matched C#. That cost is accepted and is part of this baseline.
 
-Allocation comparison of the first F# run with the last C# baseline (`Compare-BenchmarkResults.ps1 -AllocationTolerancePercent 5`): every case is within 5% except `BackupDifferBenchmarks.Diff` for the `Deleted` scenario (+80%) and, diluted by the other kinds, `Mixed` (+17%). The F# `DiffResult.Deleted` carries each deleted path with its tracked state (a tuple per entry) so that move planning needs no second lookup, where the C# differ returned bare paths; the difference is about 80 bytes per deleted entry and is confined to the diff stage (the whole pipeline is within 1%). Time ratios are advisory: the runtimes differ (RC1 against RC3), and the machine is noisy.
-
-Environment of the `2026-11-09-fsharp-net11` run: Windows 11 25H2 (10.0.26200), AMD Ryzen AI
-9 HX PRO 375, .NET SDK 11.0.100-rc.3.26522.148, BenchmarkDotNet 0.16.0-preview.2, fixtures
+Environment of the `2026-11-12-fsharp-net11` run: Windows 11 25H2 (10.0.26200), AMD Ryzen AI
+9 HX PRO 375, .NET SDK 11.0.100, BenchmarkDotNet 0.16.0-preview.2, fixtures
 in the system drive's temp directory, Windows Defender active. Command:
 
 ```powershell
-dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*' --job short --exporters fulljson github csv --artifacts benchmarks/baselines/2026-11-09-fsharp-net11
+dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*' --job short --exporters fulljson github csv --artifacts benchmarks/baselines/2026-11-12-fsharp-net11
 ```
 
-Environment of the `2026-11-06-csharp-net11` run (history): Windows 11 25H2, the same CPU, .NET SDK 11.0.100-rc.1.26425.128, BenchmarkDotNet 0.16.0-preview.2.
 
 ## Recording a new run
 
@@ -40,7 +32,7 @@ Environment of the `2026-11-06-csharp-net11` run (history): Windows 11 25H2, the
 
 ```powershell
 ./benchmarks/Compare-BenchmarkResults.ps1 `
-    -Baseline benchmarks/baselines/2026-11-09-fsharp-net11 `
+    -Baseline benchmarks/baselines/2026-11-12-fsharp-net11 `
     -Candidate benchmarks/baselines/2027-01-15-fsharp-net11
 ```
 
