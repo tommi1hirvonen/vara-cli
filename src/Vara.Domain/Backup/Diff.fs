@@ -52,27 +52,30 @@ module Diff =
 
     /// Walks the scan once: classifies each entry and notes which tracked paths were seen. A tracked path that was
     /// not seen is deleted unless a failure covers it, because then nobody knows whether it still exists.
-    /// `tracked` must compare keys case-insensitively. Only the set of seen paths is mutated, and it is local.
+    /// `tracked` must compare keys case-insensitively. Only the set of seen paths and the failure collector are
+    /// mutated, and both are local.
     let run (tracked: TrackedPaths) (scanned: ScanEntry seq) : DiffResult =
-        let seen = HashSet<string> StringComparer.OrdinalIgnoreCase
+        // Most tracked paths are seen again, so the manifest's size is the best estimate of the set's final size. Sized
+        // up front, the set does not grow by doubling through the large object heap, which each run would pay a
+        // generation 2 collection for.
+        let seen = HashSet<string>(tracked.Count, StringComparer.OrdinalIgnoreCase)
 
-        let step struct (pending, failures) (entry: ScanEntry) =
-            let failures =
-                match entry with
-                | ScanEntry.File file ->
-                    seen.Add(MirrorPath.value file.FilePath) |> ignore
-                    failures
-                | ScanEntry.Link link ->
-                    seen.Add(MirrorPath.value link.LinkPath) |> ignore
-                    failures
-                | ScanEntry.Failure failure -> failure :: failures
+        let failures = ResizeArray<ScanFailure>()
 
-            match classify tracked entry with
-            | ValueSome change -> struct (change :: pending, failures)
-            | ValueNone -> struct (pending, failures)
+        // A list comprehension builds the list in scan order in one pass; prepending and reversing would allocate every
+        // (large, struct-carrying) cell twice.
+        let pending =
+            [ for entry in scanned do
+                  match entry with
+                  | ScanEntry.File file -> seen.Add(MirrorPath.value file.FilePath) |> ignore
+                  | ScanEntry.Link link -> seen.Add(MirrorPath.value link.LinkPath) |> ignore
+                  | ScanEntry.Failure failure -> failures.Add failure
 
-        let struct (pending, failures) = Seq.fold step struct ([], []) scanned
-        let failures = List.rev failures
+                  match classify tracked entry with
+                  | ValueSome change -> yield change
+                  | ValueNone -> () ]
+
+        let failures = List.ofSeq failures
         let covered = failures |> List.map (fun failure -> forward (MirrorPath.value failure.Covers))
 
         let isDeleted =
@@ -86,6 +89,6 @@ module Diff =
                   if isDeleted path then
                       struct (MirrorPath.ofString path, state) ]
 
-        { Pending = List.rev pending
+        { Pending = pending
           Deleted = deleted
           Failures = failures }
