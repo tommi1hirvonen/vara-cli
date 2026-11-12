@@ -6,7 +6,7 @@ every individual measurement), plus the GitHub Markdown and CSV reports for read
 
 | Baseline | Code | Notes |
 |---|---|---|
-| [2026-11-12-fsharp-net11](./2026-11-12-fsharp-net11/) | commit `e60a4bf` (the F# build) | **Current reference baseline.** `--job short`, command below. Allocations are the asserted figures (budget 5%). `release-check.json` is carried over from the earlier 2026-11-09 F# baseline (CPU time, peak memory and executable size of the published `vara.exe`, asserted by `Measure-GateB.ps1`). It predates the durable-blob-store and later commits, and its scenario 1 was recorded with an interquartile range of 14.6% on a machine with Defender active, so re-record it with `Measure-GateB.ps1 -Record` on a quiet machine before relying on it. The BenchmarkDotNet figures were also recorded with Defender active |
+| [2026-11-12-fsharp-net11](./2026-11-12-fsharp-net11/) | commit `e60a4bf` (the F# build) | **Current reference baseline.** `--job short`, command below. Allocations are the asserted figures (budget 5%). `release-check.json` holds the CPU time, peak memory and executable size of the published `vara.exe` at the same commit (asserted by `Measure-ReleaseCheck.ps1`; wall-clock time is advisory). It was recorded with both the executable and the scratch directory in a Defender-excluded folder; the CPU interquartile ranges were 4.0%, 8.3% (a 47 ms scenario, near the timer resolution) and 1.8%. The BenchmarkDotNet figures were recorded with Defender active, so trust their allocations and treat times as advisory |
 
 The C# baselines and the earlier F# baselines were removed on 2026-11-12 (they remain in git history before this change). A C# against F# comparison on this machine, with the C# build at commit `826e890` and the F# build at `e60a4bf`, found F# allocations equal or lower except `BackupDifferBenchmarks.Diff` for `Added` and `Changed` (+27%; `Deleted` is -58%). Scan time is far lower in F# (the single-pass directory read). Single-threaded transfer (`TransferConcurrency=1`, which is also the pipeline default) is 1.2-1.7x slower in F# because the `durable-blob-store` commit (`bd4cda5`) flushes every blob to disk; before it, F# matched C#. That cost is accepted and is part of this baseline.
 
@@ -27,6 +27,27 @@ dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*' --job
    is gitignored.
 3. Add a row to the table above. If the run becomes the new reference, move the
    "Current reference baseline" marker to it.
+
+## Release check of the published executable
+
+`benchmarks/Measure-ReleaseCheck.ps1` runs the published Native AOT `vara.exe` against fixtures and compares CPU
+time, peak working set and executable size with `release-check.json` in a baseline folder. BenchmarkDotNet cannot
+see these, and CPU time is measured only here. Publish first, then compare or record:
+
+```powershell
+dotnet publish src/Vara.Cli -c Release -r win-x64 -o artifacts/cli
+Copy-Item artifacts/cli/vara.exe <scratch directory>/exe/      # the executable also belongs in the excluded folder
+./benchmarks/Measure-ReleaseCheck.ps1 -Exe <scratch directory>/exe/vara.exe `
+    -BaselineDirectory benchmarks/baselines/2026-11-12-fsharp-net11 `
+    -ScratchDirectory <scratch directory>          # add -Record to write release-check.json instead of comparing
+```
+
+`-ScratchDirectory` is required and differs between machines. It must be a dedicated directory on a local drive and
+excluded from Windows Defender scanning (real-time scanning makes the CPU time noisy); confirm the path before
+recording, since the script cannot tell whether the folder is excluded. The executable should be run from an excluded
+folder too: on 2026-11-12 the same build measured 3.7 s CPU (6.1% spread, 7.3 s wall) for the first scenario with the
+scratch directory excluded but the executable outside it, and 3.1 s (4.0% spread, 4.1 s wall) with both inside. A scenario whose CPU time has an
+interquartile range above 5% is reported as inconclusive, and then the check should be repeated on a quieter machine.
 
 ## Comparing a run
 

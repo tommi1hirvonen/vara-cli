@@ -28,16 +28,22 @@
     Allocations are held by the BenchmarkDotNet baseline (budget 5%) and are not remeasured here.
 
 .PARAMETER Exe
-    The published Native AOT vara.exe (dotnet publish src/Vara.Cli -c Release -r win-x64 -o artifacts/cli).
+    The published Native AOT vara.exe (dotnet publish src/Vara.Cli -c Release -r win-x64 -o artifacts/cli). Copy it into
+    a folder that is excluded from Windows Defender scanning (for example under -ScratchDirectory) and pass that copy:
+    the antimalware scan of a freshly built executable is part of the process's measured time.
 
 .PARAMETER BaselineDirectory
-    The baseline folder that holds release-check.json (for example benchmarks/baselines/2026-11-09-fsharp-net11).
+    The baseline folder that holds release-check.json (for example benchmarks/baselines/2026-11-12-fsharp-net11).
 
 .PARAMETER Record
     Write release-check.json to the baseline folder from this run, and do not compare.
 
 .PARAMETER ScratchDirectory
-    Where fixtures and targets are created. Use a directory on the system drive; it is deleted and recreated.
+    Required: where fixtures and targets are created, in the subfolders `fixtures` and `work`. Use a dedicated directory
+    on a local drive, and one that is excluded from Windows Defender scanning: real-time scanning inflates CPU time and
+    makes it noisy, and the result's Antimalware line only reports whether protection is on, not whether this folder
+    is excluded. The directory differs between machines, so confirm it before recording a baseline. The script prints
+    the resolved path when it starts. `work` is deleted and recreated on every run; `fixtures` is kept between runs.
 
 .PARAMETER RunCount
     Runs per scenario, the first being the discarded warm-up. Default 5.
@@ -114,6 +120,7 @@ function New-Fixture([string] $root, [int] $fileCount, [int] $directoryCount, [i
 }
 
 $scratch = [System.IO.Path]::GetFullPath($ScratchDirectory)
+Write-Host "Scratch directory: $scratch (it should be excluded from Windows Defender scanning)"
 $fixtures = Join-Path $scratch 'fixtures'
 $work = Join-Path $scratch 'work'
 Remove-Tree $work

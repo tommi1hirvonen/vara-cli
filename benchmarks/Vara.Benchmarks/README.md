@@ -64,5 +64,5 @@ storage-backed benchmarks when investigating CPU or allocation changes.
 BenchmarkDotNet writes reports under `BenchmarkDotNet.Artifacts/`, which is ignored by
 git. Results are for local investigation and are not enforced as CI regression
 thresholds. See [the recorded baselines](../baselines/README.md) for the reference
-results, and `benchmarks/Measure-GateB.ps1` for the optional release check of the
+results, and `benchmarks/Measure-ReleaseCheck.ps1` for the optional release check of the
 published `vara.exe`.

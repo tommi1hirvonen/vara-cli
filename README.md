@@ -398,8 +398,9 @@ dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*' --job
 See [the benchmark guide](benchmarks/Vara.Benchmarks/README.md) for scenario coverage and
 measurement guidance, and [the recorded baselines](benchmarks/baselines/README.md) for the
 reference results. Allocations and CPU time are the figures to trust; wall-clock time on a
-developer machine is noisy. `benchmarks/Measure-GateB.ps1` is an optional release check of
-the published `vara.exe` against the recorded baseline.
+developer machine is noisy. `benchmarks/Measure-ReleaseCheck.ps1` is an optional release
+check of the published `vara.exe` (CPU time, peak memory and size) against the recorded baseline; see
+[the baselines](benchmarks/baselines/README.md) for how to run it.
 
 ### Code conventions
 
