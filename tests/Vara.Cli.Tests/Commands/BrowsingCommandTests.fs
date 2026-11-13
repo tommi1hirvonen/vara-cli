@@ -186,10 +186,23 @@ module InteractiveSession =
         let result = runEnv (session events log) setup ([ "snapshot"; "1"; "--interactive" ] @ parts)
         result, log
 
+    /// The tree with everything expanded, then ended: what a session that lists files shows.
+    let browseFiles (setup: Scratch) (parts: string list) : Invocation =
+        interactive setup [ KeyEvent.Pressed Key.ExpandAll; KeyEvent.Pressed Key.Quit ] parts |> fst
+
 module ``Interactive snapshot change tree`` =
     open System
     open System.Collections.Generic
     open Vara.Domain
+
+    [<Fact>]
+    let ``Files option has no further effect`` () =
+        scratch (fun setup ->
+            InteractiveSession.populated setup
+            let without = InteractiveSession.browseFiles setup []
+            let withFiles = InteractiveSession.browseFiles setup [ "--files" ]
+            Assert.Equal(0, withFiles.ExitCode)
+            Assert.Equal<string>(without.Output, withFiles.Output))
 
     [<Fact>]
     let ``Ending the session`` () =
@@ -235,30 +248,16 @@ module ``Interactive file rows in the snapshot tree`` =
     open System.Collections.Generic
     open Vara.Domain
 
-    let private browseFiles (setup: Scratch) (parts: string list) : Invocation =
-        let log = List<string>()
-        let events = [ KeyEvent.Pressed Key.ExpandAll; KeyEvent.Pressed Key.Quit ]
-        runEnv (InteractiveSession.session events log) setup ([ "snapshot"; "1"; "--interactive" ] @ parts)
-
     [<Fact>]
     let ``Showing files in the interactive tree`` () =
         scratch (fun setup ->
             InteractiveSession.populated setup
             // No `--files`: the interactive tree lists the files all the same.
-            let result = browseFiles setup []
+            let result = InteractiveSession.browseFiles setup []
             Assert.Equal(0, result.ExitCode)
             Assert.Contains("+  one.txt", result.Output)
             Assert.Contains("+  two.txt", result.Output)
             Assert.Contains("+  top.txt", result.Output))
-
-    [<Fact>]
-    let ``Files option has no further effect`` () =
-        scratch (fun setup ->
-            InteractiveSession.populated setup
-            let without = browseFiles setup []
-            let withFiles = browseFiles setup [ "--files" ]
-            Assert.Equal(0, withFiles.ExitCode)
-            Assert.Equal<string>(without.Output, withFiles.Output))
 
     [<Fact>]
     let ``The static tree keeps its wording`` () =
