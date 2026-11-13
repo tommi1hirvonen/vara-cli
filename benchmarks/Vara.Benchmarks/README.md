@@ -26,9 +26,9 @@ baseline results.
 The scenarios are classes because BenchmarkDotNet needs them to hold parameters and
 fixtures. They contain no logic of their own: the timed method calls the engine's
 functions (`Scanner.scan`, `Diff.run`, `Planning.plan`, `Execution.run`, `BackupRun.run`,
-`Hashing.hashStream`, `Signatures`). The scenario, class and method names are the same
-as in the C# benchmark project that the earlier baselines were recorded from, so a result
-file of an older run compares with a new one by name.
+`Hashing.hashStream`, `Signatures`). Results are compared by scenario, class and method
+name, so keep those names stable: a renamed case shows up as missing against every
+recorded baseline.
 
 ## Coverage and interpretation
 
