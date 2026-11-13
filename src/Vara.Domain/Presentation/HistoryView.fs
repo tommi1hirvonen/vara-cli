@@ -167,8 +167,9 @@ module HistoryView =
     let mirrorRootFallbackForRestore: Display =
         message Tone.Neutral "The current directory has no recorded history; falling back to the mirror root."
 
-    // The glyphs of a tree: a branch, the last branch, and the continuation under each.
-    let private branch, lastBranch, trunk, blank = "├── ", "└── ", "│   ", "    "
+    /// The glyphs of a tree: a branch, the last branch, and the continuation under each. The interactive tree draws
+    /// the same ones, so both map to ASCII alike.
+    let branch, lastBranch, trunk, blank = "├── ", "└── ", "│   ", "    "
 
     let normalizeScope (directory: string) : string =
         let normalized = directory.Trim().Trim([| '\\'; '/' |]).Replace('/', '\\')
@@ -284,8 +285,6 @@ module HistoryView =
                 && shown.Contains(directory.DirectoryPath.ToLowerInvariant()))
             |> List.sortBy _.DirectoryPath.ToLowerInvariant()
 
-        let fileText (file: ChangeEntry) : string = changeText file
-
         // The lines under a directory: its child directories, the note of omitted ones, then its files.
         let rec under (directory: RollupDirectory) (indent: string) : Line list =
             let children = childrenOf directory.DirectoryPath
@@ -297,7 +296,7 @@ module HistoryView =
                     [ $"... {count} deeper {noun} not shown" ]
                 | None -> []
 
-            let files = directory.Files |> List.map fileText
+            let files = directory.Files |> List.map changeText
             let total = children.Length + note.Length + files.Length
 
             let marker (position: int) : string = if position = total - 1 then lastBranch else branch

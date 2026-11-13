@@ -35,16 +35,15 @@ type TreeNode =
       Absorbed: int }
 
 /// What the browser reads once and never changes: the directories as an array with parent and child indexes, and the
-/// changed files as one array ordered by directory and then name, so that a directory's files are a slice of it. A class,
-/// so that a state compares it by reference.
-[<Sealed; AllowNullLiteral>]
-type TreeIndex(nodes: TreeNode[], files: ChangeEntry[], root: int, deletedFiles: int) =
-    member _.Nodes = nodes
-    member _.Files = files
-    /// The node of the scope root, or -1 when the scope holds no change.
-    member _.Root = root
-    /// How many of the files are deleted entries that are listed.
-    member _.DeletedFiles = deletedFiles
+/// changed files as one array ordered by directory and then name, so that a directory's files are a slice of it. Equal
+/// by reference, so that comparing two states does not walk the arrays. `Root` is the node of the scope root, or -1 when
+/// the scope holds no change; `DeletedFiles` is how many of the files are deleted entries that are listed.
+[<ReferenceEquality>]
+type TreeIndex =
+    { Nodes: TreeNode[]
+      Files: ChangeEntry[]
+      Root: int
+      DeletedFiles: int }
 
 /// A visible row: a directory (`File` is -1) or a changed file of a directory. `Parent` is the row of the directory above it.
 [<Struct>]
@@ -75,9 +74,6 @@ type TreeState =
 module TreeBrowser =
     let private span (tone: Tone) (text: string) : Span = { Tone = tone; Text = text }
     let private plain (text: string) : Span = span Tone.Plain text
-
-    // The guides of a tree, as in the static report, so a console without Unicode maps them to ASCII the same way.
-    let private branch, lastBranch, trunk, blank = "├── ", "└── ", "│   ", "    "
 
     // State markers and the cursor are ASCII, so they need no mapping.
     let private collapsedMarker, expandedMarker, leafMarker = "[+] ", "[-] ", "    "
@@ -145,7 +141,7 @@ module TreeBrowser =
                         absorbed[current] <- absorbed[current] + 1
                         current <- parents[current]
                 else
-                    kept.Add(struct (node, entry))
+                    kept.Add struct (node, entry)
             | false, _ -> ()
 
         let ordered =
@@ -153,7 +149,7 @@ module TreeBrowser =
             |> Array.sortWith (fun (struct (leftNode, left)) (struct (rightNode, right)) ->
                 if leftNode <> rightNode then compare leftNode rightNode else compareNames left.ChangedPath right.ChangedPath)
 
-        let files = ordered |> Array.map (fun (struct (_, entry)) -> entry)
+        let files = ordered |> Array.map (fun struct (_, entry) -> entry)
         let starts = Array.create dirs.Length 0
         let counts = Array.zeroCreate<int> dirs.Length
 
@@ -175,27 +171,30 @@ module TreeBrowser =
                   Absorbed = absorbed[index] })
 
         let root = dirs |> Array.tryFindIndex (fun directory -> isScopePath directory.DirectoryPath) |> Option.defaultValue -1
-        TreeIndex(nodes, files, root, files |> Array.sumBy (fun entry -> if entry.ChangedKind = ChangeKind.Deleted then 1 else 0))
+        { Nodes = nodes
+          Files = files
+          Root = root
+          DeletedFiles = files |> Array.sumBy (fun entry -> if entry.ChangedKind = ChangeKind.Deleted then 1 else 0) }
 
     let private isListed (showDeleted: bool) (showFiles: bool) (entry: ChangeEntry) : bool =
         showFiles && (showDeleted || entry.ChangedKind <> ChangeKind.Deleted)
 
     let private visibleFileCount (index: TreeIndex) (showDeleted: bool) (showFiles: bool) (node: TreeNode) : int =
-        if not showFiles then
-            0
-        elif showDeleted then
-            node.FileCount
-        else
-            let mutable count = 0
-
-            for position in node.FileStart .. node.FileStart + node.FileCount - 1 do
-                if index.Files[position].ChangedKind <> ChangeKind.Deleted then count <- count + 1
-
-            count
+        seq { node.FileStart .. node.FileStart + node.FileCount - 1 }
+        |> Seq.filter (fun position -> isListed showDeleted showFiles index.Files[position])
+        |> Seq.length
 
     /// Whether a directory has anything to show beneath it: a child directory or a listed file.
     let private isExpandable (index: TreeIndex) (showDeleted: bool) (showFiles: bool) (node: TreeNode) : bool =
         node.Children.Length > 0 || visibleFileCount index showDeleted showFiles node > 0
+
+    /// The directories that have something to show beneath them under the toggles and that satisfy `keep`.
+    let private expandable (index: TreeIndex) (showDeleted: bool) (showFiles: bool) (keep: TreeNode -> bool) : Set<int> =
+        index.Nodes
+        |> Array.mapi (fun position node -> struct (position, node))
+        |> Array.filter (fun struct (_, node) -> keep node && isExpandable index showDeleted showFiles node)
+        |> Array.map (fun struct (position, _) -> position)
+        |> Set.ofArray
 
     /// The visible rows, from the scope root down: an expanded directory's child directories, then its listed files.
     let private buildRows (index: TreeIndex) (expanded: Set<int>) (showDeleted: bool) (showFiles: bool) : TreeRow[] =
@@ -250,12 +249,7 @@ module TreeBrowser =
         let limit = match depth with ValueSome value -> value | ValueNone -> 1
         let index = buildIndex scope directories entries
 
-        let expanded =
-            index.Nodes
-            |> Array.mapi (fun position node -> struct (position, node))
-            |> Array.filter (fun (struct (_, node)) -> node.Depth < limit && isExpandable index true true node)
-            |> Array.map (fun (struct (position, _)) -> position)
-            |> Set.ofArray
+        let expanded = expandable index true true (fun node -> node.Depth < limit)
 
         { Header = header
           Scope = scope
@@ -284,7 +278,7 @@ module TreeBrowser =
                 let rec climb (node: int) : int =
                     match find node -1 with
                     | Some position -> position
-                    | None when node > 0 && state.Index.Nodes[node].Parent >= 0 -> climb state.Index.Nodes[node].Parent
+                    | None when state.Index.Nodes[node].Parent >= 0 -> climb state.Index.Nodes[node].Parent
                     | None -> 0
 
                 match find before.Node before.File with
@@ -296,8 +290,8 @@ module TreeBrowser =
     let private moveTo (position: int) (state: TreeState) : TreeState =
         if position < 0 || position >= state.Rows.Length then state else { state with Cursor = position }
 
-    /// The state after a key.
-    let step (pressed: Key) (state: TreeState) : TreeState =
+    /// The state after a key, for a state that has rows.
+    let private act (pressed: Key) (state: TreeState) : TreeState =
         let rows = state.Rows
         let cursor = state.Cursor
         let index = state.Index
@@ -305,7 +299,6 @@ module TreeBrowser =
         match pressed with
         | Key.Quit -> { state with Finished = true }
         | Key.Other -> state
-        | _ when rows.Length = 0 -> state
         | Key.Up -> moveTo (max 0 (cursor - 1)) state
         | Key.Down -> moveTo (min (rows.Length - 1) (cursor + 1)) state
         | Key.Home -> moveTo 0 state
@@ -313,14 +306,7 @@ module TreeBrowser =
         | Key.ToggleDeleted -> rebuild { state with ShowDeleted = not state.ShowDeleted }
         | Key.ToggleFiles -> rebuild { state with ShowFiles = not state.ShowFiles }
         | Key.ExpandAll ->
-            let all =
-                index.Nodes
-                |> Array.mapi (fun position node -> struct (position, node))
-                |> Array.filter (fun (struct (_, node)) -> isExpandable index state.ShowDeleted state.ShowFiles node)
-                |> Array.map (fun (struct (position, _)) -> position)
-                |> Set.ofArray
-
-            rebuild { state with Expanded = all }
+            rebuild { state with Expanded = expandable index state.ShowDeleted state.ShowFiles (fun _ -> true) }
         | Key.Right ->
             let row = rows[cursor]
 
@@ -346,6 +332,10 @@ module TreeBrowser =
             else
                 state
 
+    /// The state after a key. With no rows, only quitting does anything.
+    let step (pressed: Key) (state: TreeState) : TreeState =
+        if state.Rows.Length = 0 && pressed <> Key.Quit then state else act pressed state
+
     let private hints = "Up/Down move  Right/Left expand/collapse  Home/End  * expand all  q quit"
 
     /// A line cut to the width, with an ellipsis at the cut: from the end, or from the start for a path, whose last
@@ -366,10 +356,10 @@ module TreeBrowser =
             let mutable ancestor = row.Parent
 
             while ancestor >= 0 && rows[ancestor].Level >= 1 do
-                columns.Push(if rows[ancestor].IsLast then blank else trunk)
+                columns.Push(if rows[ancestor].IsLast then HistoryView.blank else HistoryView.trunk)
                 ancestor <- rows[ancestor].Parent
 
-            String.Concat(columns) + (if row.IsLast then lastBranch else branch)
+            String.Concat columns + if row.IsLast then HistoryView.lastBranch else HistoryView.branch
 
     let private rowLine (state: TreeState) (position: int) (isCursor: bool) : Line =
         let rows = state.Rows
@@ -395,7 +385,7 @@ module TreeBrowser =
                 else collapsedMarker
 
             let name =
-                if row.Level = 0 then (if state.Scope.Length = 0 then "." else state.Scope)
+                if row.Level = 0 then if state.Scope.Length = 0 then "." else state.Scope
                 else HistoryView.nameOf node.Path
 
             let source = if HistoryView.isSourceRoot state.SourceRoots node.Path then " [source]" else ""

@@ -319,6 +319,6 @@ module ``Reading the recorded tree`` =
                   Layout = layout
                   SourceRoots = Set.empty }
 
-            match ChangeTree.readSnapshot target 1L false false with
+            match ChangeTree.readSnapshot target 1L false ChangeTree.Mode.Static with
             | Error _ -> ()
             | Ok _ -> Assert.Fail "expected the read to fail")

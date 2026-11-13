@@ -6,11 +6,16 @@ module Vara.Cli.SnapshotCommand
 
 open System
 open System.CommandLine
-open System.Globalization
 open System.Threading
 open System.Threading.Tasks
 open Vara.Domain
 open Vara.Engine
+
+/// What reading the snapshot leaves to do: nothing, because the outcome is known, or a tree to show.
+[<RequireQualifiedAccess>]
+type private ReadOutcome =
+    | Finished of Outcome
+    | Changes of snapshot: SnapshotInfo * directory: string * rollup: RollupDirectory list * viewing: ChangeTree.Viewing
 
 let create (env: CliEnv) : Command =
     let idArgument = Argument<int64>("id", Description = "The snapshot id to inspect.")
@@ -39,7 +44,7 @@ let create (env: CliEnv) : Command =
         Option<bool>(
             "--interactive",
             Description =
-                "Browse the change tree with the keyboard: Up/Down move, Right/Left expand and collapse, Home/End jump, * expands all, d shows or hides deleted files, f shows or hides all files, q or Esc quits. Lists the changed files whether or not --files is given. Starts at --depth levels (default 1)."
+                "Browse the change tree with the keyboard: " + ChangeTree.interactiveHelp
         )
 
     let command = Command("snapshot", "Show the directory changes recorded by one snapshot.")
@@ -65,17 +70,17 @@ let create (env: CliEnv) : Command =
                 | Error error -> return HistorySession.fail env (ConfigError.render error)
                 | Ok target ->
                     // The manifest is read and closed first, so a browsing session holds nothing open.
-                    let browse = ChangeTree.canBrowse env interactive
+                    let treeMode = ChangeTree.modeOf env interactive true
 
                     let read =
                         HistorySession.withManifest target (fun handle ->
                             let resolution = HistorySession.resolveDirectory env target handle raw
 
                             match ManifestQueries.snapshots handle |> List.tryFind (fun snapshot -> snapshot.SnapshotId = snapshotId) with
-                            | None -> Choice1Of2(HistorySession.fail env (HistoryError.render (HistoryError.UnknownSnapshot(snapshotId, target.Name))))
+                            | None -> ReadOutcome.Finished(HistorySession.fail env (HistoryError.render (HistoryError.UnknownSnapshot(snapshotId, target.Name))))
                             | Some snapshot ->
-                                let rollup, entries =
-                                    ChangeTree.loadChanges handle snapshotId resolution.Directory includeFiles browse
+                                let rollup, viewing =
+                                    ChangeTree.loadChanges handle snapshotId resolution.Directory includeFiles treeMode
 
                                 match rollup with
                                 | [] ->
@@ -83,12 +88,12 @@ let create (env: CliEnv) : Command =
                                         env
                                         [ Line.Text(Tone.Neutral, $"No changes recorded for snapshot #{snapshotId} in '{resolution.Directory}'.") ]
 
-                                    Choice1Of2 Outcome.Success
-                                | _ -> Choice2Of2(snapshot, resolution.Directory, rollup, entries))
+                                    ReadOutcome.Finished Outcome.Success
+                                | _ -> ReadOutcome.Changes(snapshot, resolution.Directory, rollup, viewing))
 
                     match read with
-                    | Choice1Of2 outcome -> return outcome
-                    | Choice2Of2(snapshot, directory, rollup, entries) ->
+                    | ReadOutcome.Finished outcome -> return outcome
+                    | ReadOutcome.Changes(snapshot, directory, rollup, viewing) ->
                         let shown =
                             ChangeTree.present
                                 env
@@ -98,9 +103,7 @@ let create (env: CliEnv) : Command =
                                   SourceRoots = target.SourceRoots
                                   Depth = depth
                                   Rollup = rollup
-                                  Entries = entries
-                                  Interactive = interactive
-                                  MayOpenInteractive = true }
+                                  Viewing = viewing }
 
                         return shown |> ValueOption.defaultValue Outcome.Success
         }

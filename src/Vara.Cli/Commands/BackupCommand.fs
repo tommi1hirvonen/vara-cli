@@ -93,7 +93,7 @@ let private dryRun
 
                 if detail && entries.Length > 0 then
                     let target = HistorySession.targetOfProfile profile
-                    let browse = ChangeTree.canBrowse env tree.Interactive
+                    let treeMode = ChangeTree.modeOf env tree.Interactive true
 
                     ChangeTree.present
                         env
@@ -102,10 +102,8 @@ let private dryRun
                           Scope = ""
                           SourceRoots = target.SourceRoots
                           Depth = tree.Depth
-                          Rollup = History.rollupEntries "" (tree.Files && not browse) entries
-                          Entries = if browse then entries else Array.empty
-                          Interactive = tree.Interactive
-                          MayOpenInteractive = true }
+                          Rollup = History.rollupEntries "" (tree.Files && treeMode <> ChangeTree.Mode.Browse) entries
+                          Viewing = ChangeTree.viewingOf treeMode entries }
                     |> ignore
 
             return Display.planOutcome summary
@@ -116,26 +114,24 @@ let private dryRun
 let private showRecordedTree (env: CliEnv) (tree: TreeRequest) (profile: Profile) (cancelled: bool) (result: RunResult) : unit =
     let target = HistorySession.targetOfProfile profile
 
-    let browse = ChangeTree.canBrowse env tree.Interactive && not cancelled
+    let treeMode = ChangeTree.modeOf env tree.Interactive (not cancelled)
 
-    match ChangeTree.readSnapshot target result.SnapshotId tree.Files browse with
+    match ChangeTree.readSnapshot target result.SnapshotId tree.Files treeMode with
     | Error failure -> warn env $"Could not read the change tree of snapshot #{result.SnapshotId}: {failure.Message}"
     | Ok ValueNone -> ()
-    | Ok(ValueSome(snapshot, rollup, entries)) ->
-        match rollup with
+    | Ok(ValueSome recorded) ->
+        match recorded.Rollup with
         | [] -> HistorySession.show env [ Line.Text(Tone.Neutral, $"No changes recorded for snapshot #{result.SnapshotId}.") ]
         | _ ->
             ChangeTree.present
                 env
                 { StaticHeader = gap
-                  InteractiveHeader = HistoryView.snapshotHeader snapshot
+                  InteractiveHeader = HistoryView.snapshotHeader recorded.Snapshot
                   Scope = ""
                   SourceRoots = target.SourceRoots
                   Depth = tree.Depth
-                  Rollup = rollup
-                  Entries = entries
-                  Interactive = tree.Interactive
-                  MayOpenInteractive = not cancelled }
+                  Rollup = recorded.Rollup
+                  Viewing = recorded.Viewing }
             |> ignore
 
 /// A real run, with Windows kept awake: a run that cannot be started because of a refusal is a hard error.
@@ -217,7 +213,7 @@ let create (env: CliEnv) : Command =
         Option<bool>(
             "--interactive",
             Description =
-                "Browse the change tree with the keyboard after the summary: Up/Down move, Right/Left expand and collapse, Home/End jump, * expands all, d shows or hides deleted files, f shows or hides all files, q or Esc quits. Lists the changed files whether or not --files is given. Starts at --depth levels (default 1)."
+                "Browse the change tree with the keyboard after the summary: " + ChangeTree.interactiveHelp
         )
 
     let command = Command("backup", "Run an incremental backup for a profile.")
