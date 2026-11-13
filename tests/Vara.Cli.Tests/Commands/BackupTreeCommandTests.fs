@@ -148,7 +148,7 @@ module ``Dry-run change tree shows the planned changes`` =
                 match RunLock.tryAcquire "other" target with
                 | Ok handle ->
                     acquired.Value <- true
-                    (handle :> IDisposable).Dispose()
+                    handle.Dispose()
                 | Error _ -> ()
 
             let log = List<string>()
