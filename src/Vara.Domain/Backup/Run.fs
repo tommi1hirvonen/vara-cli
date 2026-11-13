@@ -81,7 +81,7 @@ module Run =
           Kind = kind
           RecordedAt = at }
 
-    /// A deleted entry's row keeps the content it had. A deleted link keeps no target: the C# build records none.
+    /// A deleted entry's row keeps the content it had. A deleted link keeps no target.
     let private contentOfTracked (state: TrackedState) : RowContent =
         match state with
         | TrackedState.Regular content -> RowContent.Regular content

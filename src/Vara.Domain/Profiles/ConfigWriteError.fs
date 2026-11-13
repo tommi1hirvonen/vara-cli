@@ -5,6 +5,6 @@ namespace Vara.Domain
 type ConfigWriteError = { ConfigPath: string; Reason: string }
 
 module ConfigWriteError =
-    /// The message the editor shows. Worded as the C# implementation words it; it carries no stack trace.
+    /// The message the editor shows. It carries no stack trace.
     let render (error: ConfigWriteError) : string =
         $"Could not write profile configuration file '{error.ConfigPath}': {error.Reason}"

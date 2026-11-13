@@ -86,7 +86,7 @@ module CheckRun =
         let referenced = ManifestMaintenance.referencedSizes handle
         let stored = ContentStore.storedHashes store
 
-        // The sum saturates, as the C# build's does, instead of overflowing on absurd sizes.
+        // The sum saturates instead of overflowing on absurd sizes.
         let totalBytes =
             referenced
             |> List.fold (fun total (_, size) -> if size > System.Int64.MaxValue - total then System.Int64.MaxValue else total + max 0L size) 0L

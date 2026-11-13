@@ -1,4 +1,4 @@
-/// The cases of the maintenance corpus: `prune` and `check` on a target that the F# backup wrote, with snapshots at
+/// The cases of the maintenance corpus: `prune` and `check` on a target that the backup wrote, with snapshots at
 /// several times so that the retention tiers have something to decide. Observed as the snapshot ids and blob names that
 /// remain after a prune, the findings and exit codes of a check, and the refusal for a missing policy. Rows and counts
 /// are observed, not layout.
@@ -97,7 +97,7 @@ let private headline (pattern: string) (output: string) : string list =
     [ for found in Regex.Matches(output, pattern) -> found.Value ]
 
 /// The report of a check: the counts and each finding, which come after the progress lines (those differ in wording
-/// and are left out). Line breaks and spaces are left out too, because a console 80 columns wide folds the C# lines.
+/// and are left out). Line breaks and spaces are left out too, because a console 80 columns wide folds long lines.
 let private findings (setup: Scratch) (output: string) : string =
     let despaced (value: string) = String(value |> Seq.filter (fun c -> not (Char.IsWhiteSpace c)) |> Array.ofSeq)
 

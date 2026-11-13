@@ -11,11 +11,11 @@ open System.Threading.Tasks
 open Vara.Domain
 open Vara.Engine
 
-/// The exit code of an interrupt. The C# build leaves the process with success (`ProfilesCommand.RegisterCancellationExit`
-/// passes `ExitCodes.Success`), and the spec only says the command "exits promptly".
+/// The exit code of an interrupt: success. The spec only says the command "exits promptly", so the code is a choice
+/// made here and not a requirement.
 let private interruptExitCode: int = Outcome.exitCode Outcome.Success
 
-/// What the user is told when the session cannot be driven by a person. Worded as the C# build words it.
+/// What the user is told when the session cannot be driven by a person.
 let private requiresTerminal = "'profiles' requires an interactive terminal."
 
 /// The input a question gets from the user: a choice sends its input, or leads on to a further question.

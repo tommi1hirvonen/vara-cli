@@ -1,4 +1,4 @@
-/// Tests of `vara prune`, through the command against a real target written by the F# backup, with scripted prompts.
+/// Tests of `vara prune`, through the command against a real target written by the backup, with scripted prompts.
 /// Each module is named after a requirement of openspec/specs/retention-pruning/spec.md (or, for the one profile-config
 /// scenario, openspec/specs/profile-config/spec.md) and each test after one of its scenarios.
 module Vara.Cli.Tests.PruneCommandTests
@@ -353,9 +353,8 @@ module ``Graceful cancellation via CtrlC`` =
             let result =
                 invokeEnv notAsking source.Token [| "prune"; "docs"; "--config"; setup.Config; "--yes" |]
 
-            // No snapshot removed and no blob collected; reported as a stop, and not as a hard error. The C# build's
-            // partial-failure code is kept: the spec's "exits successfully" and the build differ, a gap recorded in
-            // the design (D7).
+            // No snapshot removed and no blob collected; reported as a stop, and not as a hard error. It exits with
+            // the partial-failure code; the spec's "exits successfully" differs, a known gap.
             Assert.Equal(2, result.ExitCode)
             Assert.Contains("Prune cancelled: stopped early", result.Output)
             Assert.Equal(3, (snapshotIds setup).Length)

@@ -28,7 +28,7 @@ module Prompts =
             if style = Style.Plain then escaped else $"[{style.ToMarkup()}]{escaped}[/]")
         |> String.concat ""
 
-    /// How many choices a selection shows at once; the C# build shows ten too.
+    /// How many choices a selection shows at once.
     let private pageSize = 10
 
     /// The prompts on a console, which is standard error in the commands, so that they stay visible when standard

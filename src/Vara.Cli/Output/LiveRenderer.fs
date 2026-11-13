@@ -12,7 +12,7 @@ let private remainingStyle = Style Color.Grey
 
 /// The bar of a bar line: Spectre's own `ProgressBarColumn`, rendered for a task of its own. An indeterminate fill is a
 /// task with no known total, so the pulse animates itself from the clock at each redraw; a filled bar is a task at its
-/// percentage of 100, completed and finished in the row's tone, as the C# build draws it. The column is the only public
+/// percentage of 100, completed and finished in the row's tone. The column is the only public
 /// way to reach the native widget.
 let private nativeBar (bar: BarRow) : IRenderable =
     let tone = Terminal.styleOfTone bar.Tone
@@ -122,7 +122,7 @@ type AlternateScreen =
       Leave: unit -> unit }
 
 /// The alternate screen of a console. The control sequences are written here and nowhere else: the alternate buffer on
-/// (`?1049h`), and off with the cursor shown again (`?1049l`, `?25h`), as the C# build's `RestorePrimaryScreenBuffer` does.
+/// (`?1049h`), and off with the cursor shown again (`?1049l`, `?25h`).
 let alternateScreen (console: IAnsiConsole) : AlternateScreen =
     { Enter = fun () -> writeSequence console "[?1049h"
       Clear = fun () -> console.Clear()

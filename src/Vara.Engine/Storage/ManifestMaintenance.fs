@@ -64,7 +64,7 @@ module ManifestMaintenance =
         | [] -> 0
         | _ ->
             let connection = requireConnection handle
-            // The ids are numbers, so the list is spelled into the statement as the C# build does.
+            // The ids are numbers, so the list is spelled into the statement; there is nothing to inject.
             let idList = String.Join(",", snapshotIds |> List.map _.ToString(CultureInfo.InvariantCulture))
 
             // The caller deletes stored content next, so this commit must survive a power loss: FULL syncs the log at

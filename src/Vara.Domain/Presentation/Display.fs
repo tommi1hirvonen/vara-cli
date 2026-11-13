@@ -90,8 +90,8 @@ module Elapsed =
             duration.TotalSeconds.ToString("0.#", CultureInfo.InvariantCulture) + "s"
 
 module Display =
-    // The widths below come from the C# build's layout; the spec fixes the behaviour (fields keep their position)
-    // and not the numbers, so they are kept as they were.
+    // The spec fixes the behaviour (fields keep their position) and not the widths; the widths below are this
+    // layout's choice.
     let private scanLabel = " Scanning files..."
     let private transferLabel = " Backing up..."
     /// The label column is as wide as the longer label, so the bar is the same length in both phases.
@@ -110,7 +110,7 @@ module Display =
           Transferring = transferLabel
           Basis = Basis.Bytes }
 
-    /// What a prune says: it starts by evaluating, then counts the blobs it removes. The labels are the C# build's.
+    /// What a prune says: it starts by evaluating, then counts the blobs it removes.
     let pruneWording: Wording =
         { Scanning = " Evaluating..."
           Transferring = " Deleting blobs"

@@ -1,4 +1,4 @@
-/// The F# loader against the recorded results of the C# loader. A case is a YAML input (`NNN.yml`) and the text of the C#
+/// The configuration loader against recorded results. A case is a YAML input (`NNN.yml`) and the text of the expected
 /// result (`NNN.expected`): the profile lines or the error message, with the file's path as `<config>`. One comparison
 /// function serves every case.
 module Vara.Engine.Tests.LoaderCorpusTests
@@ -14,14 +14,14 @@ let private recordedCases = 74
 
 let private inputs: string list = Corpus.names area |> List.filter (fun name -> name.EndsWith ".yml")
 
-/// The F# result for a recorded input, written to a file of its own because the loader reads files.
+/// The loader's result for a recorded input, written to a file of its own because the loader reads files.
 let private loadInput (directory: string) (name: string) : string =
     let configPath = Path.Combine(directory, name)
     File.WriteAllText(configPath, Corpus.readRaw area name)
     ProfileDescription.loadText configPath
 
 [<Fact>]
-let ``the F# loader gives the recorded profiles or the recorded error message for every input`` () =
+let ``the loader gives the recorded profiles or the recorded error message for every input`` () =
     ConfigurationTests.withScratch (fun directory ->
         let cases =
             inputs
@@ -32,7 +32,7 @@ let ``the F# loader gives the recorded profiles or the recorded error message fo
         Corpus.assertSame cases)
 
 [<Fact>]
-let ``the F# loader reports a missing file with the recorded message`` () =
+let ``the loader reports a missing file with the recorded message`` () =
     ConfigurationTests.withScratch (fun directory ->
         let missing = Path.Combine(directory, "missing", "profiles.yml")
         let actual = ProfileDescription.loadText missing

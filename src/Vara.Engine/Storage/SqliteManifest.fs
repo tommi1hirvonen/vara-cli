@@ -6,8 +6,8 @@ open System.IO
 open Microsoft.Data.Sqlite
 open Vara.Domain
 
-/// The SQLite manifest of one profile, `.vara/profile.db`, with the C# build's schema, ISO-8601 timestamps and
-/// change-kind names, so that either build can continue a target the other wrote. This module opens it and holds
+/// The SQLite manifest of one profile, `.vara/profile.db`. Its schema, ISO-8601 timestamps and change-kind names are
+/// part of the on-disk format, so that a target stays readable across releases. This module opens it and holds
 /// what a backup run does to it; `ManifestQueries` reads history and `ManifestMaintenance` serves prune and check.
 module SqliteManifest =
     open ManifestSql

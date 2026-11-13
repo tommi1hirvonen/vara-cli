@@ -1,4 +1,4 @@
-/// Tests of `vara check`, through the command against a real target written by the F# backup. Each module is named after
+/// Tests of `vara check`, through the command against a real target written by the backup. Each module is named after
 /// a requirement of openspec/specs/backup-integrity/spec.md and each test after one of its scenarios.
 module Vara.Cli.Tests.CheckCommandTests
 
@@ -172,8 +172,8 @@ module ``Graceful cancellation via CtrlC`` =
             use source = new CancellationTokenSource()
             source.Cancel()
             let result = invokeWith source.Token [| "check"; "docs"; "--config"; setup.Config |]
-            // No blob was verified, the run says it was cancelled, and it is not a hard error. The C# build's
-            // partial-failure code is kept (the spec's "exits successfully" is a gap recorded in design D4).
+            // No blob was verified, the run says it was cancelled, and it is not a hard error. It exits with
+            // the partial-failure code (the spec's "exits successfully" is a known gap, see `Check.outcome`).
             Assert.Equal(2, result.ExitCode)
             Assert.Contains("Check cancelled: stopped early", result.Output)
             Assert.Contains("Checked 0 blob(s)", result.Output))

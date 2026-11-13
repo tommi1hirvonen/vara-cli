@@ -1,4 +1,4 @@
-/// Tests of the read-only history commands, through the command against a real target written by the F# backup. Each
+/// Tests of the read-only history commands, through the command against a real target written by the backup. Each
 /// module is named after a requirement of openspec/specs/snapshot-history, backup-browsing or cli-presentation and each
 /// test after one of its scenarios.
 module Vara.Cli.Tests.HistoryCommandTests

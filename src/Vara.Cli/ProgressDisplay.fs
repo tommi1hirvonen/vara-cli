@@ -29,8 +29,7 @@ let private screenFor
       Heartbeat = Tracker.redrawInterval }
 
 /// Below this many bytes a restore is over before a live display could be read: the display would flash, so the
-/// summary alone is shown. The C# build has no such threshold (it draws a first and a last frame for every restore);
-/// this is chosen so that a restore that finishes inside one redraw interval (`Tracker.redrawInterval`, 100 ms) at the
+/// summary alone is shown. The threshold is chosen so that a restore that finishes inside one redraw interval (`Tracker.redrawInterval`, 100 ms) at the
 /// speed of an ordinary disk, about 80 MiB/s, never shows the display.
 let private smallRestoreBytes: int64 = 8L * 1024L * 1024L
 

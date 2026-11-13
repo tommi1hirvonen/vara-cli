@@ -119,5 +119,5 @@ module ``Graceful cancellation via CtrlC`` =
         let result = run false [] true [ ("a", present "a") ]
         let text = CheckView.report result |> Display.plainLines |> String.concat "\n"
         Assert.Contains("Check cancelled", text)
-        // The C# build's code for a stopped check; the spec's "exits successfully" is a recorded gap.
+        // A stopped check is a partial failure; the spec's "exits successfully" is a known gap.
         Assert.Equal(Outcome.PartialFailure, Check.outcome result)

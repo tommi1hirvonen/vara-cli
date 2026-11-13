@@ -1,4 +1,4 @@
-/// Tests of `vara restore`, through the command against a real target written by the F# backup: a file and a
+/// Tests of `vara restore`, through the command against a real target written by the backup: a file and a
 /// directory, every guard, every prompt. Each module is named after a requirement of
 /// openspec/specs/snapshot-history/spec.md and each test after one of its scenarios.
 module Vara.Cli.Tests.RestoreCommandTests

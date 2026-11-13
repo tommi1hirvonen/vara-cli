@@ -3,7 +3,7 @@ module Vara.Domain.Tests.ConfigErrorTests
 open Xunit
 open Vara.Domain
 
-// The expected texts are the ones the C# exception types build in ProfileConfigExceptions.cs.
+// The expected texts are the exact messages users see, so a change to any of them is deliberate.
 
 [<Fact>]
 let ``a missing file renders the expected location`` () =

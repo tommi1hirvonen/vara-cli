@@ -36,8 +36,8 @@ let anonymizeFlat (flatten: string -> string) (root: string) (text: string) : st
 
 let anonymize (root: string) (text: string) : string = anonymizeFlat id root text
 
-/// The times of a report, which differ from one run to the next. The C# build writes a time with the separators of the
-/// current culture, so a colon and a dot both count.
+/// The times of a report, which differ from one run to the next. A recorded time can carry the separators of the culture
+/// it was recorded in, so a colon and a dot both count.
 let withoutTimes (text: string) : string =
     Regex.Replace(text, @"\d{4}-\d{2}-\d{2}[ T]\d{2}[:.]\d{2}[:.]\d{2}(?:[.,]\d+)?(?: ?[+-]\d{2}[:.]\d{2}| ?Z)?", "<time>")
 

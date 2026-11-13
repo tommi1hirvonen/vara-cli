@@ -1,12 +1,11 @@
-/// The cases of the history corpus: the read-only history commands and `restore`, run on a target that the F# backup
+/// The cases of the history corpus: the read-only history commands and `restore`, run on a target that the backup
 /// wrote, observed as exit codes, restored files byte for byte, and the rows of listings after the borders and the line
 /// wrapping (which depend on the console width) are taken out.
 ///
 /// Not covered here, on purpose: the interactive flows (a child process cannot be driven through a prompt, so they are
 /// tested in process with scripted prompts), and the directory restore cancelled by Ctrl+C (a graceful Ctrl+C cannot be
 /// delivered to a child process, so cancellation rests on the engine tests and the in-process command test).
-/// A restored file's modification time is not observed: the F# restore sets the time the file had at the source, which
-/// the C# restore does not.
+/// A restored file's modification time is not observed here; the restore sets the time the file had at the source.
 module Vara.Cli.Tests.HistoryCorpus
 
 open System
@@ -46,8 +45,7 @@ let private cells (line: string) : string =
     String.Join(" ", blanked.Split([| ' '; '\t'; '\r' |], StringSplitOptions.RemoveEmptyEntries))
 
 /// The rows of the output that `project` picks out. A console is 80 columns wide when its output is redirected, so the
-/// C# build folds and shortens the cells of a wide table where the F# build prints them whole: only what cannot be
-/// shortened is observed, row by row.
+/// cells of a wide table can be folded and shortened: only what cannot be shortened is observed, row by row.
 let private rowsOf (project: string -> string option) (output: string) : string list =
     output.Split '\n' |> Seq.map cells |> Seq.choose project |> List.ofSeq
 
@@ -104,7 +102,7 @@ let private streamLines (label: string) (setup: Scratch) (run: Run) : string lis
     [ line (label + " exit") (string run.ExitCode); line (label + " stream") (stream setup run) ]
 
 /// What a restore said, as its characters counted: the same sentence apart from how it is wrapped. Without the
-/// progress lines the C# restore prints for every restore (the F# restore shows none for a small one), and with the
+/// progress lines a restore can print (a small restore shows none), and with the
 /// scratch directory taken out wherever the wrapping left it whole.
 let private unified (setup: Scratch) (output: string) : string =
     let flat =

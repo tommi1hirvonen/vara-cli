@@ -1,4 +1,4 @@
-/// Tests of the history effects against a real target written by the F# backup: the read-only manifest queries, the
+/// Tests of the history effects against a real target written by the backup: the read-only manifest queries, the
 /// restore execution and the live-mirror guard. Spec-named modules hold the scenarios that belong to the effects.
 module Vara.Engine.Tests.HistoryEngineTests
 

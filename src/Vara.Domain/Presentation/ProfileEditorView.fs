@@ -17,13 +17,13 @@ and [<RequireQualifiedAccess>] Answer =
 
 /// The screens of the profile editor as plain data, and the question each asks. Every screen is a function of the state
 /// alone, so a screen that is shown again after a clear is complete (profile-management: "Profile fields are editable in
-/// any order"). The texts the spec does not fix are the C# build's: `ProfilesCommand` and `ProfileDraftPresenter`.
+/// any order").
 module ProfileEditorView =
-    // ---- Texts (the C# build's) ----
+    // ---- Texts ----
 
-    /// How a field with no value is shown (`ProfileDraftPresenter.FormatOptional`).
+    /// How a field with no value is shown.
     let private notSet = "(not set)"
-    /// How an empty list is shown (`ProfileDraftPresenter.FormatList`).
+    /// How an empty list is shown.
     let private noEntries = "(none)"
     let private mainTitle = "Vara profiles - select a profile to edit, or an action:"
     let private addProfile = "Add new profile"
@@ -41,7 +41,7 @@ module ProfileEditorView =
     let private removeSource = "Remove this source"
     let private done_ = "Done"
     let private addEntry = "Add entry"
-    /// Said under the draft when it has no validation error (`ProfileDraftPresenter.Render`).
+    /// Said under the draft when it has no validation error.
     let private valid = "Draft is valid."
     let private validationError = "Validation error: "
     let private cannotSave = "Cannot save - validation error: "
@@ -269,7 +269,7 @@ module ProfileEditorView =
               plain back, send (input SourceInput.Back) ]
         )
 
-    /// What an entry of each list is called in the prompts (the C# build's wording).
+    /// What an entry of each list is called in the prompts.
     let private itemLabel (list: StringList) : string =
         match list with
         | StringList.Excludes -> "exclude entry"

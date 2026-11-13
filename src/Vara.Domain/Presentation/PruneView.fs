@@ -1,7 +1,6 @@
 namespace Vara.Domain
 
-/// What `vara prune` says, as plain data. The message texts are the C# build's; the spec fixes what is reported and
-/// not the words.
+/// What `vara prune` says, as plain data. The spec fixes what is reported and not the words.
 module PruneView =
     /// The question asked before snapshots are removed. The answer defaults to no.
     let confirmation (snapshots: int) : string =

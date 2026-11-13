@@ -1,6 +1,5 @@
-/// A recorded corpus: results that the C# build gave, stored once as text files and compared with the F# results.
-/// The files are data. A comparison is a plain function of the recorded text and the F# result, and nothing here runs
-/// a second build.
+/// A recorded corpus: reference results stored once as text files and compared with the results of the code under test.
+/// The files are data. A comparison is a plain function of the recorded text and the actual result.
 module Vara.Testing.Corpus
 
 open System
@@ -11,8 +10,8 @@ let private normalize (text: string) : string = text.Replace("\r\n", "\n")
 /// The folder of one corpus area, as copied next to the test binaries.
 let folder (area: string) : string = Path.Combine(AppContext.BaseDirectory, "Corpus", area)
 
-/// A line that starts with this marker is a note in a recorded file and not part of the recorded text. A difference
-/// between the C# result and the F# one that was accepted is recorded as the F# text with a note that gives the reason.
+/// A line that starts with this marker is a note in a recorded file and not part of the recorded text. A recorded
+/// result that was changed on purpose carries a note that gives the reason.
 let notePrefix = "#!"
 
 let private withoutNotes (text: string) : string =
@@ -37,7 +36,7 @@ let names (area: string) : string list =
 let describeMismatch (name: string) (recorded: string) (actual: string) : string =
     $"{name}:\n--- recorded ---\n{recorded}\n--- actual ---\n{actual}"
 
-/// `None` when the F# result equals the recorded text, otherwise the description of the difference.
+/// `None` when the actual result equals the recorded text, otherwise the description of the difference.
 let compare (name: string) (recorded: string) (actual: string) : string option =
     let comparable (text: string) = (normalize text).TrimEnd '\n'
 

@@ -201,7 +201,7 @@ module ``Manifest batches`` =
 
 module ``Manifest compatibility`` =
     [<Fact>]
-    let ``A legacy-schema database migrates to the rows that the C# repository recorded`` () =
+    let ``A database without the case-insensitive path collation migrates to the recorded rows`` () =
         TempDir.using (fun root ->
             let path = Path.Combine(root, "fs", "profile.db")
             createLegacy path
@@ -216,7 +216,7 @@ module ``Manifest compatibility`` =
             SqliteManifest.close handle)
 
     [<Fact>]
-    let ``Rows written by the F# manifest read back with their content and link state`` () =
+    let ``Rows written by the manifest read back with their content and link state`` () =
         TempDir.using (fun root ->
             let path = database root
             let handle = SqliteManifest.openAt path true

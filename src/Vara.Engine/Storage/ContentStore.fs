@@ -11,7 +11,7 @@ type MirrorPathEscapesTargetRootException(mirrorPath: string, resolved: string, 
     inherit IOException $"Mirror path '{mirrorPath}' resolves to '{resolved}', which is outside the target root '{targetRoot}'."
 
 /// The effect the content store needs that tests vary: making a hard link (`newLink existing`).
-/// A test passes a function that raises, in place of the C# test hooks.
+/// A test passes a function that raises.
 type Links = { Create: string -> string -> unit }
 
 /// Where a target's files live: the mirror at the root, blobs and staging under `.vara`.

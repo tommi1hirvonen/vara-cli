@@ -226,7 +226,7 @@ module ProfileDraft =
         { draft with DraftSources = draft.DraftSources |> List.indexed |> List.filter (fun (at, _) -> at <> index) |> List.map snd }
 
     /// What the editor says about a validation error. The loader's duplicate-name message speaks of the file; the draft
-    /// is not in it yet, so the editor says it in terms of the profile being edited (the C# build's wording).
+    /// is not in it yet, so the editor says it in terms of the profile being edited.
     let describe (error: ConfigError) : string =
         match error with
         | ConfigError.DuplicateName name ->

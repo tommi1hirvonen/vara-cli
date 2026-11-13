@@ -13,8 +13,8 @@ type JsonValue =
     /// Members in the order they are written.
     | Object of (string * JsonValue) list
 
-/// The JSON of `vara backup --json`, for a real run and for a dry run. The members and their order are the C# build's
-/// `BackupRunSummaryJson`.
+/// The JSON of `vara backup --json`, for a real run and for a dry run. Scripts read it, so the members and their order
+/// are kept stable.
 module RunJson =
     let private document
         (mode: string)

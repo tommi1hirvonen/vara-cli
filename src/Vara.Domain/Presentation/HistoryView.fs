@@ -16,7 +16,7 @@ module HistoryView =
     let private span (tone: Tone) (text: string) : Span = { Tone = tone; Text = text }
     let private plain (text: string) : Span = span Tone.Plain text
 
-    // The date format of every listing, taken from the C# build.
+    // The date format of every listing: sortable, with the offset, the same in every culture.
     let timestamp (value: DateTimeOffset) : string =
         value.ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.InvariantCulture)
 

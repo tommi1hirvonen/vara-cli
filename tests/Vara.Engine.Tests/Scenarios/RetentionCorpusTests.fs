@@ -1,6 +1,6 @@
-/// `Retention.evaluate` against the recorded decisions of the C# evaluator, over generated timestamps that sit around day,
-/// ISO-Monday week, month and year boundaries, in non-zero offsets. A line of `cases.txt` is the snapshots, the policy, the
-/// kept ids and the eligible ids, separated by a tab (see the recorder for the fields).
+/// `Retention.evaluate` against recorded decisions, over generated timestamps that sit around day, ISO-Monday week, month
+/// and year boundaries, in non-zero offsets. A line of `cases.txt` is the snapshots (`id|completed-at|status`, separated
+/// by `;`), the policy (`daily/weekly/monthly/yearly`), the kept ids and the eligible ids, separated by a tab.
 module Vara.Engine.Tests.RetentionCorpusTests
 
 open System
@@ -71,7 +71,7 @@ let private lines: string list =
     (Corpus.read "retention" "cases.txt").Split('\n', StringSplitOptions.RemoveEmptyEntries) |> List.ofArray
 
 [<Fact>]
-let ``the kept and eligible sets equal the recorded decisions of the C# evaluator`` () =
+let ``the kept and eligible sets equal the recorded decisions`` () =
     let cases = lines |> List.mapi (fun index line -> $"case {index + 1}: {line}", recorded line, decide line)
     Corpus.assertSame cases
 

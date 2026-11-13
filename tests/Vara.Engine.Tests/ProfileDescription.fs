@@ -39,7 +39,7 @@ let resultText (configPath: string) (result: Result<string list list, string>) :
     | Ok profiles -> String.Join("\n", "ok" :: List.concat profiles)
     | Error message -> "error\n" + message.Replace(configPath, configPlaceholder)
 
-/// What the F# loader gives for a file, as recorded text.
+/// What the loader gives for a file, as recorded text.
 let loadText (configPath: string) : string =
     ConfigFile.load configPath
     |> Result.map (List.map describeProfile)

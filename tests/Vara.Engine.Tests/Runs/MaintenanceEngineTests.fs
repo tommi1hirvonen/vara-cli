@@ -1,4 +1,4 @@
-/// Tests of the effects of `prune` and `check` against a real target written by the F# backup: the manifest queries and
+/// Tests of the effects of `prune` and `check` against a real target written by the backup: the manifest queries and
 /// the writer, the garbage collection and the verification. Spec-named modules hold the scenarios that belong to the
 /// effects; the others say what they check.
 module Vara.Engine.Tests.MaintenanceEngineTests

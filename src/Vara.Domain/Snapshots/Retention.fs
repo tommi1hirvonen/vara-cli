@@ -15,8 +15,8 @@ type RetentionDecision =
 /// of each of its newest calendar buckets, and the newest completed snapshot is always kept. A pure function of the
 /// snapshot list and the policy, so the order of the input cannot change the result.
 module Retention =
-    /// The moment a snapshot is placed at: when it completed, or when it started if it has no completion time. The
-    /// C# build uses the same, so a snapshot that never completed still lands in a bucket.
+    /// The moment a snapshot is placed at: when it completed, or when it started if it has no completion time, so
+    /// that a snapshot that never completed still lands in a bucket.
     let private momentOf (snapshot: SnapshotInfo) : DateTimeOffset =
         match snapshot.CompletedAt with
         | ValueSome completed -> completed
@@ -30,7 +30,7 @@ module Retention =
     module Bucket =
         let day (date: DateOnly) : DateOnly = date
 
-        /// The Monday that starts the ISO-8601 week of the date: the C# build's week bucket.
+        /// The Monday that starts the ISO-8601 week of the date: the week bucket.
         let week (date: DateOnly) : DateOnly =
             let sinceMonday = (int date.DayOfWeek - int DayOfWeek.Monday + 7) % 7
             date.AddDays -sinceMonday

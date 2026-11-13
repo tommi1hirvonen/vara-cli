@@ -33,7 +33,7 @@ type CheckResult =
 /// Verification of stored content against the manifest (backup-integrity). The verdict and the fold decide; the shell
 /// reads the blobs and hashes them.
 module Check =
-    /// The paths listed for a finding, as in the C# build; a blob shared by many files is not listed in full.
+    /// The most paths listed for a finding, so that a blob shared by many files does not flood the report.
     let maxPaths = 5
 
     /// The verdict on one blob. A blob that is not in the store is missing whatever the mode; in quick mode a present
@@ -83,7 +83,8 @@ module Check =
         not (List.isEmpty result.Missing && List.isEmpty result.Corrupt)
 
     /// A problem makes the run a partial failure, with the code that is distinct from a hard error. A stopped run is a
-    /// partial failure too, as in the C# build (the spec says a cancelled check exits successfully: a recorded gap, and
-    /// the only place to change if it is resolved the other way).
+    /// partial failure too, so that a script cannot mistake an incomplete check for a clean one. The spec says a
+    /// cancelled check exits successfully; this is a known gap, and this is the only place to change if it is resolved
+    /// the other way.
     let outcome (result: CheckResult) : Outcome =
         if hasProblems result || result.Stopped then Outcome.PartialFailure else Outcome.Success

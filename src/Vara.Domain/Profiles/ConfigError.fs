@@ -11,7 +11,7 @@ type ConfigError =
     | ProfileNameRequired
 
 module ConfigError =
-    /// The message a command reports. Worded as the C# implementation words it.
+    /// The message a command reports.
     let render (error: ConfigError) : string =
         match error with
         | ConfigError.FileNotFound configPath -> $"Profile configuration file not found at '{configPath}'."

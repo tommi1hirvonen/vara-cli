@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Test support: the spec-coverage check every change in the F# series uses, with its own tests. -->
+  <!-- Test support: the spec-coverage check with its own tests, the recorded corpus and the anonymizing helpers. -->
   <ItemGroup>
     <Compile Include="Anonymize.fs" />
     <Compile Include="Corpus.fs" />

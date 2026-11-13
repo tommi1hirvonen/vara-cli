@@ -1,7 +1,7 @@
 /// Backup engine scenarios written once against an `Engine`, a function that runs a backup of the rig's source into its
 /// target. Each run is traced: what the run reported and what the target holds afterwards (manifest rows, mirror
-/// contents, read-only flags, blobs, staging). The trace of a scenario is the text that is recorded from the C# engine
-/// and compared with the F# engine's.
+/// contents, read-only flags, blobs, staging). The trace of a scenario is recorded as text and
+/// compared with the trace of each later run.
 ///
 /// Source files are written through `write`, which gives each a modification time from a clock of the rig's own, so that
 /// the rows (which keep the modification time) are the same in every run.
@@ -106,11 +106,11 @@ let write (rig: Rig) (name: string) (text: string) : string =
 
 let touch (path: string) : unit = File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddHours 3.0)
 
-// ---- the F# engine -------------------------------------------------------------------------------------------
+// ---- the engine ----------------------------------------------------------------------------------------------
 
 let private absolute (path: string) : Vara.Domain.AbsolutePath = (Vara.Domain.AbsolutePath.tryCreate path).Value
 
-let runFs (rig: Rig) (variation: Variation) : Ended =
+let runEngine (rig: Rig) (variation: Variation) : Ended =
     let concurrency: Vara.Domain.Concurrency =
         { Scan = None
           Transfer = Vara.Domain.ConcurrencyLimit.tryCreate variation.TransferConcurrency }

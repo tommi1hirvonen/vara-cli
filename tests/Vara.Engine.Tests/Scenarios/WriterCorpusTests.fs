@@ -1,6 +1,5 @@
-/// The configuration file written by the C# writer, recorded as golden YAML (`NN-name.yml`) with the profiles the C# loader
-/// read from it (`NN-name.profiles`). The F# loader must read each file as the recorded profiles, and the F# writer's
-/// output for those profiles must load back to the same profiles through `ofProfiles`, `render`, `parse` and
+/// Configuration files recorded as golden YAML (`NN-name.yml`) with the profiles they describe (`NN-name.profiles`). The
+/// loader must read each file as the recorded profiles, and the writer's output for those profiles must load back to the same profiles through `ofProfiles`, `render`, `parse` and
 /// `validateProfiles`. The files are compared as profile descriptions, never as text.
 module Vara.Engine.Tests.WriterCorpusTests
 
@@ -31,7 +30,7 @@ let private described (profiles: Result<Profile list, ConfigError>) : string =
     |> Result.mapError ConfigError.render
     |> ProfileDescription.resultText ""
 
-/// The F# writer's way from profiles to profiles, without touching the file system.
+/// The writer's way from profiles to profiles, without touching the file system.
 let private roundTrip (profiles: Profile list) : Result<Profile list, ConfigError> =
     ProfileNodes.ofProfiles profiles
     |> YamlConfig.render
@@ -39,13 +38,13 @@ let private roundTrip (profiles: Profile list) : Result<Profile list, ConfigErro
     |> Result.bind ProfileValidation.validateProfiles
 
 [<Fact>]
-let ``the F# loader reads every file the C# writer produced as the recorded profiles`` () =
+let ``the loader reads every golden file as the recorded profiles`` () =
     ConfigurationTests.withScratch (fun directory ->
         let cases = golden |> List.map (fun id -> id, Corpus.read area (id + ".profiles"), described (loadGolden directory id))
         Corpus.assertSame cases)
 
 [<Fact>]
-let ``the F# writer's output loads back to the recorded profiles`` () =
+let ``the writer's output loads back to the recorded profiles`` () =
     ConfigurationTests.withScratch (fun directory ->
         let cases =
             golden
@@ -63,6 +62,6 @@ let ``the writer corpus keeps its cases and reads no profiles as none`` () =
     Assert.Equal("ok", none)
 
 [<Property>]
-let ``generated profiles are read back the same through the F# writer and loader`` () =
+let ``generated profiles are read back the same through the writer and loader`` () =
     Prop.forAll (ProfileEditorPropertyTests.Generators.arbitrary ProfileEditorPropertyTests.Generators.profiles) (fun profiles ->
         described (roundTrip profiles) = described (Ok profiles))

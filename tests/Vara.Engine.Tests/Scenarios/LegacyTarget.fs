@@ -1,7 +1,7 @@
-/// A target that the C# engine wrote, recorded as files, for the F# engine to continue. The recorded `vara` folder is the
-/// target's `.vara` (the manifest and the blobs), the recorded `mirror` folder is what the mirror held under the source
-/// directory, and the manifest's paths hold `@ROOT@` where the recording's scratch directory was. A target that the C#
-/// build wrote is what existing users have, so the F# engine must read it as it is.
+/// A target recorded as files, for the engine to continue. The recorded `vara` folder is the target's `.vara` (the
+/// manifest and the blobs), the recorded `mirror` folder is what the mirror held under the source directory, and the
+/// manifest's paths hold `@ROOT@` where the recording's scratch directory was. Users keep their targets across releases,
+/// so the engine must read a target written earlier as it is.
 module Vara.Engine.Tests.LegacyTarget
 
 open System.IO

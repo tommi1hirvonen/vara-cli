@@ -63,7 +63,7 @@ module Throttle =
         | ValueSome last -> now - last >= interval
 
 module Tracker =
-    /// The interval between two redraws of the numbers; the C# build uses the same.
+    /// The interval between two redraws of the numbers.
     let redrawInterval = TimeSpan.FromMilliseconds 100.0
 
     let initial: Tracker =

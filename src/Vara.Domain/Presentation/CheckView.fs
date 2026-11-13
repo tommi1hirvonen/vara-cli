@@ -1,6 +1,6 @@
 namespace Vara.Domain
 
-/// What `vara check` reports, as plain data (backup-integrity). The texts are the C# build's.
+/// What `vara check` reports, as plain data (backup-integrity).
 module CheckView =
     let private findingLine (label: string) (finding: Finding) : Line =
         let paths = finding.Paths |> String.concat ", "

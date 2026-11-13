@@ -1,6 +1,6 @@
 /// What a script can see of the command line: exit codes, normalized JSON, projected rows and counts, and the files a
 /// command leaves. A case is a name and a function from the path of a `vara.dll` to the text that it observed. The
-/// recorded text of a case is what the C# build gave on the same fixture; the F# test compares it with the F# build's.
+/// recorded text of a case is the reference observation on the same fixture, and the test compares the actual one with it.
 module Vara.Cli.Tests.ProcessCorpus
 
 open System
@@ -20,7 +20,7 @@ type Run =
       Out: string
       Err: string }
 
-let fsharpDll: string = Path.Combine(AppContext.BaseDirectory, "vara.dll")
+let varaDll: string = Path.Combine(AppContext.BaseDirectory, "vara.dll")
 
 let start (dll: string) (arguments: string list) : Run =
     let info = ProcessStartInfo "dotnet"
