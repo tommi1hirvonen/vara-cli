@@ -23,6 +23,7 @@
     <Compile Include="Backup\ScanRules.fs" />
     <Compile Include="Backup\Scan.fs" />
     <Compile Include="Backup\Manifest.fs" />
+    <Compile Include="Backup\ChangeEntry.fs" />
     <Compile Include="Backup\Plan.fs" />
     <Compile Include="Backup\Diff.fs" />
     <Compile Include="Backup\Planning.fs" />

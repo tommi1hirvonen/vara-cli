@@ -28,6 +28,9 @@ let private targetOf (resolution: Resolution) : Target =
           Layout = ContentStore.layout (AbsolutePath.value discovered.Root)
           SourceRoots = Set.empty }
 
+/// The target of a profile that has been resolved already, as `resolve` would give it.
+let targetOfProfile (profile: Profile) : Target = targetOf (Resolution.Configured profile)
+
 /// The profile of a command: named (and read from the configuration file), or found from the working directory.
 let resolve (env: CliEnv) (configPath: string option) (profileName: string option) : Result<Target, ConfigError> =
     ProfileResolution.forBrowsing (ConfigFile.locate configPath) profileName env.CurrentDirectory

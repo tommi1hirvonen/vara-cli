@@ -176,6 +176,32 @@ module Run =
           PlannedBytes = plan.TotalBytes
           Unscanned = scanFailures |> List.map _.Reported }
 
+    /// Every operation of the plan as a change entry, for a change tree: an added transfer is `Added`, a changed one
+    /// `Changed`, a move `Moved` from its old path, a delete `Deleted` and a link `Linked`. Transfers come first, then
+    /// the metadata operations in their order.
+    let entriesOfPlan (plan: BackupPlan) : ChangeEntry[] =
+        let entry (path: MirrorPath) (kind: ChangeKind) (movedFrom: string voption) : ChangeEntry =
+            { ChangedPath = MirrorPath.value path
+              ChangedKind = kind
+              MovedFrom = movedFrom }
+
+        let transfers =
+            plan.Transfers
+            |> List.map (fun transfer ->
+                match transfer.TransferKind with
+                | TransferKind.Added -> entry transfer.Source.FilePath ChangeKind.Added ValueNone
+                | TransferKind.Changed _ -> entry transfer.Source.FilePath ChangeKind.Changed ValueNone)
+
+        let metadata =
+            plan.Metadata
+            |> List.map (fun operation ->
+                match operation with
+                | MetadataOperation.Move move -> entry move.MoveTo ChangeKind.Moved (ValueSome(MirrorPath.value move.MoveFrom))
+                | MetadataOperation.Delete delete -> entry delete.DeletePath ChangeKind.Deleted ValueNone
+                | MetadataOperation.Link link -> entry link.LinkAt ChangeKind.Linked ValueNone)
+
+        Array.ofList (transfers @ metadata)
+
     /// How a run that was not refused ends the command: failed paths or a cancellation give `PartialFailure`.
     let outcome (result: RunResult) : Outcome =
         match result.Status, result.FailedPaths with

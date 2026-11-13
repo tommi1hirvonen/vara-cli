@@ -12,6 +12,7 @@ dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*Directo
 dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*ContentStoreBufferBenchmarks*'
 dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*BackupExecutorBenchmarks*'
 dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*BackupPipelineBenchmarks*'
+dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*BackupDryRunBenchmarks*'
 dotnet run -c Release --project benchmarks/Vara.Benchmarks -- --filter '*StreamingSignatureBenchmarks*'
 ```
 
@@ -46,6 +47,9 @@ file of an older run compares with a new one by name.
   scan enumeration is lazy, so consuming the entries is required for a complete timing.
 - `BackupExecutorBenchmarks` measures source reads, hashing, content-store writes,
   mirror placement, and manifest writes for a prepared all-added plan.
+- `BackupDryRunBenchmarks` measures the planning pass of a dry run over many small files with no manifest, with and without
+  the per-path changes a change tree needs (`Detail`). It was added with the backup change tree; without detail the pass retains
+  only the counts.
 - `BackupPipelineBenchmarks` measures a first backup of an all-added source tree using
   the real scanner, planner, executor, content store, run lock, and SQLite manifest.
 

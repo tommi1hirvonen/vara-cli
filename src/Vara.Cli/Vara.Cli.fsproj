@@ -23,8 +23,9 @@
     <Compile Include="Output\TreeSession.fs" />
     <Compile Include="ProgressDisplay.fs" />
     <Compile Include="Commands\CommandAction.fs" />
-    <Compile Include="Commands\BackupCommand.fs" />
     <Compile Include="Commands\HistorySession.fs" />
+    <Compile Include="Commands\ChangeTree.fs" />
+    <Compile Include="Commands\BackupCommand.fs" />
     <Compile Include="Commands\SnapshotsCommand.fs" />
     <Compile Include="Commands\SnapshotCommand.fs" />
     <Compile Include="Commands\HistoryCommand.fs" />

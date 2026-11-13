@@ -151,8 +151,10 @@ module BackupRun =
         }
 
     /// What a real run would do, without writing anything: no content, no rows, no snapshot, and no manifest file
-    /// created. Takes the lock like a real run, so the view is consistent and cannot race a starting run.
-    let dryRun (env: BackupEnv) (profile: Profile) : Result<PlanSummary, BackupRefusal> =
+    /// created. Takes the lock like a real run, so the view is consistent and cannot race a starting run. With
+    /// `detail`, the plan's operations come back too, as change entries mapped before the lock is released, so that
+    /// nothing of the plan itself outlives the call; without it there are none and nothing is retained.
+    let dryRunDetailed (env: BackupEnv) (profile: Profile) (detail: bool) : Result<struct (PlanSummary * ChangeEntry[]), BackupRefusal> =
         match RunLock.tryAcquire (Profile.name profile) (Profile.target profile) with
         | Error refusal -> Error refusal
         | Ok lockHandle ->
@@ -161,6 +163,11 @@ module BackupRun =
 
             try
                 let struct (plan, scanFailures) = planFor env profile (SqliteManifest.currentState manifest)
-                Ok(Run.summarizePlan scanFailures plan)
+                let entries = if detail then Run.entriesOfPlan plan else Array.empty
+                Ok(struct (Run.summarizePlan scanFailures plan, entries))
             finally
                 SqliteManifest.close manifest
+
+    /// What a real run would do, as counts only. See `dryRunDetailed`.
+    let dryRun (env: BackupEnv) (profile: Profile) : Result<PlanSummary, BackupRefusal> =
+        dryRunDetailed env profile false |> Result.map (fun struct (summary, _) -> summary)

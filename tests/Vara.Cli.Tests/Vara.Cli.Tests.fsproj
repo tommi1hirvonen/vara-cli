@@ -6,6 +6,7 @@
     <Compile Include="Commands\HistoryCommandTests.fs" />
     <Compile Include="Commands\ShowDiffCommandTests.fs" />
     <Compile Include="Commands\BrowsingCommandTests.fs" />
+    <Compile Include="Commands\BackupTreeCommandTests.fs" />
     <Compile Include="Commands\RestoreCommandTests.fs" />
     <Compile Include="Commands\PruneCommandTests.fs" />
     <Compile Include="Commands\CheckCommandTests.fs" />

@@ -51,14 +51,6 @@ let create (env: CliEnv) : Command =
     command.Options.Add depthOption
     command.Options.Add interactiveOption
 
-    let parseDepth (text: string option) : Result<int voption, string> =
-        match text with
-        | None -> Ok ValueNone
-        | Some text ->
-            match Int32.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture) with
-            | true, depth -> Ok(ValueSome depth)
-            | false, _ -> Error "--depth must be a non-negative integer."
-
     let handler (parseResult: ParseResult) (_: CancellationToken) : Task<Outcome> =
         task {
             let snapshotId = parseResult.GetValue idArgument
@@ -66,7 +58,7 @@ let create (env: CliEnv) : Command =
             let includeFiles = parseResult.GetValue filesOption
             let interactive = parseResult.GetValue interactiveOption
 
-            match parseDepth (HistorySession.textOf parseResult depthOption) with
+            match ChangeTree.parseDepth (HistorySession.textOf parseResult depthOption) with
             | Error message -> return ErrorReporting.usage env.ErrorConsole message
             | Ok depth ->
                 match HistorySession.resolve env (HistorySession.textOf parseResult configOption) (HistorySession.textOf parseResult profileOption) with
@@ -95,17 +87,19 @@ let create (env: CliEnv) : Command =
                     match read with
                     | Choice1Of2 outcome -> return outcome
                     | Choice2Of2(snapshot, directory, rollup) ->
-                        if interactive && HistorySession.canPrompt env then
-                            let state =
-                                TreeBrowser.create (HistoryView.snapshotHeader snapshot) directory target.SourceRoots depth rollup
+                        let shown =
+                            ChangeTree.present
+                                env
+                                { StaticHeader = HistoryView.snapshotHeader snapshot
+                                  InteractiveHeader = HistoryView.snapshotHeader snapshot
+                                  Scope = directory
+                                  SourceRoots = target.SourceRoots
+                                  Depth = depth
+                                  Rollup = rollup
+                                  Interactive = interactive
+                                  MayOpenInteractive = true }
 
-                            return TreeSession.run env state
-                        else
-                            if interactive then
-                                Terminal.writeLine env.ErrorConsole Terminal.neutralStyle "The interactive view is unavailable here; showing the static tree."
-
-                            HistorySession.show env (HistoryView.ofRollup snapshot directory target.SourceRoots depth rollup)
-                            return Outcome.Success
+                        return shown |> ValueOption.defaultValue Outcome.Success
         }
 
     CommandAction.set env.ErrorConsole handler command

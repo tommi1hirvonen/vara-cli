@@ -338,6 +338,53 @@ module ``Dry-run mode reports planned changes without executing them`` =
             Assert.Equal<string list>([ "Complete" ], statuses setup))
 
     [<Fact>]
+    let ``Dry run detail lists every planned change and writes nothing`` () =
+        within (fun setup ->
+            let changed = write setup "changed.txt" "before"
+            let deleted = write setup "deleted.txt" "doomed"
+            let profile = profileOf setup "p" None
+            runOk quiet profile |> ignore
+
+            File.WriteAllText(changed, "after, longer")
+            File.Delete deleted
+            write setup "added.txt" "new file" |> ignore
+
+            let rows = query setup "SELECT COUNT(*) FROM file_versions"
+
+            match BackupRun.dryRunDetailed quiet profile true with
+            | Ok(struct (summary, entries)) ->
+                let count kind = entries |> Array.filter (fun entry -> entry.ChangedKind = kind) |> Array.length
+                Assert.Equal(summary.Added, count ChangeKind.Added)
+                Assert.Equal(summary.Changed, count ChangeKind.Changed)
+                Assert.Equal(summary.Moved, count ChangeKind.Moved)
+                Assert.Equal(summary.Deleted, count ChangeKind.Deleted)
+                Assert.Equal(3, entries.Length)
+                Assert.Contains(entries, fun entry -> entry.ChangedPath.EndsWith "added.txt" && entry.ChangedKind = ChangeKind.Added)
+            | Error _ -> Assert.Fail "expected a summary"
+
+            Assert.Equal<string list>(rows, query setup "SELECT COUNT(*) FROM file_versions")
+            Assert.Equal<string list>([ "Complete" ], statuses setup)
+            Assert.True(File.Exists(mirrorFile setup "deleted.txt")))
+
+    [<Fact>]
+    let ``Dry run without detail returns the same summary and no entries`` () =
+        within (fun setup ->
+            write setup "a.txt" "alpha" |> ignore
+            write setup "b.txt" "beta" |> ignore
+            let profile = profileOf setup "p" None
+
+            match BackupRun.dryRunDetailed quiet profile true, BackupRun.dryRunDetailed quiet profile false with
+            | Ok(struct (detailed, entries)), Ok(struct (plain, none)) ->
+                Assert.Equal(detailed, plain)
+                Assert.Equal(2, entries.Length)
+                Assert.Empty none
+            | _ -> Assert.Fail "expected summaries"
+
+            match BackupRun.dryRun quiet profile with
+            | Ok summary -> Assert.Equal(2, summary.Added)
+            | Error _ -> Assert.Fail "expected a summary")
+
+    [<Fact>]
     let ``A dry run of a profile that never ran creates no manifest`` () =
         within (fun setup ->
             write setup "a.txt" "alpha" |> ignore

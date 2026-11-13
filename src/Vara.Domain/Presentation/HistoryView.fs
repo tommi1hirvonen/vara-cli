@@ -241,20 +241,17 @@ module HistoryView =
     let isSourceRoot (sourceRoots: Set<string>) (path: string) : bool =
         sourceRoots |> Set.exists (fun root -> String.Equals(root, normalizeScope path, StringComparison.OrdinalIgnoreCase))
 
-    /// What one snapshot changed: its identity and totals, then the directory tree, each directory with the counts of
-    /// its whole subtree in the colour of each change kind. `sourceRoots` are the mirror paths of the configured
-    /// sources. With a depth, only directories that many levels below the scope are shown, each boundary directory
-    /// noting how many affected directories lie beneath it. Counts never change with the depth.
-    let ofRollup
-        (snapshot: SnapshotInfo)
+    /// The directory tree of a change report, each directory with the counts of its whole subtree in the colour of each
+    /// change kind. `sourceRoots` are the mirror paths of the configured sources. With a depth, only directories that
+    /// many levels below the scope are shown, each boundary directory noting how many affected directories lie beneath
+    /// it. Counts never change with the depth. Shown under whatever header the caller supplies.
+    let treeLines
         (scopeDirectory: string)
         (sourceRoots: Set<string>)
         (depth: int voption)
         (directories: RollupDirectory list)
         : Display =
         let scope = normalizeScope scopeDirectory
-
-        let header = snapshotHeader snapshot
 
         let isSource (path: string) : bool = isSourceRoot sourceRoots path
 
@@ -321,11 +318,18 @@ module HistoryView =
             childLines @ textLines
 
         match visible |> List.tryFind (fun directory -> String.Equals(directory.DirectoryPath, scope, StringComparison.OrdinalIgnoreCase)) with
-        | Some root ->
-            header
-            @ [ Line.Spans(label root (if scope.Length = 0 then "." else scope)) ]
-            @ under root ""
-        | None -> header
+        | Some root -> Line.Spans(label root (if scope.Length = 0 then "." else scope)) :: under root ""
+        | None -> []
+
+    /// What one snapshot changed: its identity and totals, then the directory tree.
+    let ofRollup
+        (snapshot: SnapshotInfo)
+        (scopeDirectory: string)
+        (sourceRoots: Set<string>)
+        (depth: int voption)
+        (directories: RollupDirectory list)
+        : Display =
+        snapshotHeader snapshot @ treeLines scopeDirectory sourceRoots depth directories
 
     /// What a restore of the plan will do, for the confirmation of a directory restore.
     let confirmation (directory: string) (plan: RestorePlan) : string =

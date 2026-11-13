@@ -95,3 +95,43 @@ type BackupPipelineBenchmarks() =
 
     [<Benchmark>]
     member _.RunFirstBackup() : Task<int> = runFirstBackup profile.Value
+
+/// The planning pass of a dry run over a source with many small files and no manifest, with and without the per-path
+/// changes a change tree needs. Without them the pass keeps nothing beyond the counts; with them it also maps every
+/// planned change to an entry before the lock is released.
+[<MemoryDiagnoser>]
+type BackupDryRunBenchmarks() =
+    let mutable scratchDirectory = ""
+    let mutable profile: Profile option = None
+
+    [<Params(1000, 20000)>]
+    member val FileCount = 0 with get, set
+
+    [<Params(false, true)>]
+    member val Detail = false with get, set
+
+    [<GlobalSetup>]
+    member this.Setup() : unit =
+        scratchDirectory <- BenchmarkFiles.createScratchDirectory ()
+        let sourceRoot = Path.Combine(scratchDirectory, "source")
+        let targetRoot = Path.Combine(scratchDirectory, "target")
+        Directory.CreateDirectory targetRoot |> ignore
+
+        for i in 0 .. this.FileCount - 1 do
+            let directory = Path.Combine(sourceRoot, $"folder-{i % 50:D2}", $"sub-{i % 7}")
+            Directory.CreateDirectory directory |> ignore
+            File.WriteAllBytes(Path.Combine(directory, $"file-{i:D6}.bin"), BenchmarkFiles.createDeterministicBytes 16 i)
+
+        profile <- Some(profileOf sourceRoot targetRoot)
+
+    [<GlobalCleanup>]
+    member _.Cleanup() : unit =
+        SqliteConnection.ClearAllPools()
+        BenchmarkFiles.deleteDirectory scratchDirectory
+
+    /// Returns the planned adds plus the entries returned, so the caller can check the pass did its work.
+    [<Benchmark>]
+    member this.PlanDryRun() : int =
+        match BackupRun.dryRunDetailed (BackupRun.live (fun () -> false)) profile.Value this.Detail with
+        | Ok(struct (summary, entries)) -> summary.Added + entries.Length
+        | Error _ -> failwith "dry run refused"

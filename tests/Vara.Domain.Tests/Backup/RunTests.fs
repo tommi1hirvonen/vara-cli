@@ -241,6 +241,64 @@ module ``Dry-run mode`` =
 
         Assert.Equal<string list>([ "C\locked" ], summary.Unscanned)
 
+module ``Plan as change entries`` =
+    let private plan: BackupPlan =
+        { Transfers =
+            [ { Source = file "C\a.txt" 1L 1
+                TransferKind = TransferKind.Added }
+              { Source = file "C\b.txt" 2L 1
+                TransferKind = TransferKind.Changed ValueNone } ]
+          Metadata =
+            [ MetadataOperation.Move
+                  { MoveTo = mirror "C\new.txt"
+                    MoveFrom = mirror "C\old.txt"
+                    Moved = content "h" 5L 1 }
+              MetadataOperation.Delete
+                  { DeletePath = mirror "C\gone.txt"
+                    Deleted = regular "g" 9L 1 }
+              MetadataOperation.Link
+                  { LinkAt = mirror "C\l"
+                    LinkTo = ValueNone
+                    Superseded = ValueNone } ]
+          TotalBytes = 3L }
+
+    [<Fact>]
+    let ``Every kind of operation is an entry of its kind`` () =
+        let entries = Run.entriesOfPlan plan |> List.ofArray
+
+        Assert.Equal<ChangeKind list>(
+            [ ChangeKind.Added; ChangeKind.Changed; ChangeKind.Moved; ChangeKind.Deleted; ChangeKind.Linked ],
+            entries |> List.map _.ChangedKind
+        )
+
+        Assert.Equal<string list>(
+            [ "C\a.txt"; "C\b.txt"; "C\new.txt"; "C\gone.txt"; "C\l" ],
+            entries |> List.map _.ChangedPath
+        )
+
+    [<Fact>]
+    let ``A move carries the path it moves from`` () =
+        let moved = Run.entriesOfPlan plan |> Array.find (fun entry -> entry.ChangedKind = ChangeKind.Moved)
+        Assert.Equal(ValueSome "C\old.txt", moved.MovedFrom)
+
+        let others = Run.entriesOfPlan plan |> Array.filter (fun entry -> entry.ChangedKind <> ChangeKind.Moved)
+        Assert.All(others, fun entry -> Assert.Equal(ValueNone, entry.MovedFrom))
+
+    [<Fact>]
+    let ``The entries' counts equal the summary's counts for the same plan`` () =
+        let summary = Run.summarizePlan [] plan
+        let entries = Run.entriesOfPlan plan
+        let count kind = entries |> Array.filter (fun entry -> entry.ChangedKind = kind) |> Array.length
+        Assert.Equal(summary.Added, count ChangeKind.Added)
+        Assert.Equal(summary.Changed, count ChangeKind.Changed)
+        Assert.Equal(summary.Moved, count ChangeKind.Moved)
+        Assert.Equal(summary.Deleted, count ChangeKind.Deleted)
+        Assert.Equal(1, count ChangeKind.Linked)
+
+    [<Fact>]
+    let ``An empty plan has no entries`` () =
+        Assert.Empty(Run.entriesOfPlan { Transfers = []; Metadata = []; TotalBytes = 0L })
+
 module ``Mapping a run to an outcome`` =
     let private resultOf (cancel: bool) (completions: Completion list) (scanFailures: ScanFailure list) =
         let state, _ = foldAll completions
