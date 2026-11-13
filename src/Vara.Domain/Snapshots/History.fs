@@ -203,12 +203,20 @@ type RollupCounts =
       Deleted: int
       Linked: int }
 
+/// One change, whatever recorded or planned it: the mirror path, what happened to it, and for a move the path it came
+/// from. The neutral input of a change tree, so a snapshot's rows and a backup plan can be shown the same way.
+[<Struct>]
+type ChangeEntry =
+    { ChangedPath: string
+      ChangedKind: ChangeKind
+      MovedFrom: string voption }
+
 /// One directory of a snapshot's change report: its own counts include every descendant, and its files are the
 /// changes recorded directly in it.
 type RollupDirectory =
     { DirectoryPath: string
       Counts: RollupCounts
-      Files: FileVersion list }
+      Files: ChangeEntry list }
 
 /// A snapshot that touched a directory, as the directory restore offers it: what it changed there, and what the
 /// directory held after it.
@@ -481,11 +489,11 @@ module History =
     /// The directory tree of a snapshot's changes under `directory`: every directory that holds a change, directly
     /// or in a descendant, with the counts of its whole subtree. Ordered by path. With `includeFiles`, each
     /// directory also lists the changes recorded in it. Empty when the snapshot recorded nothing there.
-    let rollup (directory: string) (includeFiles: bool) (changes: FileVersion seq) : RollupDirectory list =
+    let rollupEntries (directory: string) (includeFiles: bool) (changes: ChangeEntry seq) : RollupDirectory list =
         let prefix = Prefix.ofDirectory directory
         let scope = prefix.TrimEnd '\\'
         let counts = Dictionary<string, RollupCounts> StringComparer.OrdinalIgnoreCase
-        let files = Dictionary<string, FileVersion list> StringComparer.OrdinalIgnoreCase
+        let files = Dictionary<string, ChangeEntry list> StringComparer.OrdinalIgnoreCase
 
         let parentOf (path: string) : string =
             match path.LastIndexOf '\\' with
@@ -493,7 +501,7 @@ module History =
             | index -> path.Substring(0, index)
 
         for change in changes do
-            match Prefix.subPath prefix ((pathOf change).Replace('/', '\\')) with
+            match Prefix.subPath prefix (change.ChangedPath.Replace('/', '\\')) with
             | ValueNone -> ()
             | ValueSome relative ->
                 let parent = parentOf relative
@@ -508,7 +516,7 @@ module History =
                 let rec climb (current: string) : unit =
                     counts[current] <-
                         add
-                            change.Row.Kind
+                            change.ChangedKind
                             (match counts.TryGetValue current with
                              | true, existing -> existing
                              | false, _ -> noCounts)
@@ -535,9 +543,22 @@ module History =
                     | true, list ->
                         list
                         |> List.sortWith (fun left right ->
-                            String.Compare(pathOf left, pathOf right, StringComparison.OrdinalIgnoreCase))
+                            String.Compare(left.ChangedPath, right.ChangedPath, StringComparison.OrdinalIgnoreCase))
                     | false, _ -> [] })
             |> List.ofSeq
+
+    /// A recorded row as a neutral change entry.
+    let entryOf (version: FileVersion) : ChangeEntry =
+        { ChangedPath = pathOf version
+          ChangedKind = version.Row.Kind
+          MovedFrom =
+            match version.Row.PreviousPath with
+            | ValueSome previous -> ValueSome(MirrorPath.value previous)
+            | ValueNone -> ValueNone }
+
+    /// The rollup of a snapshot's recorded rows.
+    let rollup (directory: string) (includeFiles: bool) (changes: FileVersion seq) : RollupDirectory list =
+        rollupEntries directory includeFiles (Seq.map entryOf changes)
 
     /// The snapshots of the directory restore's picker, newest first: a `Complete` or `Cancelled` snapshot that
     /// recorded at least one row under the directory, with what it changed there and what the directory held after

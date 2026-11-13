@@ -68,6 +68,12 @@ let noScreen: LiveRenderer.AlternateScreen =
       Clear = fun () -> failwith "unexpected clear"
       Leave = fun () -> failwith "unexpected leave" }
 
+/// Key input for a test that expects no key-driven view: opening one is a failure.
+let noKeys: KeyInput =
+    { Open = fun () -> failwith "unexpected key session"
+      Next = fun () -> failwith "unexpected key read"
+      Height = fun () -> failwith "unexpected height" }
+
 /// Power calls that succeed and count their requests, so that no test keeps the machine awake.
 let countingPower (requests: int ref) : PowerCalls =
     { Create =
@@ -104,6 +110,7 @@ let invokeEnv (customize: CliEnv -> CliEnv) (token: CancellationToken) (args: st
               Power = countingPower (ref 0)
               TerminalSession = null
               Alternate = noScreen
+              Keys = noKeys
               Persist = fun path _ -> failwith $"unexpected write of {path}"
               Exit = fun code -> failwith $"unexpected exit {code}" }
 

@@ -251,6 +251,7 @@ module ``Terminal progress compatibility`` =
               Power = PowerRequest.win32
               TerminalSession = session
               Alternate = BackupCommandTests.noScreen
+              Keys = BackupCommandTests.noKeys
               Persist = fun path _ -> failwith $"unexpected write of {path}"
               Exit = fun code -> failwith $"unexpected exit {code}" }
 

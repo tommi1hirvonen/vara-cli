@@ -1,4 +1,4 @@
-/// `vara snapshot <id> [directory] [--files] [--depth <n>]`: what one snapshot changed, as a sparse directory tree
+/// `vara snapshot <id> [directory] [--files] [--depth <n>] [--interactive]`: what one snapshot changed, as a sparse directory tree
 /// with each directory's counts rolled up by change kind.
 module Vara.Cli.SnapshotCommand
 
@@ -35,6 +35,13 @@ let create (env: CliEnv) : Command =
             Description = "Limit displayed directory levels below the selected directory (0 shows only that directory; default: unlimited)."
         )
 
+    let interactiveOption =
+        Option<bool>(
+            "--interactive",
+            Description =
+                "Browse the change tree with the keyboard: Up/Down move, Right/Left expand and collapse, Home/End jump, * expands all, q or Esc quits. Starts at --depth levels (default 1)."
+        )
+
     let command = Command("snapshot", "Show the directory changes recorded by one snapshot.")
     command.Arguments.Add idArgument
     command.Arguments.Add directoryArgument
@@ -42,6 +49,7 @@ let create (env: CliEnv) : Command =
     command.Options.Add configOption
     command.Options.Add filesOption
     command.Options.Add depthOption
+    command.Options.Add interactiveOption
 
     let parseDepth (text: string option) : Result<int voption, string> =
         match text with
@@ -56,6 +64,7 @@ let create (env: CliEnv) : Command =
             let snapshotId = parseResult.GetValue idArgument
             let raw = parseResult.GetValue directoryArgument |> nonNull
             let includeFiles = parseResult.GetValue filesOption
+            let interactive = parseResult.GetValue interactiveOption
 
             match parseDepth (HistorySession.textOf parseResult depthOption) with
             | Error message -> return ErrorReporting.usage env.ErrorConsole message
@@ -63,12 +72,13 @@ let create (env: CliEnv) : Command =
                 match HistorySession.resolve env (HistorySession.textOf parseResult configOption) (HistorySession.textOf parseResult profileOption) with
                 | Error error -> return HistorySession.fail env (ConfigError.render error)
                 | Ok target ->
-                    return
+                    // The manifest is read and closed first, so a browsing session holds nothing open.
+                    let read =
                         HistorySession.withManifest target (fun handle ->
                             let resolution = HistorySession.resolveDirectory env target handle raw
 
                             match ManifestQueries.snapshots handle |> List.tryFind (fun snapshot -> snapshot.SnapshotId = snapshotId) with
-                            | None -> HistorySession.fail env (HistoryError.render (HistoryError.UnknownSnapshot(snapshotId, target.Name)))
+                            | None -> Choice1Of2(HistorySession.fail env (HistoryError.render (HistoryError.UnknownSnapshot(snapshotId, target.Name))))
                             | Some snapshot ->
                                 let rollup =
                                     History.rollup resolution.Directory includeFiles (ManifestQueries.snapshotVersions handle snapshotId)
@@ -79,10 +89,23 @@ let create (env: CliEnv) : Command =
                                         env
                                         [ Line.Text(Tone.Neutral, $"No changes recorded for snapshot #{snapshotId} in '{resolution.Directory}'.") ]
 
-                                    Outcome.Success
-                                | _ ->
-                                    HistorySession.show env (HistoryView.ofRollup snapshot resolution.Directory target.SourceRoots depth rollup)
-                                    Outcome.Success)
+                                    Choice1Of2 Outcome.Success
+                                | _ -> Choice2Of2(snapshot, resolution.Directory, rollup))
+
+                    match read with
+                    | Choice1Of2 outcome -> return outcome
+                    | Choice2Of2(snapshot, directory, rollup) ->
+                        if interactive && HistorySession.canPrompt env then
+                            let state =
+                                TreeBrowser.create (HistoryView.snapshotHeader snapshot) directory target.SourceRoots depth rollup
+
+                            return TreeSession.run env state
+                        else
+                            if interactive then
+                                Terminal.writeLine env.ErrorConsole Terminal.neutralStyle "The interactive view is unavailable here; showing the static tree."
+
+                            HistorySession.show env (HistoryView.ofRollup snapshot directory target.SourceRoots depth rollup)
+                            return Outcome.Success
         }
 
     CommandAction.set env.ErrorConsole handler command

@@ -18,6 +18,7 @@
     <Compile Include="Snapshots\RetentionTests.fs" />
     <Compile Include="Snapshots\IntegrityTests.fs" />
     <Compile Include="Presentation\PresentationTests.fs" />
+    <Compile Include="Presentation\TreeBrowserTests.fs" />
     <Compile Include="Presentation\CountProgressTests.fs" />
   </ItemGroup>
 

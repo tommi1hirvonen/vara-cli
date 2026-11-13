@@ -52,6 +52,7 @@ let private envOf (console: TestConsole) (mode: OutputMode) : CliEnv =
       Power = PowerRequest.win32
       TerminalSession = null
       Alternate = BackupCommandTests.noScreen
+      Keys = BackupCommandTests.noKeys
       Persist = fun path _ -> failwith $"unexpected write of {path}"
       Exit = fun code -> failwith $"unexpected exit {code}" }
 

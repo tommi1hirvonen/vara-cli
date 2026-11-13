@@ -170,16 +170,16 @@ module HistoryView =
     // The glyphs of a tree: a branch, the last branch, and the continuation under each.
     let private branch, lastBranch, trunk, blank = "├── ", "└── ", "│   ", "    "
 
-    let private normalizeScope (directory: string) : string =
+    let normalizeScope (directory: string) : string =
         let normalized = directory.Trim().Trim([| '\\'; '/' |]).Replace('/', '\\')
         if normalized = "." then "" else normalized
 
-    let private parentOf (path: string) : string =
+    let parentOf (path: string) : string =
         match path.LastIndexOf '\\' with
         | -1 -> ""
         | index -> path.Substring(0, index)
 
-    let private nameOf (path: string) : string =
+    let nameOf (path: string) : string =
         let normalized = path.Replace('/', '\\')
 
         match normalized.LastIndexOf '\\' with
@@ -189,7 +189,7 @@ module HistoryView =
     let private depthOf (path: string) : int = path |> Seq.filter (fun c -> c = '\\') |> Seq.length
 
     /// How many levels below the scope root the directory is: zero for the root itself.
-    let private relativeDepth (scope: string) (path: string) : int =
+    let relativeDepth (scope: string) (path: string) : int =
         if String.Equals(path, scope, StringComparison.OrdinalIgnoreCase) then 0
         else
             let relative = if scope.Length = 0 then path else path.Substring(scope.Length + 1)
@@ -205,7 +205,15 @@ module HistoryView =
             let boundary = String.Join("\\", parts |> Array.truncate depth)
             if scope.Length = 0 then boundary else scope + "\\" + boundary
 
-    let private countsSpans (counts: RollupCounts) : Span list =
+    /// A changed file as a tree row shows it: its name and what happened, with the old path of a move.
+    let changeText (file: ChangeEntry) : string =
+        let name = nameOf file.ChangedPath
+
+        match file.ChangedKind, file.MovedFrom with
+        | ChangeKind.Moved, ValueSome previous -> $"{name} - Moved from {previous}"
+        | kind, _ -> $"{name} - {kindName kind}"
+
+    let countsSpans (counts: RollupCounts) : Span list =
         [ plain " ("
           span Tone.Added $"+{counts.Added}"
           plain " "
@@ -217,6 +225,21 @@ module HistoryView =
           plain " link "
           span Tone.Linked (number counts.Linked)
           plain ")" ]
+
+    /// The two lines that identify a snapshot and total what it changed.
+    let snapshotHeader (snapshot: SnapshotInfo) : Display =
+        [ Line.Text(
+              Tone.Plain,
+              $"Snapshot #{snapshot.SnapshotId} - {timestamp snapshot.StartedAt} - {statusName snapshot.Status}"
+          )
+          Line.Text(
+              Tone.Plain,
+              $"Changes: +{snapshot.Stats.FilesAdded} ~{snapshot.Stats.FilesChanged} ->{snapshot.Stats.FilesMoved} -{snapshot.Stats.FilesDeleted} | {ByteSize.format snapshot.Stats.BytesTransferred} transferred"
+          ) ]
+
+    /// Whether the mirror path is the mirror path of a configured source.
+    let isSourceRoot (sourceRoots: Set<string>) (path: string) : bool =
+        sourceRoots |> Set.exists (fun root -> String.Equals(root, normalizeScope path, StringComparison.OrdinalIgnoreCase))
 
     /// What one snapshot changed: its identity and totals, then the directory tree, each directory with the counts of
     /// its whole subtree in the colour of each change kind. `sourceRoots` are the mirror paths of the configured
@@ -231,17 +254,9 @@ module HistoryView =
         : Display =
         let scope = normalizeScope scopeDirectory
 
-        let header =
-            [ Line.Text(
-                  Tone.Plain,
-                  $"Snapshot #{snapshot.SnapshotId} - {timestamp snapshot.StartedAt} - {statusName snapshot.Status}"
-              )
-              Line.Text(
-                  Tone.Plain,
-                  $"Changes: +{snapshot.Stats.FilesAdded} ~{snapshot.Stats.FilesChanged} ->{snapshot.Stats.FilesMoved} -{snapshot.Stats.FilesDeleted} | {ByteSize.format snapshot.Stats.BytesTransferred} transferred"
-              ) ]
+        let header = snapshotHeader snapshot
 
-        let isSource (path: string) : bool = sourceRoots |> Set.exists (fun root -> String.Equals(root, normalizeScope path, StringComparison.OrdinalIgnoreCase))
+        let isSource (path: string) : bool = isSourceRoot sourceRoots path
 
         let label (directory: RollupDirectory) (name: string) : Span list =
             plain (name + if isSource directory.DirectoryPath then " [source]" else "") :: countsSpans directory.Counts
@@ -272,12 +287,7 @@ module HistoryView =
                 && shown.Contains(directory.DirectoryPath.ToLowerInvariant()))
             |> List.sortBy _.DirectoryPath.ToLowerInvariant()
 
-        let fileText (file: FileVersion) : string =
-            let name = nameOf (MirrorPath.value file.Row.RowPath)
-
-            match file.Row.Kind, file.Row.PreviousPath with
-            | ChangeKind.Moved, ValueSome previous -> $"{name} - Moved from {MirrorPath.value previous}"
-            | kind, _ -> $"{name} - {kindName kind}"
+        let fileText (file: ChangeEntry) : string = changeText file
 
         // The lines under a directory: its child directories, the note of omitted ones, then its files.
         let rec under (directory: RollupDirectory) (indent: string) : Line list =

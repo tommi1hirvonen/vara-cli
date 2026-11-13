@@ -40,6 +40,7 @@
     <Compile Include="Presentation\Display.fs" />
     <Compile Include="Presentation\ProfileEditorView.fs" />
     <Compile Include="Presentation\HistoryView.fs" />
+    <Compile Include="Presentation\TreeBrowser.fs" />
     <Compile Include="Presentation\PruneView.fs" />
     <Compile Include="Presentation\CheckView.fs" />
     <Compile Include="Presentation\OutputMode.fs" />

@@ -29,6 +29,8 @@ type CliEnv =
       Power: PowerCalls
       /// The alternate screen of the profile editor: enter it, clear it before each screen, leave it.
       Alternate: LiveRenderer.AlternateScreen
+      /// The key presses of a key-driven view, such as the interactive change tree.
+      Keys: KeyInput
       /// Writes the whole list of profiles to the configuration file, durably: the path, then the profiles.
       Persist: string -> Profile list -> Result<unit, ConfigWriteError>
       /// Ends the process with an exit code. The profile editor uses it when it is interrupted at a prompt, which only
@@ -50,6 +52,7 @@ module CliEnv =
           MakeBackupEnv = BackupRun.live
           Power = PowerRequest.win32
           Alternate = LiveRenderer.alternateScreen AnsiConsole.Console
+          Keys = KeyInput.console
           Persist = ConfigFile.save
           Exit = Environment.Exit
           TerminalSession = Environment.GetEnvironmentVariable "WT_SESSION" }

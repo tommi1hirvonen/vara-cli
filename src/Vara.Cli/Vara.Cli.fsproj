@@ -15,10 +15,12 @@
     <Compile Include="Output\Prompts.fs" />
     <Compile Include="Output\PlainRenderer.fs" />
     <Compile Include="Output\LiveRenderer.fs" />
+    <Compile Include="Output\KeyInput.fs" />
     <Compile Include="Output\RunProgress.fs" />
     <Compile Include="Output\JsonOutput.fs" />
     <Compile Include="Output\ErrorReporting.fs" />
     <Compile Include="CliEnv.fs" />
+    <Compile Include="Output\TreeSession.fs" />
     <Compile Include="ProgressDisplay.fs" />
     <Compile Include="Commands\CommandAction.fs" />
     <Compile Include="Commands\BackupCommand.fs" />
