@@ -1,4 +1,0 @@
-exit: 0
-files: 1
-  a.txt 666972737420636F6E74656E740A6C696E652074776F0A6C696E65207468726565
-said: ''''...<<>>R\\\\aacdeeeoooooooorrrrsstttttttttuuxx

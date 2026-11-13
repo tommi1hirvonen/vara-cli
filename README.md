@@ -379,13 +379,15 @@ Tests are named after the specification: a module is named after a requirement a
 after one of its scenarios, and the spec-coverage tests fail when a scenario of any spec in
 `openspec/specs` has no test.
 
-**Recorded corpus.** `tests/Vara.Engine.Tests/Corpus` and `tests/Vara.Cli.Tests/Corpus`
-hold results that the earlier C# build gave for the configuration loader, the retention
-boundaries, the configuration writer, the backup engine and the command line. They are
-data (marked `-text` in `.gitattributes`, so their bytes are never converted) and are
-compared with the F# results by plain functions. The C# build is no longer in the
-repository, so a corpus file is changed only when the behavior it records is changed on
-purpose, in the same change as the code.
+**Recorded corpus.** `tests/Vara.Engine.Tests/Corpus` holds golden files: the expected
+results of the configuration loader (including files exactly as the profile editor writes
+them), the retention decisions around calendar boundaries, the backup engine's scenarios,
+and the manifest migration. `format-v0` is a complete target in on-disk format version 0,
+which the engine must keep reading, because users keep their targets across releases. The
+files are data (marked `-text` in `.gitattributes`, so their bytes are never converted) and
+are compared with the actual results by plain functions. Nothing regenerates them: a corpus
+file is changed only when the behavior it records is changed on purpose, in the same change
+as the code.
 
 **Benchmarks.** Run the BenchmarkDotNet scenarios in Release mode:
 

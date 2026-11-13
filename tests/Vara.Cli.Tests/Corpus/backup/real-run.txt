@@ -1,9 +1,0 @@
-json exit: 0
-json: {"mode":"executed","profile":"docs","cancelled":false,"added":2,"changed":0,"moved":0,"deleted":0,"failed":0,"failedPaths":[],"bytesTransferred":14}
-text exit: 0
-text counts: 5
-  Added=0
-  Changed=0
-  Moved=0
-  Deleted=0
-  Transferred=0 B

@@ -1,8 +1,0 @@
-history of an untracked file: 1
-show of an untracked file: 1
-snapshots of an unknown profile: 1
-browse of an untracked directory: 1
-restore with a version and a time: 1
-browse with an unreadable time: 1
-restore into the mirror exit: 1
-restore into the mirror wrote a file: False

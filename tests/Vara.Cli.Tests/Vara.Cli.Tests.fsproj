@@ -15,15 +15,7 @@
     <Compile Include="Output\RunProgressTests.fs" />
     <Compile Include="Output\RestorePresentationTests.fs" />
     <Compile Include="Process\PortableDistributionTests.fs" />
-    <Compile Include="Process\ProcessCorpus.fs" />
-    <Compile Include="Process\BackupCorpus.fs" />
-    <Compile Include="Process\HistoryCorpus.fs" />
-    <Compile Include="Process\MaintenanceCorpus.fs" />
-    <Compile Include="Process\ProcessCorpusTests.fs" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Include="Corpus\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Include="Process\ProcessTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

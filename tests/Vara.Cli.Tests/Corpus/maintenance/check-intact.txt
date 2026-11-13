@@ -1,2 +1,0 @@
-exit: 0
-findings: Checked6blob(s):0missing,0corrupt,0orphaned.

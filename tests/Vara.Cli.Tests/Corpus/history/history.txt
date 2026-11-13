@@ -1,4 +1,0 @@
-history exit: 0
-history rows: 2
-  5 Changed
-  1 Added

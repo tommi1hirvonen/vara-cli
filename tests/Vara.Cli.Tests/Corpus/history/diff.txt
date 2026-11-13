@@ -1,6 +1,0 @@
-exit: 0
-diff: - first content
-+ second content
-  line two
-- line three
-+ line 3

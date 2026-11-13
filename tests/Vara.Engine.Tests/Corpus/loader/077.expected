@@ -1,3 +1,4 @@
+#! case: editor output, several profiles
 ok
 profile one target C:\backup\one
 source C:\data\one recursive True exclude [] include [] exclude-globs []

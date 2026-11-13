@@ -1,3 +1,4 @@
+#! case: editor output, every optional field set
 ok
 profile all target C:\backup\all
 source C:\data\one recursive False exclude [tmp|a b] include [**/*.md] exclude-globs [*.bak]

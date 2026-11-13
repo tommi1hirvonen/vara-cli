@@ -21,10 +21,10 @@ let ``the engine leaves the recorded manifest, mirror and blobs in every scenari
     Corpus.assertSame compared
 
 [<Fact>]
-let ``the engine continues a recorded target without re-transfers`` () =
+let ``the engine continues a format version 0 target without re-transfers`` () =
     using (fun rig ->
-        LegacyTarget.legacySources rig
-        LegacyTarget.restore rig
+        FormatV0Target.sources rig
+        FormatV0Target.restore rig
 
         let changes (observed: Observed) = observed.Added + observed.Changed + observed.Moved + observed.Deleted
         Assert.Equal(0, changes (returned (runEngine rig plain)))

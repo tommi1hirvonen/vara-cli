@@ -1,4 +1,0 @@
-deleted exit: 0
-deleted rows: 1
-  4 B
-names gone.txt: True

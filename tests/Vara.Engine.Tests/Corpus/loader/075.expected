@@ -1,3 +1,4 @@
+#! case: editor output, no optional field
 ok
 profile bare target C:\backup\bare
 source C:\data\bare recursive True exclude [] include [] exclude-globs []

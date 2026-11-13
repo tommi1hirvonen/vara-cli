@@ -1,9 +1,8 @@
-/// Takes out of an observed text what differs between machines and runs: the scratch directory (in the forms a program
-/// prints a path) and times.
+/// Takes out of an observed text what differs between machines and runs: the scratch directory, in the forms a program
+/// prints a path.
 module Vara.Testing.Anonymize
 
 open System
-open System.Text.RegularExpressions
 
 /// The placeholder for the scratch directory of a run, which differs from one run to the next.
 let rootPlaceholder = "<root>"
@@ -28,16 +27,8 @@ let spellings (root: string) : string list =
     |> List.distinct
     |> List.sortByDescending _.Length
 
-/// The text with the scratch directory taken out, so that two runs in two directories read the same. `flatten` is how the
-/// text was reduced before this (for example with its spaces taken out), applied to each spelling so that they match.
-let anonymizeFlat (flatten: string -> string) (root: string) (text: string) : string =
+/// The text with the scratch directory taken out, so that two runs in two directories read the same.
+let anonymize (root: string) (text: string) : string =
     spellings root
-    |> List.fold (fun (text: string) (spelling: string) -> text.Replace(flatten spelling, rootPlaceholder, StringComparison.OrdinalIgnoreCase)) text
-
-let anonymize (root: string) (text: string) : string = anonymizeFlat id root text
-
-/// The times of a report, which differ from one run to the next. A recorded time can carry the separators of the culture
-/// it was recorded in, so a colon and a dot both count.
-let withoutTimes (text: string) : string =
-    Regex.Replace(text, @"\d{4}-\d{2}-\d{2}[ T]\d{2}[:.]\d{2}[:.]\d{2}(?:[.,]\d+)?(?: ?[+-]\d{2}[:.]\d{2}| ?Z)?", "<time>")
+    |> List.fold (fun (text: string) (spelling: string) -> text.Replace(spelling, rootPlaceholder, StringComparison.OrdinalIgnoreCase)) text
 

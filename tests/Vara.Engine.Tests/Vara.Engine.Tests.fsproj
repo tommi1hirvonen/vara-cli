@@ -18,11 +18,10 @@
     <Compile Include="Config\ConfigurationTests.fs" />
     <Compile Include="Config\ProfileWriterTests.fs" />
     <Compile Include="Scenarios\EngineScenarios.fs" />
-    <Compile Include="Scenarios\LegacyTarget.fs" />
+    <Compile Include="Scenarios\FormatV0Target.fs" />
     <Compile Include="Scenarios\EngineCorpusTests.fs" />
     <Compile Include="Scenarios\LoaderCorpusTests.fs" />
     <Compile Include="Scenarios\RetentionCorpusTests.fs" />
-    <Compile Include="Scenarios\WriterCorpusTests.fs" />
     <Compile Include="SpecCoverageTests.fs" />
   </ItemGroup>
 

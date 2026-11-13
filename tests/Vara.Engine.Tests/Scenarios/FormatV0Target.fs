@@ -1,8 +1,8 @@
-/// A target recorded as files, for the engine to continue. The recorded `vara` folder is the target's `.vara` (the
-/// manifest and the blobs), the recorded `mirror` folder is what the mirror held under the source directory, and the
-/// manifest's paths hold `@ROOT@` where the recording's scratch directory was. Users keep their targets across releases,
-/// so the engine must read a target written earlier as it is.
-module Vara.Engine.Tests.LegacyTarget
+/// A target in on-disk format version 0, the format of every target written so far, recorded as files for the engine to
+/// continue. The recorded `vara` folder is the target's `.vara` (the manifest and the blobs), the recorded `mirror` folder
+/// is what the mirror held under the source directory, and the manifest's paths hold `@ROOT@` where the recording's
+/// scratch directory was. Users keep their targets across releases, so the engine must read this format as it is.
+module Vara.Engine.Tests.FormatV0Target
 
 open System.IO
 open Microsoft.Data.Sqlite
@@ -10,13 +10,13 @@ open Vara.Domain
 open Vara.Engine.Tests.EngineScenarios
 open Vara.Testing
 
-let area = "engine-legacy"
+let area = "format-v0"
 
 /// The placeholder for the scratch directory in the recorded manifest.
 let rootPlaceholder = "@ROOT@"
 
 /// The two files of the recorded target, in the source.
-let legacySources (rig: Rig) : unit =
+let sources (rig: Rig) : unit =
     write rig "a.txt" "alpha" |> ignore
     write rig "sub\\b.txt" "beta" |> ignore
 

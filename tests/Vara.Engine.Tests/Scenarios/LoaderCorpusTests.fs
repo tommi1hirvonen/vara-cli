@@ -9,8 +9,9 @@ open Vara.Testing
 
 let private area = "loader"
 
-/// The number of YAML cases that the loader corpus was recorded from, plus the case with no file.
-let private recordedCases = 74
+/// The number of YAML cases that the loader corpus was recorded from, plus the case with no file. Cases 074 to 079 are
+/// files exactly as the profile editor wrote them, which existing configuration files look like.
+let private recordedCases = 80
 
 let private inputs: string list = Corpus.names area |> List.filter (fun name -> name.EndsWith ".yml")
 

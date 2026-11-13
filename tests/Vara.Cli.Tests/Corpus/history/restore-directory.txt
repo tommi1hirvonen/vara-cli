@@ -1,4 +1,0 @@
-exit: 0
-files: 2
-  gone.txt 676F6E65
-  kept.txt 6B657074
