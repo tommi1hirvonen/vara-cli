@@ -93,6 +93,7 @@ let private dryRun
 
                 if detail && entries.Length > 0 then
                     let target = HistorySession.targetOfProfile profile
+                    let browse = ChangeTree.canBrowse env tree.Interactive
 
                     ChangeTree.present
                         env
@@ -101,7 +102,8 @@ let private dryRun
                           Scope = ""
                           SourceRoots = target.SourceRoots
                           Depth = tree.Depth
-                          Rollup = History.rollupEntries "" tree.Files entries
+                          Rollup = History.rollupEntries "" (tree.Files && not browse) entries
+                          Entries = if browse then entries else Array.empty
                           Interactive = tree.Interactive
                           MayOpenInteractive = true }
                     |> ignore
@@ -114,10 +116,12 @@ let private dryRun
 let private showRecordedTree (env: CliEnv) (tree: TreeRequest) (profile: Profile) (cancelled: bool) (result: RunResult) : unit =
     let target = HistorySession.targetOfProfile profile
 
-    match ChangeTree.readSnapshot target result.SnapshotId tree.Files with
+    let browse = ChangeTree.canBrowse env tree.Interactive && not cancelled
+
+    match ChangeTree.readSnapshot target result.SnapshotId tree.Files browse with
     | Error failure -> warn env $"Could not read the change tree of snapshot #{result.SnapshotId}: {failure.Message}"
     | Ok ValueNone -> ()
-    | Ok(ValueSome(snapshot, rollup)) ->
+    | Ok(ValueSome(snapshot, rollup, entries)) ->
         match rollup with
         | [] -> HistorySession.show env [ Line.Text(Tone.Neutral, $"No changes recorded for snapshot #{result.SnapshotId}.") ]
         | _ ->
@@ -129,6 +133,7 @@ let private showRecordedTree (env: CliEnv) (tree: TreeRequest) (profile: Profile
                   SourceRoots = target.SourceRoots
                   Depth = tree.Depth
                   Rollup = rollup
+                  Entries = entries
                   Interactive = tree.Interactive
                   MayOpenInteractive = not cancelled }
             |> ignore
@@ -212,7 +217,7 @@ let create (env: CliEnv) : Command =
         Option<bool>(
             "--interactive",
             Description =
-                "Browse the change tree with the keyboard after the summary: Up/Down move, Right/Left expand and collapse, Home/End jump, * expands all, q or Esc quits. Starts at --depth levels (default 1)."
+                "Browse the change tree with the keyboard after the summary: Up/Down move, Right/Left expand and collapse, Home/End jump, * expands all, d shows or hides deleted files, f shows or hides all files, q or Esc quits. Lists the changed files whether or not --files is given. Starts at --depth levels (default 1)."
         )
 
     let command = Command("backup", "Run an incremental backup for a profile.")

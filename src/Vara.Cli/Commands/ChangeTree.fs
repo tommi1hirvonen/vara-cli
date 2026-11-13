@@ -17,19 +17,45 @@ let parseDepth (text: string option) : Result<int voption, string> =
         | true, depth -> Ok(ValueSome depth)
         | false, _ -> Error "--depth must be a non-negative integer."
 
-/// A snapshot and its change rollup read from the manifest, none when the snapshot is not recorded, or the failure that
+/// Whether the interactive view will open: `--interactive` was given and the session can be driven by keys. Decided
+/// before the changes are read, so that a tree that falls back to the static view is read for the static view.
+let canBrowse (env: CliEnv) (interactive: bool) : bool = interactive && HistorySession.canPrompt env
+
+/// A snapshot's changes under a directory, as the tree shows them. The static tree reads the rollup, with file lists when
+/// `includeFiles`. The interactive tree reads every change as an entry, so that it can list files whatever
+/// `includeFiles` says, and the rollup then holds the counts only.
+let loadChanges
+    (handle: ManifestHandle)
+    (snapshotId: int64)
+    (directory: string)
+    (includeFiles: bool)
+    (interactive: bool)
+    : RollupDirectory list * ChangeEntry[] =
+    if interactive then
+        let entries =
+            ManifestQueries.snapshotVersions handle snapshotId
+            |> Seq.map History.entryOf
+            |> History.entriesUnder directory
+
+        History.rollupEntries directory false entries, entries
+    else
+        History.rollup directory includeFiles (ManifestQueries.snapshotVersions handle snapshotId), Array.empty
+
+/// A snapshot and its changes read from the manifest, none when the snapshot is not recorded, or the failure that
 /// stopped the read. The manifest is opened read-only and closed before the result is returned.
 let readSnapshot
     (target: HistorySession.Target)
     (snapshotId: int64)
     (includeFiles: bool)
-    : Result<(SnapshotInfo * RollupDirectory list) voption, exn> =
+    (interactive: bool)
+    : Result<(SnapshotInfo * RollupDirectory list * ChangeEntry[]) voption, exn> =
     try
         HistorySession.withManifest target (fun handle ->
             match ManifestQueries.snapshots handle |> List.tryFind (fun snapshot -> snapshot.SnapshotId = snapshotId) with
             | None -> Ok ValueNone
             | Some snapshot ->
-                Ok(ValueSome(snapshot, History.rollup "" includeFiles (ManifestQueries.snapshotVersions handle snapshotId))))
+                let rollup, entries = loadChanges handle snapshotId "" includeFiles interactive
+                Ok(ValueSome(snapshot, rollup, entries)))
     with failure ->
         Error failure
 
@@ -43,6 +69,8 @@ type Presentation =
       SourceRoots: Set<string>
       Depth: int voption
       Rollup: RollupDirectory list
+      /// Every change under the scope, for the interactive tree to list as files. Empty when it is not needed.
+      Entries: ChangeEntry[]
       /// Whether `--interactive` was given.
       Interactive: bool
       /// Whether the interactive view may open at all. When it may not, the static tree is shown without a note.
@@ -60,6 +88,7 @@ let present (env: CliEnv) (presentation: Presentation) : Outcome voption =
                 presentation.SourceRoots
                 presentation.Depth
                 presentation.Rollup
+                presentation.Entries
 
         ValueSome(TreeSession.run env state)
     else

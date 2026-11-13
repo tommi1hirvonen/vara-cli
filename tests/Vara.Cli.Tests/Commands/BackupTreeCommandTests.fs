@@ -188,17 +188,11 @@ module ``Real-run change tree shows the recorded snapshot`` =
                                 Directory.Exists setup.Target
                                 && Directory.EnumerateFiles(setup.Target, "f*.txt", SearchOption.AllDirectories) |> Seq.isEmpty |> not) }
 
-            let log = List<string>()
-
-            let result =
-                invokeEnv (stopWhenStarted << session [] log ignore) CancellationToken.None (backup setup [ "--interactive"; "--files" ])
-
+            let result = invokeEnv stopWhenStarted CancellationToken.None (backup setup [ "--files" ])
             Assert.Equal(2, result.ExitCode)
             Assert.Contains("cancelled after", result.Output)
-            // The interactive view is withheld without a note, and the recorded changes are shown statically.
-            Assert.Empty log
-            Assert.DoesNotContain("unavailable", result.Errors.Replace("\n", " "))
-            Assert.NotEmpty(treeLines result.Output))
+            Assert.NotEmpty(treeLines result.Output)
+            Assert.Contains(".txt - Added", result.Output))
 
     [<Fact>]
     let ``Refused run shows no tree`` () =
@@ -231,6 +225,9 @@ module ``Interactive backup tree and its fallback`` =
             Assert.Contains("Dry run - no changes were made", result.Output)
             Assert.Contains("Dry run - planned changes", result.Output)
             Assert.Contains("b (+1", result.Output)
+            // The deepest directory is expanded to its files, and no `--files` was given.
+            Assert.Contains("+  two.txt", result.Output)
+            Assert.Contains("+  one.txt", result.Output)
             Assert.Contains("Enter", log)
             Assert.Contains("Leave", log))
 
@@ -238,10 +235,13 @@ module ``Interactive backup tree and its fallback`` =
     let ``Interactive tree after a real run`` () =
         scratch (fun setup ->
             populate setup
-            let result, log = browse setup [ KeyEvent.Pressed Key.Quit ] [ "--interactive" ]
+            let result, log = browse setup [ KeyEvent.Pressed Key.ExpandAll; KeyEvent.Pressed Key.Quit ] [ "--interactive" ]
             Assert.Equal(0, result.ExitCode)
             Assert.Contains("completed in", result.Output)
             Assert.Contains("Snapshot #1", result.Output)
+            // The recorded snapshot's files are listed without `--files`.
+            Assert.Contains("+  two.txt", result.Output)
+            Assert.Contains("+  top.txt", result.Output)
             Assert.Contains("Leave", log))
 
     [<Fact>]
@@ -253,6 +253,33 @@ module ``Interactive backup tree and its fallback`` =
             Assert.Equal(0, result.ExitCode)
             Assert.NotEmpty(treeLines result.Output)
             Assert.Contains("interactive view is unavailable", result.Errors.Replace("\n", " ")))
+
+    [<Fact>]
+    let ``Cancelled run shows the tree statically`` () =
+        scratch (fun setup ->
+            for index in 1..6 do
+                write setup $"f{index}.txt" (String('x', 1000))
+
+            // The run is asked to stop once its first file is in the mirror.
+            let stopWhenStarted (env: CliEnv) : CliEnv =
+                { env with
+                    MakeBackupEnv =
+                        fun _ ->
+                            BackupRun.live (fun () ->
+                                Directory.Exists setup.Target
+                                && Directory.EnumerateFiles(setup.Target, "f*.txt", SearchOption.AllDirectories) |> Seq.isEmpty |> not) }
+
+            let log = List<string>()
+
+            let result =
+                invokeEnv (stopWhenStarted << session [] log ignore) CancellationToken.None (backup setup [ "--interactive"; "--files" ])
+
+            Assert.Equal(2, result.ExitCode)
+            Assert.Contains("cancelled after", result.Output)
+            // The interactive view is withheld without a note, and the recorded changes are shown statically.
+            Assert.Empty log
+            Assert.DoesNotContain("unavailable", result.Errors.Replace("\n", " "))
+            Assert.NotEmpty(treeLines result.Output))
 
     [<Fact>]
     let ``Exit code unaffected by quitting`` () =
@@ -292,6 +319,6 @@ module ``Reading the recorded tree`` =
                   Layout = layout
                   SourceRoots = Set.empty }
 
-            match ChangeTree.readSnapshot target 1L false with
+            match ChangeTree.readSnapshot target 1L false false with
             | Error _ -> ()
             | Ok _ -> Assert.Fail "expected the read to fail")

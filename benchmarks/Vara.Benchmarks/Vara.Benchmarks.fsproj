@@ -14,6 +14,7 @@
     <Compile Include="BackupTransferBenchmarks.fs" />
     <Compile Include="ContentStoreBufferBenchmarks.fs" />
     <Compile Include="StreamingSignatureBenchmarks.fs" />
+    <Compile Include="TreeBrowserBenchmarks.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

@@ -39,7 +39,7 @@ let create (env: CliEnv) : Command =
         Option<bool>(
             "--interactive",
             Description =
-                "Browse the change tree with the keyboard: Up/Down move, Right/Left expand and collapse, Home/End jump, * expands all, q or Esc quits. Starts at --depth levels (default 1)."
+                "Browse the change tree with the keyboard: Up/Down move, Right/Left expand and collapse, Home/End jump, * expands all, d shows or hides deleted files, f shows or hides all files, q or Esc quits. Lists the changed files whether or not --files is given. Starts at --depth levels (default 1)."
         )
 
     let command = Command("snapshot", "Show the directory changes recorded by one snapshot.")
@@ -65,6 +65,8 @@ let create (env: CliEnv) : Command =
                 | Error error -> return HistorySession.fail env (ConfigError.render error)
                 | Ok target ->
                     // The manifest is read and closed first, so a browsing session holds nothing open.
+                    let browse = ChangeTree.canBrowse env interactive
+
                     let read =
                         HistorySession.withManifest target (fun handle ->
                             let resolution = HistorySession.resolveDirectory env target handle raw
@@ -72,8 +74,8 @@ let create (env: CliEnv) : Command =
                             match ManifestQueries.snapshots handle |> List.tryFind (fun snapshot -> snapshot.SnapshotId = snapshotId) with
                             | None -> Choice1Of2(HistorySession.fail env (HistoryError.render (HistoryError.UnknownSnapshot(snapshotId, target.Name))))
                             | Some snapshot ->
-                                let rollup =
-                                    History.rollup resolution.Directory includeFiles (ManifestQueries.snapshotVersions handle snapshotId)
+                                let rollup, entries =
+                                    ChangeTree.loadChanges handle snapshotId resolution.Directory includeFiles browse
 
                                 match rollup with
                                 | [] ->
@@ -82,11 +84,11 @@ let create (env: CliEnv) : Command =
                                         [ Line.Text(Tone.Neutral, $"No changes recorded for snapshot #{snapshotId} in '{resolution.Directory}'.") ]
 
                                     Choice1Of2 Outcome.Success
-                                | _ -> Choice2Of2(snapshot, resolution.Directory, rollup))
+                                | _ -> Choice2Of2(snapshot, resolution.Directory, rollup, entries))
 
                     match read with
                     | Choice1Of2 outcome -> return outcome
-                    | Choice2Of2(snapshot, directory, rollup) ->
+                    | Choice2Of2(snapshot, directory, rollup, entries) ->
                         let shown =
                             ChangeTree.present
                                 env
@@ -96,6 +98,7 @@ let create (env: CliEnv) : Command =
                                   SourceRoots = target.SourceRoots
                                   Depth = depth
                                   Rollup = rollup
+                                  Entries = entries
                                   Interactive = interactive
                                   MayOpenInteractive = true }
 

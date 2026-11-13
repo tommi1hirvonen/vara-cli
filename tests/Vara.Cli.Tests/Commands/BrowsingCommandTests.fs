@@ -152,20 +152,20 @@ module ``Inspect changes recorded by a snapshot`` =
             Assert.Contains("snapshot #1 is not recorded", result.Errors.Replace("\n", ""))
             Assert.False(Directory.Exists setup.Target))
 
-module ``Interactive snapshot change tree`` =
+module InteractiveSession =
     open System
     open System.Collections.Generic
     open Vara.Domain
 
     /// A target with one snapshot that added files in nested directories.
-    let private populated (setup: Scratch) : unit =
+    let populated (setup: Scratch) : unit =
         write setup "top.txt" "top"
         write setup "a\\one.txt" "one"
         write setup "a\\b\\two.txt" "two"
         backupOnce setup
 
     /// A key-driven session on a live console: the events are answered in order, and the screen calls are logged.
-    let private session (events: KeyEvent list) (log: List<string>) (env: CliEnv) : CliEnv =
+    let session (events: KeyEvent list) (log: List<string>) (env: CliEnv) : CliEnv =
         let remaining = Queue<KeyEvent> events
 
         { env with
@@ -181,16 +181,21 @@ module ``Interactive snapshot change tree`` =
                         if remaining.Count = 0 then failwith "the script ran out of keys" else remaining.Dequeue()
                   Height = fun () -> 30 } }
 
-    let private interactive (setup: Scratch) (events: KeyEvent list) (parts: string list) : Invocation * List<string> =
+    let interactive (setup: Scratch) (events: KeyEvent list) (parts: string list) : Invocation * List<string> =
         let log = List<string>()
         let result = runEnv (session events log) setup ([ "snapshot"; "1"; "--interactive" ] @ parts)
         result, log
 
+module ``Interactive snapshot change tree`` =
+    open System
+    open System.Collections.Generic
+    open Vara.Domain
+
     [<Fact>]
     let ``Ending the session`` () =
         scratch (fun setup ->
-            populated setup
-            let result, log = interactive setup [ KeyEvent.Pressed Key.Quit ] []
+            InteractiveSession.populated setup
+            let result, log = InteractiveSession.interactive setup [ KeyEvent.Pressed Key.Quit ] []
             Assert.Equal(0, result.ExitCode)
             Assert.Contains("Snapshot #1", result.Output)
             Assert.Equal<string list>([ "Enter"; "Clear"; "Leave"; "Closed" ], List.ofSeq log))
@@ -198,47 +203,149 @@ module ``Interactive snapshot change tree`` =
     [<Fact>]
     let ``Navigating a session`` () =
         scratch (fun setup ->
-            populated setup
+            InteractiveSession.populated setup
             let events = [ KeyEvent.Pressed Key.ExpandAll; KeyEvent.Pressed Key.End; KeyEvent.Pressed Key.Quit ]
-            let result, _ = interactive setup events []
+            let result, _ = InteractiveSession.interactive setup events []
             Assert.Equal(0, result.ExitCode)
             // The last frame shows every directory, expanded by `*`.
             Assert.Contains("b (+1", result.Output))
 
     [<Fact>]
+    let ``Unknown snapshot or empty scope`` () =
+        scratch (fun setup ->
+            InteractiveSession.populated setup
+            let log = List<string>()
+            let unknown = runEnv (InteractiveSession.session [] log) setup [ "snapshot"; "99"; "--interactive" ]
+            Assert.Equal(1, unknown.ExitCode)
+            let scope = Path.GetDirectoryName(keyOf setup "a\\one.txt") |> nonNull
+            let empty = runEnv (InteractiveSession.session [] log) setup [ "snapshot"; "1"; Path.Combine(scope, "nothing"); "--interactive" ]
+            Assert.Contains("No changes recorded", empty.Output + empty.Errors)
+            Assert.Empty log)
+
+    [<Fact>]
+    let ``Rejecting an invalid depth before any session starts`` () =
+        scratch (fun setup ->
+            InteractiveSession.populated setup
+            let result, log = InteractiveSession.interactive setup [] [ "--depth"; "-1" ]
+            Assert.NotEqual(0, result.ExitCode)
+            Assert.Empty log)
+
+
+module ``Interactive file rows in the snapshot tree`` =
+    open System.Collections.Generic
+    open Vara.Domain
+
+    let private browseFiles (setup: Scratch) (parts: string list) : Invocation =
+        let log = List<string>()
+        let events = [ KeyEvent.Pressed Key.ExpandAll; KeyEvent.Pressed Key.Quit ]
+        runEnv (InteractiveSession.session events log) setup ([ "snapshot"; "1"; "--interactive" ] @ parts)
+
+    [<Fact>]
+    let ``Showing files in the interactive tree`` () =
+        scratch (fun setup ->
+            InteractiveSession.populated setup
+            // No `--files`: the interactive tree lists the files all the same.
+            let result = browseFiles setup []
+            Assert.Equal(0, result.ExitCode)
+            Assert.Contains("+  one.txt", result.Output)
+            Assert.Contains("+  two.txt", result.Output)
+            Assert.Contains("+  top.txt", result.Output))
+
+    [<Fact>]
+    let ``Files option has no further effect`` () =
+        scratch (fun setup ->
+            InteractiveSession.populated setup
+            let without = browseFiles setup []
+            let withFiles = browseFiles setup [ "--files" ]
+            Assert.Equal(0, withFiles.ExitCode)
+            Assert.Equal<string>(without.Output, withFiles.Output))
+
+    [<Fact>]
+    let ``The static tree keeps its wording`` () =
+        scratch (fun setup ->
+            InteractiveSession.populated setup
+            let result = run setup [ "snapshot"; "1"; "--files" ]
+            Assert.Contains("one.txt - Added", result.Output)
+            Assert.DoesNotContain("+  one.txt", result.Output))
+
+module ``A moved file absorbs its source's deleted row`` =
+    open System.Collections.Generic
+    open Vara.Domain
+
+    [<Fact>]
+    let ``A move reads as one row`` () =
+        scratch (fun setup ->
+            write setup "old\\m.txt" "moved content"
+            write setup "keep\\k.txt" "keep"
+            backupOnce setup
+            Directory.CreateDirectory(Path.Combine(setup.Source, "new")) |> ignore
+            File.Move(Path.Combine(setup.Source, "old", "m.txt"), Path.Combine(setup.Source, "new", "m.txt"))
+            backupOnce setup
+
+            let staticTree = run setup [ "snapshot"; "2"; "--files" ]
+            Assert.Contains("m.txt - Moved from", staticTree.Output)
+
+            let log = List<string>()
+            let events = [ KeyEvent.Pressed Key.ExpandAll; KeyEvent.Pressed Key.Quit ]
+            let result = runEnv (InteractiveSession.session events log) setup [ "snapshot"; "2"; "--interactive" ]
+            Assert.Equal(0, result.ExitCode)
+            Assert.Contains("->", result.Output)
+            Assert.Contains("m.txt", result.Output)
+            // The old path is not listed as its own deleted row.
+            Assert.DoesNotContain("-  m.txt", result.Output)
+
+            // Every directory's counts are those of the static report.
+            let counts (text: string) =
+                text.Split '\n'
+                |> Array.filter (fun line -> line.Contains "(+")
+                |> Array.map (fun line -> line.Substring(line.IndexOf '(').TrimEnd())
+                |> Array.distinct
+
+            for expected in counts staticTree.Output do
+                Assert.Contains(expected, result.Output))
+
+module ``Key-driven views leave the terminal as they found it`` =
+    open System
+    open System.Collections.Generic
+    open Vara.Domain
+
+    [<Fact>]
+    let ``Leaving the view normally`` () =
+        scratch (fun setup ->
+            InteractiveSession.populated setup
+            let result, log = InteractiveSession.interactive setup [ KeyEvent.Pressed Key.Quit ] []
+            Assert.Equal(0, result.ExitCode)
+            // The alternate screen is left and the key session closed, after the view was drawn.
+            Assert.Equal<string list>([ "Enter"; "Clear"; "Leave"; "Closed" ], List.ofSeq log))
+
+    [<Fact>]
     let ``Interrupting the view with Ctrl+C`` () =
         scratch (fun setup ->
-            populated setup
-            let result, log = interactive setup [ KeyEvent.Interrupted ] []
+            InteractiveSession.populated setup
+            let result, log = InteractiveSession.interactive setup [ KeyEvent.Interrupted ] []
             Assert.Equal(2, result.ExitCode)
             Assert.Contains("Leave", log))
 
     [<Fact>]
     let ``Failure while the view is active`` () =
         scratch (fun setup ->
-            populated setup
+            InteractiveSession.populated setup
             // The script is empty, so the first read fails.
-            let result, log = interactive setup [] []
+            let result, log = InteractiveSession.interactive setup [] []
             Assert.Equal(1, result.ExitCode)
             Assert.Contains("Leave", log)
             Assert.Contains("Closed", log))
 
-    [<Fact>]
-    let ``Unknown snapshot or empty scope`` () =
-        scratch (fun setup ->
-            populated setup
-            let log = List<string>()
-            let unknown = runEnv (session [] log) setup [ "snapshot"; "99"; "--interactive" ]
-            Assert.Equal(1, unknown.ExitCode)
-            let scope = Path.GetDirectoryName(keyOf setup "a\\one.txt") |> nonNull
-            let empty = runEnv (session [] log) setup [ "snapshot"; "1"; Path.Combine(scope, "nothing"); "--interactive" ]
-            Assert.Contains("No changes recorded", empty.Output + empty.Errors)
-            Assert.Empty log)
+
+module ``Interactive tree falls back to the static report`` =
+    open System
+    open System.Collections.Generic
+    open Vara.Domain
 
     [<Fact>]
     let ``Output is redirected`` () =
         scratch (fun setup ->
-            populated setup
+            InteractiveSession.populated setup
             // The default test console is not a terminal, as with output redirected to a file.
             let result = run setup [ "snapshot"; "1"; "--interactive"; "--files" ]
             Assert.Equal(0, result.ExitCode)
@@ -248,11 +355,11 @@ module ``Interactive snapshot change tree`` =
     [<Fact>]
     let ``Input is redirected`` () =
         scratch (fun setup ->
-            populated setup
+            InteractiveSession.populated setup
             let log = List<string>()
 
             let redirected (env: CliEnv) : CliEnv =
-                { session [] log env with Capabilities = { liveCapabilities with InputIsInteractive = false } }
+                { InteractiveSession.session [] log env with Capabilities = { liveCapabilities with InputIsInteractive = false } }
 
             let result = runEnv redirected setup [ "snapshot"; "1"; "--interactive"; "--depth"; "1" ]
             Assert.Equal(0, result.ExitCode)
@@ -263,24 +370,17 @@ module ``Interactive snapshot change tree`` =
     [<Fact>]
     let ``No color support`` () =
         scratch (fun setup ->
-            populated setup
+            InteractiveSession.populated setup
             let log = List<string>()
 
             let plain (env: CliEnv) : CliEnv =
-                { session [] log env with Capabilities = { liveCapabilities with NoColorRequested = true } }
+                { InteractiveSession.session [] log env with Capabilities = { liveCapabilities with NoColorRequested = true } }
 
             let result = runEnv plain setup [ "snapshot"; "1"; "--interactive" ]
             Assert.Equal(0, result.ExitCode)
             Assert.Contains("interactive view is unavailable", result.Errors.Replace("\n", " "))
             Assert.Empty log)
 
-    [<Fact>]
-    let ``Rejecting an invalid depth before any session starts`` () =
-        scratch (fun setup ->
-            populated setup
-            let result, log = interactive setup [] [ "--depth"; "-1" ]
-            Assert.NotEqual(0, result.ExitCode)
-            Assert.Empty log)
 
 module ``Snapshot change rollups use change-kind colors`` =
     [<Fact>]

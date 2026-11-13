@@ -46,6 +46,10 @@ module KeyInput =
             | 'q'
             | 'Q' -> KeyEvent.Pressed Key.Quit
             | '*' -> KeyEvent.Pressed Key.ExpandAll
+            | 'd'
+            | 'D' -> KeyEvent.Pressed Key.ToggleDeleted
+            | 'f'
+            | 'F' -> KeyEvent.Pressed Key.ToggleFiles
             | _ -> KeyEvent.Pressed Key.Other
 
     /// The real console: keys are read without echo, and a changed window size ends the wait.

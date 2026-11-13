@@ -17,7 +17,7 @@ let run (env: CliEnv) (initial: TreeState) : Outcome =
 
         let rec loop (state: TreeState) : Outcome =
             // One line fewer than the window, so the last line's line break does not scroll the header away.
-            let fitted, display = TreeBrowser.frame (env.Keys.Height() - 1) state
+            let fitted, display = TreeBrowser.frame env.Console.Profile.Width (env.Keys.Height() - 1) state
             env.Alternate.Clear()
             LiveRenderer.print env.Console display
 

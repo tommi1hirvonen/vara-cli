@@ -539,6 +539,14 @@ module History =
                     | false, _ -> [] })
             |> List.ofSeq
 
+    /// The entries that lie under the directory, in the order given.
+    let entriesUnder (directory: string) (changes: ChangeEntry seq) : ChangeEntry[] =
+        let prefix = Prefix.ofDirectory directory
+
+        changes
+        |> Seq.filter (fun change -> (Prefix.subPath prefix (change.ChangedPath.Replace('/', '\\'))).IsSome)
+        |> Array.ofSeq
+
     /// A recorded row as a neutral change entry.
     let entryOf (version: FileVersion) : ChangeEntry =
         { ChangedPath = pathOf version

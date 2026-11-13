@@ -1,6 +1,7 @@
 namespace Vara.Domain
 
 open System
+open System.Collections.Generic
 
 /// A key the tree browser understands. Anything else a terminal reports is `Other` and ignored.
 [<RequireQualifiedAccess>]
@@ -12,24 +13,60 @@ type Key =
     | Home
     | End
     | ExpandAll
+    /// Shows or hides the file rows of deleted files.
+    | ToggleDeleted
+    /// Shows or hides all file rows.
+    | ToggleFiles
     | Quit
     | Other
 
-/// The identity of a row: a directory by its path, or a file by its directory and its place among that directory's
-/// files. The cursor is an identity, so it stays on the same logical row while rows above it appear and disappear.
-[<RequireQualifiedAccess>]
-type RowId =
-    | Dir of path: string
-    | File of directory: string * index: int
+/// One directory of the tree: where it sits, the counts of its whole subtree, and the slice of the sorted file array that
+/// holds the files recorded directly in it. `Absorbed` counts the deleted entries in its subtree that no row shows because
+/// a move absorbs them.
+[<Struct>]
+type TreeNode =
+    { Path: string
+      Parent: int
+      Children: int[]
+      Counts: RollupCounts
+      Depth: int
+      FileStart: int
+      FileCount: int
+      Absorbed: int }
 
-/// The state of one browsing session. The header is the lines above the tree; the offset is the first visible row.
+/// What the browser reads once and never changes: the directories as an array with parent and child indexes, and the
+/// changed files as one array ordered by directory and then name, so that a directory's files are a slice of it. A class,
+/// so that a state compares it by reference.
+[<Sealed; AllowNullLiteral>]
+type TreeIndex(nodes: TreeNode[], files: ChangeEntry[], root: int, deletedFiles: int) =
+    member _.Nodes = nodes
+    member _.Files = files
+    /// The node of the scope root, or -1 when the scope holds no change.
+    member _.Root = root
+    /// How many of the files are deleted entries that are listed.
+    member _.DeletedFiles = deletedFiles
+
+/// A visible row: a directory (`File` is -1) or a changed file of a directory. `Parent` is the row of the directory above it.
+[<Struct>]
+type TreeRow =
+    { Node: int
+      File: int
+      Parent: int
+      Level: int
+      IsLast: bool }
+
+/// The state of one browsing session. The header is the lines above the tree; the offset is the first visible row; the
+/// rows are the visible rows, kept until the expansion or a toggle changes them, and the cursor is an index into them.
 type TreeState =
     { Header: Display
       Scope: string
       SourceRoots: Set<string>
-      Directories: RollupDirectory list
-      Expanded: Set<string>
-      Cursor: RowId
+      Index: TreeIndex
+      Expanded: Set<int>
+      ShowDeleted: bool
+      ShowFiles: bool
+      Rows: TreeRow[]
+      Cursor: int
       Offset: int
       Finished: bool }
 
@@ -46,211 +83,382 @@ module TreeBrowser =
     let private collapsedMarker, expandedMarker, leafMarker = "[+] ", "[-] ", "    "
     let private cursorGutter, noGutter = "> ", "  "
 
-    let private key (path: string) : string = path.ToLowerInvariant()
+    let private symbolOf (kind: ChangeKind) : string =
+        match kind with
+        | ChangeKind.Added -> "+ "
+        | ChangeKind.Changed -> "~ "
+        | ChangeKind.Moved -> "->"
+        | ChangeKind.Deleted -> "- "
+        | ChangeKind.Linked -> "@ "
 
-    /// A row as it is shown, with the identity navigation works on.
-    type private VisibleRow =
-        { Id: RowId
-          Parent: RowId voption
-          Indent: string
-          Marker: string
-          Label: Span list }
+    let private normalize (path: string) : string = if path.Contains '/' then path.Replace('/', '\\') else path
 
-    let private isScope (state: TreeState) (path: string) : bool =
-        String.Equals(path, state.Scope, StringComparison.OrdinalIgnoreCase)
+    /// The names of two files compared without case, from the last backslash of each path, without copying either.
+    let private compareNames (left: string) (right: string) : int =
+        String.Compare(left, left.LastIndexOf '\\' + 1, right, right.LastIndexOf '\\' + 1, Int32.MaxValue, StringComparison.OrdinalIgnoreCase)
 
-    let private childrenOf (state: TreeState) (directory: RollupDirectory) : RollupDirectory list =
-        state.Directories
-        |> List.filter (fun candidate ->
-            not (isScope state candidate.DirectoryPath)
-            && String.Equals(HistoryView.parentOf candidate.DirectoryPath, directory.DirectoryPath, StringComparison.OrdinalIgnoreCase))
-        |> List.sortBy _.DirectoryPath.ToLowerInvariant()
+    /// Builds the index of a scope's directories and changed files. A deleted entry that is the recorded previous path of
+    /// a moved entry is not listed as a file; the move's own row stands for it.
+    let private buildIndex (scope: string) (directories: RollupDirectory list) (entries: ChangeEntry[]) : TreeIndex =
+        let dirs = Array.ofList directories
+        let lookup = Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        dirs |> Array.iteri (fun index directory -> lookup[directory.DirectoryPath] <- index)
 
-    let private isExpandable (state: TreeState) (directory: RollupDirectory) : bool =
-        not directory.Files.IsEmpty || not (childrenOf state directory).IsEmpty
+        let isScopePath (path: string) = String.Equals(path, scope, StringComparison.OrdinalIgnoreCase)
 
-    let private label (state: TreeState) (directory: RollupDirectory) (name: string) : Span list =
-        let source = if HistoryView.isSourceRoot state.SourceRoots directory.DirectoryPath then " [source]" else ""
-        plain (name + source) :: HistoryView.countsSpans directory.Counts
+        let parents =
+            dirs
+            |> Array.map (fun directory ->
+                if isScopePath directory.DirectoryPath then
+                    -1
+                else
+                    match lookup.TryGetValue(HistoryView.parentOf directory.DirectoryPath) with
+                    | true, parent -> parent
+                    | false, _ -> -1)
 
-    let private root (state: TreeState) : RollupDirectory option =
-        state.Directories |> List.tryFind (fun directory -> isScope state directory.DirectoryPath)
+        let kids = Array.init dirs.Length (fun _ -> ResizeArray<int>())
 
-    /// The rows the expanded directories show, from the scope root down, in the order they are drawn.
-    let private visibleRows (state: TreeState) : VisibleRow list =
-        let rows = ResizeArray<VisibleRow>()
+        parents |> Array.iteri (fun index parent -> if parent >= 0 then kids[parent].Add index)
 
-        let rec add (directory: RollupDirectory) (indent: string) (guide: string) (name: string) (parent: RowId voption) : unit =
-            let expandable = isExpandable state directory
-            let expanded = expandable && state.Expanded.Contains(key directory.DirectoryPath)
+        for children in kids do
+            children.Sort(fun a b -> String.CompareOrdinal(dirs[a].DirectoryPath.ToLowerInvariant(), dirs[b].DirectoryPath.ToLowerInvariant()))
+
+        let movedFrom = HashSet<string>(StringComparer.OrdinalIgnoreCase)
+
+        for entry in entries do
+            match entry.ChangedKind, entry.MovedFrom with
+            | ChangeKind.Moved, ValueSome previous -> movedFrom.Add(normalize previous) |> ignore
+            | _ -> ()
+
+        let absorbed = Array.zeroCreate<int> dirs.Length
+        let kept = ResizeArray<struct (int * ChangeEntry)>()
+
+        for entry in entries do
+            let path = normalize entry.ChangedPath
+
+            match lookup.TryGetValue(HistoryView.parentOf path) with
+            | true, node ->
+                if entry.ChangedKind = ChangeKind.Deleted && movedFrom.Contains path then
+                    let mutable current = node
+
+                    while current >= 0 do
+                        absorbed[current] <- absorbed[current] + 1
+                        current <- parents[current]
+                else
+                    kept.Add(struct (node, entry))
+            | false, _ -> ()
+
+        let ordered =
+            kept.ToArray()
+            |> Array.sortWith (fun (struct (leftNode, left)) (struct (rightNode, right)) ->
+                if leftNode <> rightNode then compare leftNode rightNode else compareNames left.ChangedPath right.ChangedPath)
+
+        let files = ordered |> Array.map (fun (struct (_, entry)) -> entry)
+        let starts = Array.create dirs.Length 0
+        let counts = Array.zeroCreate<int> dirs.Length
+
+        ordered
+        |> Array.iteri (fun position (struct (node, _)) ->
+            if counts[node] = 0 then starts[node] <- position
+            counts[node] <- counts[node] + 1)
+
+        let nodes =
+            dirs
+            |> Array.mapi (fun index directory ->
+                { Path = directory.DirectoryPath
+                  Parent = parents[index]
+                  Children = kids[index].ToArray()
+                  Counts = directory.Counts
+                  Depth = HistoryView.relativeDepth scope directory.DirectoryPath
+                  FileStart = starts[index]
+                  FileCount = counts[index]
+                  Absorbed = absorbed[index] })
+
+        let root = dirs |> Array.tryFindIndex (fun directory -> isScopePath directory.DirectoryPath) |> Option.defaultValue -1
+        TreeIndex(nodes, files, root, files |> Array.sumBy (fun entry -> if entry.ChangedKind = ChangeKind.Deleted then 1 else 0))
+
+    let private isListed (showDeleted: bool) (showFiles: bool) (entry: ChangeEntry) : bool =
+        showFiles && (showDeleted || entry.ChangedKind <> ChangeKind.Deleted)
+
+    let private visibleFileCount (index: TreeIndex) (showDeleted: bool) (showFiles: bool) (node: TreeNode) : int =
+        if not showFiles then
+            0
+        elif showDeleted then
+            node.FileCount
+        else
+            let mutable count = 0
+
+            for position in node.FileStart .. node.FileStart + node.FileCount - 1 do
+                if index.Files[position].ChangedKind <> ChangeKind.Deleted then count <- count + 1
+
+            count
+
+    /// Whether a directory has anything to show beneath it: a child directory or a listed file.
+    let private isExpandable (index: TreeIndex) (showDeleted: bool) (showFiles: bool) (node: TreeNode) : bool =
+        node.Children.Length > 0 || visibleFileCount index showDeleted showFiles node > 0
+
+    /// The visible rows, from the scope root down: an expanded directory's child directories, then its listed files.
+    let private buildRows (index: TreeIndex) (expanded: Set<int>) (showDeleted: bool) (showFiles: bool) : TreeRow[] =
+        let rows = ResizeArray<TreeRow>()
+
+        let rec add (nodeIndex: int) (level: int) (isLast: bool) (parent: int) : unit =
+            let node = index.Nodes[nodeIndex]
+            let row = rows.Count
 
             rows.Add
-                { Id = RowId.Dir directory.DirectoryPath
+                { Node = nodeIndex
+                  File = -1
                   Parent = parent
-                  Indent = indent + guide
-                  Marker = if not expandable then leafMarker elif expanded then expandedMarker else collapsedMarker
-                  Label = label state directory name }
+                  Level = level
+                  IsLast = isLast }
 
-            if expanded then
-                let children = childrenOf state directory
-                let total = children.Length + directory.Files.Length
+            if expanded.Contains nodeIndex then
+                let listed = visibleFileCount index showDeleted showFiles node
+                let total = node.Children.Length + listed
 
-                let isLast (position: int) = position = total - 1
-                // The children of the root hang from the root's own column; the root draws no guide itself.
-                let below = if guide.Length = 0 then indent else indent + (if guide = lastBranch then blank else trunk)
+                node.Children |> Array.iteri (fun position child -> add child (level + 1) (position = total - 1) row)
 
-                children
-                |> List.iteri (fun position child ->
-                    add child below (if isLast position then lastBranch else branch) (HistoryView.nameOf child.DirectoryPath) (ValueSome(RowId.Dir directory.DirectoryPath)))
+                let mutable position = node.Children.Length
 
-                directory.Files
-                |> List.iteri (fun position file ->
-                    rows.Add
-                        { Id = RowId.File(directory.DirectoryPath, position)
-                          Parent = ValueSome(RowId.Dir directory.DirectoryPath)
-                          Indent = below + (if isLast (children.Length + position) then lastBranch else branch)
-                          Marker = leafMarker
-                          Label = [ plain (HistoryView.changeText file) ] })
+                for file in node.FileStart .. node.FileStart + node.FileCount - 1 do
+                    if isListed showDeleted showFiles index.Files[file] then
+                        rows.Add
+                            { Node = nodeIndex
+                              File = file
+                              Parent = row
+                              Level = level + 1
+                              IsLast = position = total - 1 }
 
-        match root state with
-        | Some directory -> add directory "" "" (if state.Scope.Length = 0 then "." else state.Scope) ValueNone
-        | None -> ()
+                        position <- position + 1
 
-        List.ofSeq rows
+        if index.Root >= 0 then add index.Root 0 true -1
 
-    /// The effective depth of the first view: the requested depth, or one level when none was requested.
-    let private effectiveDepth (depth: int voption) : int =
-        match depth with
-        | ValueSome limit -> limit
-        | ValueNone -> 1
+        rows.ToArray()
 
-    /// A session over a snapshot's directories. The scope root and every directory fewer levels below it than the depth
-    /// start expanded; the cursor is on the scope root.
+    /// A session over a scope's directories and changed files. The scope root and every directory fewer levels below it
+    /// than the depth (one level when there is none) start expanded; the cursor is on the scope root. `directories` carry
+    /// the counts, `entries` the files, every change under the scope.
     let create
         (header: Display)
         (scopeDirectory: string)
         (sourceRoots: Set<string>)
         (depth: int voption)
         (directories: RollupDirectory list)
+        (entries: ChangeEntry[])
         : TreeState =
         let scope = HistoryView.normalizeScope scopeDirectory
-        let limit = effectiveDepth depth
-
-        let initial =
-            { Header = header
-              Scope = scope
-              SourceRoots = sourceRoots
-              Directories = directories
-              Expanded = Set.empty
-              Cursor = RowId.Dir scope
-              Offset = 0
-              Finished = false }
+        let limit = match depth with ValueSome value -> value | ValueNone -> 1
+        let index = buildIndex scope directories entries
 
         let expanded =
-            directories
-            |> List.filter (fun directory -> HistoryView.relativeDepth scope directory.DirectoryPath < limit && isExpandable initial directory)
-            |> List.map (fun directory -> key directory.DirectoryPath)
-            |> Set.ofList
+            index.Nodes
+            |> Array.mapi (fun position node -> struct (position, node))
+            |> Array.filter (fun (struct (_, node)) -> node.Depth < limit && isExpandable index true true node)
+            |> Array.map (fun (struct (position, _)) -> position)
+            |> Set.ofArray
 
-        { initial with Expanded = expanded }
+        { Header = header
+          Scope = scope
+          SourceRoots = sourceRoots
+          Index = index
+          Expanded = expanded
+          ShowDeleted = true
+          ShowFiles = true
+          Rows = buildRows index expanded true true
+          Cursor = 0
+          Offset = 0
+          Finished = false }
 
-    /// The identity of the row the cursor is really on: the cursor itself when its row is shown, otherwise the nearest
-    /// shown ancestor, so a collapse never leaves the cursor on a row that is gone.
-    let private settle (state: TreeState) (rows: VisibleRow list) : RowId =
-        let shown (id: RowId) = rows |> List.exists (fun row -> row.Id = id)
+    /// The state with its rows rebuilt from the expansion and the toggles. The cursor stays on its row, or on the nearest
+    /// visible ancestor of it when that row is gone.
+    let private rebuild (state: TreeState) : TreeState =
+        let rows = buildRows state.Index state.Expanded state.ShowDeleted state.ShowFiles
 
-        let rec climb (path: string) : RowId =
-            if shown (RowId.Dir path) || path.Length = 0 || isScope state path then
-                RowId.Dir(if shown (RowId.Dir path) then path else state.Scope)
+        let cursor =
+            if state.Rows.Length = 0 || rows.Length = 0 then
+                0
             else
-                climb (HistoryView.parentOf path)
+                let before = state.Rows[state.Cursor]
+                let find (node: int) (file: int) = rows |> Array.tryFindIndex (fun row -> row.Node = node && row.File = file)
 
-        if shown state.Cursor then
-            state.Cursor
-        else
-            match state.Cursor with
-            | RowId.Dir path -> climb path
-            | RowId.File(directory, _) -> climb directory
+                let rec climb (node: int) : int =
+                    match find node -1 with
+                    | Some position -> position
+                    | None when node > 0 && state.Index.Nodes[node].Parent >= 0 -> climb state.Index.Nodes[node].Parent
+                    | None -> 0
 
-    let private indexOfCursor (state: TreeState) (rows: VisibleRow list) : int =
-        let cursor = settle state rows
-        rows |> List.tryFindIndex (fun row -> row.Id = cursor) |> Option.defaultValue 0
+                match find before.Node before.File with
+                | Some position -> position
+                | None -> climb before.Node
 
-    let private moveTo (rows: VisibleRow list) (index: int) (state: TreeState) : TreeState =
-        match List.tryItem index rows with
-        | Some row -> { state with Cursor = row.Id }
-        | None -> state
+        { state with Rows = rows; Cursor = cursor }
 
-    let private currentDirectory (state: TreeState) (id: RowId) : RollupDirectory option =
-        match id with
-        | RowId.Dir path -> state.Directories |> List.tryFind (fun directory -> String.Equals(directory.DirectoryPath, path, StringComparison.OrdinalIgnoreCase))
-        | RowId.File _ -> None
+    let private moveTo (position: int) (state: TreeState) : TreeState =
+        if position < 0 || position >= state.Rows.Length then state else { state with Cursor = position }
 
     /// The state after a key.
     let step (pressed: Key) (state: TreeState) : TreeState =
-        let rows = visibleRows state
-        let index = indexOfCursor state rows
-        let state = { state with Cursor = (settle state rows) }
-        let last = rows.Length - 1
+        let rows = state.Rows
+        let cursor = state.Cursor
+        let index = state.Index
 
         match pressed with
-        | Key.Up -> moveTo rows (max 0 (index - 1)) state
-        | Key.Down -> moveTo rows (min last (index + 1)) state
-        | Key.Home -> moveTo rows 0 state
-        | Key.End -> moveTo rows last state
         | Key.Quit -> { state with Finished = true }
         | Key.Other -> state
+        | _ when rows.Length = 0 -> state
+        | Key.Up -> moveTo (max 0 (cursor - 1)) state
+        | Key.Down -> moveTo (min (rows.Length - 1) (cursor + 1)) state
+        | Key.Home -> moveTo 0 state
+        | Key.End -> moveTo (rows.Length - 1) state
+        | Key.ToggleDeleted -> rebuild { state with ShowDeleted = not state.ShowDeleted }
+        | Key.ToggleFiles -> rebuild { state with ShowFiles = not state.ShowFiles }
         | Key.ExpandAll ->
-            { state with
-                Expanded =
-                    state.Directories
-                    |> List.filter (isExpandable state)
-                    |> List.map (fun directory -> key directory.DirectoryPath)
-                    |> Set.ofList }
+            let all =
+                index.Nodes
+                |> Array.mapi (fun position node -> struct (position, node))
+                |> Array.filter (fun (struct (_, node)) -> isExpandable index state.ShowDeleted state.ShowFiles node)
+                |> Array.map (fun (struct (position, _)) -> position)
+                |> Set.ofArray
+
+            rebuild { state with Expanded = all }
         | Key.Right ->
-            match currentDirectory state state.Cursor with
-            | Some directory when isExpandable state directory ->
-                if state.Expanded.Contains(key directory.DirectoryPath) then
-                    moveTo rows (index + 1) state
+            let row = rows[cursor]
+
+            if row.File >= 0 then
+                state
+            else
+                let node = index.Nodes[row.Node]
+
+                if not (isExpandable index state.ShowDeleted state.ShowFiles node) then state
+                elif state.Expanded.Contains row.Node then
+                    if cursor + 1 < rows.Length && rows[cursor + 1].Parent = cursor then moveTo (cursor + 1) state else state
                 else
-                    { state with Expanded = state.Expanded.Add(key directory.DirectoryPath) }
-            | _ -> state
+                    rebuild { state with Expanded = state.Expanded.Add row.Node }
         | Key.Left ->
-            match currentDirectory state state.Cursor with
-            | Some directory when state.Expanded.Contains(key directory.DirectoryPath) && isExpandable state directory ->
-                { state with Expanded = state.Expanded.Remove(key directory.DirectoryPath) }
-            | _ ->
-                match List.tryItem index rows with
-                | Some { Parent = ValueSome parent } -> { state with Cursor = parent }
-                | _ -> state
+            let row = rows[cursor]
+
+            if row.File < 0
+               && state.Expanded.Contains row.Node
+               && isExpandable index state.ShowDeleted state.ShowFiles index.Nodes[row.Node] then
+                rebuild { state with Expanded = state.Expanded.Remove row.Node }
+            elif row.Parent >= 0 then
+                moveTo row.Parent state
+            else
+                state
 
     let private hints = "Up/Down move  Right/Left expand/collapse  Home/End  * expand all  q quit"
 
-    /// The lines of one frame for a terminal of the given height, and the state with its scroll offset fitted so the
-    /// cursor row is shown and no empty space is left while rows are hidden above. The tree gets the height less the
-    /// header and the status line, and at least one row.
-    let frame (height: int) (state: TreeState) : TreeState * Display =
-        let rows = visibleRows state
-        let index = indexOfCursor state rows
-        let cursor = rows |> List.tryItem index |> Option.map _.Id |> Option.defaultValue state.Cursor
-        let capacity = max 1 (height - state.Header.Length - 1)
-        let tooFar = if index < state.Offset then index else state.Offset
-        let fitted = if index >= tooFar + capacity then index - capacity + 1 else tooFar
-        let offset = max 0 (min fitted (max 0 (rows.Length - capacity)))
-        let shown = rows |> List.skip offset |> List.truncate capacity
-        let above = offset
-        let below = rows.Length - offset - shown.Length
+    /// A line cut to the width, with an ellipsis at the cut: from the end, or from the start for a path, whose last
+    /// segments are the ones that tell.
+    let private fit (width: int) (keepEnd: bool) (text: string) : string =
+        if width < 4 || text.Length <= width then text
+        elif keepEnd then "..." + text.Substring(text.Length - (width - 3))
+        else text.Substring(0, width - 3) + "..."
 
-        let lines =
-            shown
-            |> List.map (fun row ->
-                let gutter = if row.Id = cursor then cursorGutter else noGutter
-                Line.Spans(plain (gutter + row.Indent + row.Marker) :: row.Label))
+    /// The guide characters in front of a row: one column per ancestor below the scope root, then the row's own branch.
+    let private guideOf (rows: TreeRow[]) (position: int) : string =
+        let row = rows[position]
+
+        if row.Level = 0 then
+            ""
+        else
+            let columns = Stack<string>()
+            let mutable ancestor = row.Parent
+
+            while ancestor >= 0 && rows[ancestor].Level >= 1 do
+                columns.Push(if rows[ancestor].IsLast then blank else trunk)
+                ancestor <- rows[ancestor].Parent
+
+            String.Concat(columns) + (if row.IsLast then lastBranch else branch)
+
+    let private rowLine (state: TreeState) (position: int) (isCursor: bool) : Line =
+        let rows = state.Rows
+        let row = rows[position]
+        let index = state.Index
+        let gutter = if isCursor then cursorGutter else noGutter
+        let prefix = gutter + guideOf rows position
+
+        if row.File >= 0 then
+            let entry = index.Files[row.File]
+            let tone = HistoryView.toneOfKind entry.ChangedKind
+
+            Line.Spans
+                [ plain prefix
+                  span tone (symbolOf entry.ChangedKind)
+                  plain (" " + HistoryView.nameOf entry.ChangedPath) ]
+        else
+            let node = index.Nodes[row.Node]
+
+            let marker =
+                if not (isExpandable index state.ShowDeleted state.ShowFiles node) then leafMarker
+                elif state.Expanded.Contains row.Node then expandedMarker
+                else collapsedMarker
+
+            let name =
+                if row.Level = 0 then (if state.Scope.Length = 0 then "." else state.Scope)
+                else HistoryView.nameOf node.Path
+
+            let source = if HistoryView.isSourceRoot state.SourceRoots node.Path then " [source]" else ""
+            Line.Spans(plain (prefix + marker) :: plain (name + source) :: HistoryView.countsSpans node.Counts)
+
+    /// What is said about the row under the cursor: its full path and, for a moved file, where it came from; for a
+    /// directory, how many deleted entries moves absorb beneath it.
+    let private detailOf (state: TreeState) (row: TreeRow) : string =
+        let index = state.Index
+
+        if row.File >= 0 then
+            let entry = index.Files[row.File]
+
+            match entry.ChangedKind, entry.MovedFrom with
+            | ChangeKind.Moved, ValueSome previous -> $"{entry.ChangedPath}  (moved from {previous})"
+            | _ -> entry.ChangedPath
+        else
+            let node = index.Nodes[row.Node]
+            let path = if row.Level = 0 && state.Scope.Length = 0 then "(mirror root)" else node.Path
+
+            if node.Absorbed > 0 then
+                let noun = if node.Absorbed = 1 then "entry" else "entries"
+                $"{path}  ({node.Absorbed} deleted {noun} not listed: moved)"
+            else
+                path
+
+    let private toggleStatus (state: TreeState) : string list =
+        let files = state.Index.Files.Length
+
+        let deleted =
+            if state.ShowDeleted then "d deleted: shown" else $"d deleted: hidden ({state.Index.DeletedFiles})"
+
+        let shown = if state.ShowFiles then "f files: shown" else $"f files: hidden ({files})"
+        [ deleted; shown ]
+
+    /// The lines of one frame for a terminal of the given width and height, and the state with its scroll offset fitted so
+    /// the cursor row is shown and no empty space is left while rows are hidden above. The tree gets the height less the
+    /// header, the detail line and the status line, and at least one row. The detail and status lines are cut to the
+    /// width, the status line first giving up its key hints.
+    let frame (width: int) (height: int) (state: TreeState) : TreeState * Display =
+        let rows = state.Rows
+        let cursor = if rows.Length = 0 then 0 else min state.Cursor (rows.Length - 1)
+        let capacity = max 1 (height - state.Header.Length - 2)
+        let tooFar = if cursor < state.Offset then cursor else state.Offset
+        let fitted = if cursor >= tooFar + capacity then cursor - capacity + 1 else tooFar
+        let offset = max 0 (min fitted (max 0 (rows.Length - capacity)))
+        let last = min rows.Length (offset + capacity)
+
+        let lines = [ for position in offset .. last - 1 -> rowLine state position (position = cursor) ]
+
+        let detail =
+            if rows.Length = 0 then Line.Text(Tone.Detail, "")
+            else Line.Text(Tone.Detail, fit (width - 1) true (detailOf state rows[cursor]))
 
         let more =
-            [ if above > 0 then $"({above} more above)"
-              if below > 0 then $"({below} more below)" ]
+            [ if offset > 0 then $"({offset} more above)"
+              if rows.Length - last > 0 then $"({rows.Length - last} more below)" ]
 
-        let status = String.Join("  ", more @ [ hints ])
+        let withHints = String.Join("  ", more @ toggleStatus state @ [ hints ])
+        let withoutHints = String.Join("  ", more @ toggleStatus state @ [ "q quit" ])
 
-        { state with Cursor = cursor; Offset = offset }, state.Header @ lines @ [ Line.Text(Tone.Neutral, status) ]
+        let status =
+            if withHints.Length <= width - 1 then withHints
+            else fit (width - 1) false withoutHints
+
+        { state with Cursor = cursor; Offset = offset }, state.Header @ lines @ [ detail; Line.Text(Tone.Neutral, status) ]

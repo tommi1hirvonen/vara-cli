@@ -48,3 +48,33 @@ Files already exist in the data: `RollupDirectory.Files` is filled by `History.r
 ## Open Questions
 
 - Whether the `?` key should show a help overlay is deferred; the status line hints cover the keys for now.
+
+## Measurements
+
+`TreeBrowserBenchmarks`, `--job short`, about 2,000 directories, files listed (`includeFiles` true), run from `vara-cli-scratch`. Allocations are the asserted figures.
+
+Before (the browser as archived, commit `2cf4f6d`):
+
+| Operation | Entries | Mean | Allocated |
+|---|---:|---:|---:|
+| Create | 20,000 | 1.5 us | 7.5 KB |
+| Expand All + one frame | 20,000 | 10.8 ms | 8.2 MB |
+| 20 cursor steps, each with a frame | 20,000 | 497 ms | 327 MB |
+| Create | 200,000 | 1.4 us | 7.5 KB |
+| Expand All + one frame | 200,000 | 116 ms | 82 MB |
+| 20 cursor steps, each with a frame | 200,000 | 4,763 ms | 3,265 MB |
+
+About 240 ms and 160 MB per key press at 200,000 entries, so the current browser is not usable with file rows on a large snapshot.
+
+After (the indexed browser with cached rows, same benchmark and machine state):
+
+| Operation | Entries | Mean | Allocated |
+|---|---:|---:|---:|
+| Create (index and first rows) | 20,000 | 6.7 ms | 5.4 MB |
+| Expand All + one frame | 20,000 | 6.9 ms | 7.1 MB |
+| 20 cursor steps, each with a frame | 20,000 | 59 us | 492 KB |
+| Create (index and first rows) | 200,000 | 94.6 ms | 48.6 MB |
+| Expand All + one frame | 200,000 | 99.6 ms | 62.8 MB |
+| 20 cursor steps, each with a frame | 200,000 | 60 us | 500 KB |
+
+Twenty cursor steps with frames went from 4,763 ms and 3,265 MB to 60 us and 500 KB at 200,000 entries, and no longer depend on the entry count (59 us at 20,000). Expand All with a frame improved (116 ms to 100 ms, 82 MB to 63 MB). The one cost that grew is opening: the old `Create` did no work (its rows were derived at the first frame), the new one builds the index and the first rows once, 6.7 ms at 20,000 entries and 95 ms at 200,000. Results are stored in `benchmarks/baselines/2026-11-13-tree-browser-fsharp-net11` (`before` and `after`).
