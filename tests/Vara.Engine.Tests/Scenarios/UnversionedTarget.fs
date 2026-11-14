@@ -1,8 +1,8 @@
-/// A target in on-disk format version 0, the format of every target written so far, recorded as files for the engine to
+/// A target written before the manifest recorded a schema version, which is every target written so far, recorded as files for the engine to
 /// continue. The recorded `vara` folder is the target's `.vara` (the manifest and the blobs), the recorded `mirror` folder
 /// is what the mirror held under the source directory, and the manifest's paths hold `@ROOT@` where the recording's
 /// scratch directory was. Users keep their targets across releases, so the engine must read this format as it is.
-module Vara.Engine.Tests.FormatV0Target
+module Vara.Engine.Tests.UnversionedTarget
 
 open System.IO
 open Microsoft.Data.Sqlite
@@ -10,7 +10,7 @@ open Vara.Domain
 open Vara.Engine.Tests.EngineScenarios
 open Vara.Testing
 
-let area = "format-v0"
+let area = "unversioned"
 
 /// The placeholder for the scratch directory in the recorded manifest.
 let rootPlaceholder = "@ROOT@"

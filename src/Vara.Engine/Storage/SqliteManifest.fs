@@ -26,6 +26,15 @@ module SqliteManifest =
         builder.Pooling <- false
         new SqliteConnection(builder.ConnectionString)
 
+    /// Runs `step` on a just-opened connection, which is closed again if it raises, so a refusal leaves no handle on
+    /// the file.
+    let private guarded (connection: SqliteConnection) (step: unit -> unit) : unit =
+        try
+            step ()
+        with _ ->
+            connection.Dispose()
+            reraise ()
+
     /// Opens, or creates, the manifest at `databasePath`. With `createIfMissing` false and no file there, nothing is
     /// created: the handle is empty, so a read-only command leaves no `profile.db` behind.
     let openAt (databasePath: string) (createIfMissing: bool) : ManifestHandle =
@@ -39,17 +48,19 @@ module SqliteManifest =
 
             let connection = connectionTo databasePath SqliteOpenMode.ReadWriteCreate
             connection.Open()
-            ManifestSchema.initialize connection
+            guarded connection (fun () -> ManifestSchema.initialize connection)
             { Connection = ValueSome connection }
 
-    /// Opens the manifest for reading only: no pragma, no table creation, no migration, so the file is left exactly
-    /// as it was (an empty handle when there is none). A reader never creates a `profile.db`.
+    /// Opens the manifest for reading only: no pragma, no table creation, no migration, no stamp, so the file is left
+    /// exactly as it was (an empty handle when there is none). A reader never creates a `profile.db`. A manifest newer
+    /// than this build supports is refused.
     let openReadOnly (databasePath: string) : ManifestHandle =
         if not (File.Exists databasePath) then
             { Connection = ValueNone }
         else
             let connection = connectionTo databasePath SqliteOpenMode.ReadOnly
             connection.Open()
+            guarded connection (fun () -> ManifestSchema.refuseNewerThan ManifestSchema.currentVersion connection)
             { Connection = ValueSome connection }
 
     let close (handle: ManifestHandle) : unit =

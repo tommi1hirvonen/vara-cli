@@ -11,6 +11,7 @@
     <Compile Include="Commands\PruneCommandTests.fs" />
     <Compile Include="Commands\CheckCommandTests.fs" />
     <Compile Include="Commands\ProfilesCommandTests.fs" />
+    <Compile Include="Commands\ManifestVersionCommandTests.fs" />
     <Compile Include="Output\PresentationCommandTests.fs" />
     <Compile Include="Output\RunProgressTests.fs" />
     <Compile Include="Output\RestorePresentationTests.fs" />

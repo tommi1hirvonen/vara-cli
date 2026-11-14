@@ -7,6 +7,16 @@ open System.IO
 open Microsoft.Data.Sqlite
 open Vara.Domain
 
+/// Raised when a manifest was written by a newer build than this one: opening it could misread or damage it, so no
+/// command touches it. The CLI reports it as a hard error.
+type ManifestSchemaTooNew(found: int, supported: int) =
+    inherit
+        Exception
+            $"The backup state of this profile is schema version {found}, but this version of vara supports up to version {supported}. Use a newer vara with it."
+
+    member _.Found: int = found
+    member _.Supported: int = supported
+
 /// An open manifest. `Connection` is absent for a read-only caller whose target has no `profile.db`: every read
 /// then reports no recorded state, and any write raises.
 type ManifestHandle = { Connection: SqliteConnection voption }

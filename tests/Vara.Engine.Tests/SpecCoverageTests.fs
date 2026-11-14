@@ -85,3 +85,8 @@ let ``every owned profile-management scenario has a test`` () =
 let ``every owned portable-distribution scenario has a test`` () =
     let missing = missingIn "portable-distribution"
     Assert.True(missing.IsEmpty, show missing)
+
+[<Fact>]
+let ``every owned manifest-versioning scenario has a test`` () =
+    let missing = missingIn "manifest-versioning"
+    Assert.True(missing.IsEmpty, show missing)

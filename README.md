@@ -262,6 +262,12 @@ folder:
     tmp\                       staging area for atomic writes
 ```
 
+The manifest records its schema version (SQLite's `user_version`; currently 1). A manifest with
+no recorded version, which is what every target written before versioning holds, counts as
+version 1 and is stamped by the next backup. The version is also the version of the target's
+layout. Vara refuses to open a manifest recorded with a newer version than it supports, for
+every command, and exits with status 1 without changing anything.
+
 A mirror path is derived from a source file's **full absolute path** (e.g.
 `C:\Users\john\Documents\notes.txt` → `<target>\C\Users\john\Documents\notes.txt`), so
 files from multiple configured sources never collide in the mirror, and the mirror
@@ -382,7 +388,7 @@ after one of its scenarios, and the spec-coverage tests fail when a scenario of 
 **Recorded corpus.** `tests/Vara.Engine.Tests/Corpus` holds golden files: the expected
 results of the configuration loader (including files exactly as the profile editor writes
 them), the retention decisions around calendar boundaries, the backup engine's scenarios,
-and the manifest migration. `format-v0` is a complete target in on-disk format version 0,
+and the manifest migration. `unversioned` is a complete target written before the manifest recorded a schema version,
 which the engine must keep reading, because users keep their targets across releases. The
 files are data (marked `-text` in `.gitattributes`, so their bytes are never converted) and
 are compared with the actual results by plain functions. Nothing regenerates them: a corpus

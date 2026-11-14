@@ -43,4 +43,8 @@
     <ProjectReference Include="..\Vara.Domain\Vara.Domain.fsproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Vara.Engine.Tests" />
+  </ItemGroup>
+
 </Project>

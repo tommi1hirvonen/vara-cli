@@ -164,3 +164,21 @@ let ``show writes the stored bytes to standard output unchanged`` () =
 
         Assert.Equal(0, run.ExitCode)
         Assert.Equal<byte array>(content, run.Out))
+
+[<Fact>]
+let ``a manifest from a newer version is refused with exit code 1 and the target is untouched`` () =
+    scratch (fun setup ->
+        write setup "a.txt" "alpha"
+        Assert.Equal(0, (backup setup []).ExitCode)
+        Vara.Cli.Tests.ManifestVersionCommandTests.stampManifest setup 99
+        let databasePath = Vara.Engine.SqliteManifest.pathIn setup.Target
+        let before = File.ReadAllBytes databasePath
+        write setup "b.txt" "bravo"
+
+        let run = backup setup [ "--json" ]
+
+        Assert.Equal(1, run.ExitCode)
+        Assert.Empty run.Out
+        Assert.Contains("schema version 99", run.Err)
+        Assert.Contains("supports up to version 1", run.Err)
+        Assert.Equal<byte array>(before, File.ReadAllBytes databasePath))

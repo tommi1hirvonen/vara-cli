@@ -20,8 +20,10 @@ let set
                 try
                     let! outcome = handler parseResult cancellationToken
                     return Outcome.exitCode outcome
-                with error ->
-                    return Outcome.exitCode (ErrorReporting.unhandled errorConsole error)
+                with
+                | :? Vara.Engine.ManifestSchemaTooNew as refusal ->
+                    return Outcome.exitCode (ErrorReporting.report errorConsole refusal.Message)
+                | error -> return Outcome.exitCode (ErrorReporting.unhandled errorConsole error)
             })
     )
 

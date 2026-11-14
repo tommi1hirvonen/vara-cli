@@ -7,6 +7,7 @@
     <Compile Include="Foundation\InteropTests.fs" />
     <Compile Include="Storage\ContentStoreTests.fs" />
     <Compile Include="Storage\SqliteManifestTests.fs" />
+    <Compile Include="Storage\ManifestVersioningTests.fs" />
     <Compile Include="Runs\ScannerTests.fs" />
     <Compile Include="Runs\SignatureTests.fs" />
     <Compile Include="Runs\PowerRequestTests.fs" />
@@ -18,7 +19,7 @@
     <Compile Include="Config\ConfigurationTests.fs" />
     <Compile Include="Config\ProfileWriterTests.fs" />
     <Compile Include="Scenarios\EngineScenarios.fs" />
-    <Compile Include="Scenarios\FormatV0Target.fs" />
+    <Compile Include="Scenarios\UnversionedTarget.fs" />
     <Compile Include="Scenarios\EngineCorpusTests.fs" />
     <Compile Include="Scenarios\LoaderCorpusTests.fs" />
     <Compile Include="Scenarios\RetentionCorpusTests.fs" />
