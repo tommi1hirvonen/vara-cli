@@ -18,7 +18,11 @@ let create (env: CliEnv) : Command =
         )
 
     let configOption = HistorySession.configOption ()
-    let command = Command("snapshots", "List recorded snapshots for a profile.")
+    let command =
+        Command(
+            "snapshots",
+            "List recorded snapshots for a profile; the profile argument is optional inside its target."
+        )
     command.Arguments.Add profileArgument
     command.Options.Add configOption
 

@@ -47,7 +47,11 @@ let create (env: CliEnv) : Command =
                 "Browse the change tree with the keyboard: " + ChangeTree.interactiveHelp
         )
 
-    let command = Command("snapshot", "Show the directory changes recorded by one snapshot.")
+    let command =
+        Command(
+            "snapshot",
+            "Show the directory changes recorded by one snapshot; the directory scope is optional."
+        )
     command.Arguments.Add idArgument
     command.Arguments.Add directoryArgument
     command.Options.Add profileOption

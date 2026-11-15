@@ -28,7 +28,11 @@ let create (env: CliEnv) : Command =
     let deletedOption =
         Option<bool>("--deleted", Description = "Include deleted entries, interleaved among live ones and visually marked.")
 
-    let command = Command("browse", "List the immediate (one-level) contents of a directory within a profile's mirror.")
+    let command =
+        Command(
+            "browse",
+            "List the immediate (one-level) contents of a mirror directory; the directory argument is optional."
+        )
     command.Arguments.Add directoryArgument
     command.Options.Add profileOption
     command.Options.Add atOption

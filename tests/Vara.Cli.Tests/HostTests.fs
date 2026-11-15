@@ -66,3 +66,13 @@ let ``help describes the tool`` () =
     let struct (exitCode, output) = invoke (Composition.rootCommand ()) [| "--help" |] CancellationToken.None
     Assert.Equal(0, exitCode)
     Assert.Contains("Vara - versioned, deduplicated backup tool", output)
+
+[<Fact>]
+let ``root help identifies optional positional arguments`` () =
+    let root = Composition.rootCommand () |> Composition.withCommands CliEnv.live
+    let struct (exitCode, output) = invoke root [| "--help" |] CancellationToken.None
+
+    Assert.Equal(0, exitCode)
+    Assert.Contains("profile argument is optional", output)
+    Assert.Contains("directory scope is optional", output)
+    Assert.Contains("directory argument is optional", output)

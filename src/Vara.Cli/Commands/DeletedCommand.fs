@@ -22,7 +22,11 @@ let create (env: CliEnv) : Command =
     let sinceOption =
         Option<string | null>("--since", Description = DateInput.help "Only include files deleted at or after this date/time")
 
-    let command = Command("deleted", "Report files deleted from a profile, most recently deleted first.")
+    let command =
+        Command(
+            "deleted",
+            "Report files deleted from a profile, most recently deleted first; the directory scope is optional."
+        )
     command.Arguments.Add directoryArgument
     command.Options.Add profileOption
     command.Options.Add sinceOption
