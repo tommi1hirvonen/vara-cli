@@ -8,13 +8,17 @@ open Vara.Domain
 /// that changes it.
 module ManifestMaintenance =
     open ManifestSql
+    open CommandBuilder
 
     /// Every content hash that some row references, link rows (which have none) excluded.
     let referencedHashes (handle: ManifestHandle) : Set<ContentHash> =
         handle
         |> readOr Set.empty (fun connection ->
-            use command = connection.CreateCommand()
-            command.CommandText <- "SELECT DISTINCT content_hash FROM file_versions WHERE content_hash IS NOT NULL"
+            use command =
+                command connection {
+                    text "SELECT DISTINCT content_hash FROM file_versions WHERE content_hash IS NOT NULL"
+                }
+
             use reader = command.ExecuteReader()
 
             [ while reader.Read() do
@@ -28,10 +32,15 @@ module ManifestMaintenance =
     let referencedSizes (handle: ManifestHandle) : (ContentHash * int64) list =
         handle
         |> readOr [] (fun connection ->
-            use command = connection.CreateCommand()
-
-            command.CommandText <-
-                "SELECT content_hash, MAX(size) FROM file_versions WHERE content_hash IS NOT NULL GROUP BY content_hash ORDER BY content_hash"
+            use command =
+                command connection {
+                    text
+                        """
+                        SELECT content_hash, MAX(size)
+                        FROM file_versions
+                        WHERE content_hash IS NOT NULL GROUP BY content_hash ORDER BY content_hash
+                        """
+                }
 
             use reader = command.ExecuteReader()
 
@@ -44,12 +53,17 @@ module ManifestMaintenance =
     let pathsForHash (handle: ManifestHandle) (hash: ContentHash) : string list =
         handle
         |> readOr [] (fun connection ->
-            use command = connection.CreateCommand()
+            use command =
+                command connection {
+                    text
+                        """
+                        SELECT DISTINCT relative_path
+                        FROM file_versions
+                        WHERE content_hash = $hash ORDER BY relative_path
+                        """
+                    parameters { "$hash", ContentHash.value hash }
+                }
 
-            command.CommandText <-
-                "SELECT DISTINCT relative_path FROM file_versions WHERE content_hash = $hash ORDER BY relative_path"
-
-            addText command "$hash" (ContentHash.value hash)
             use reader = command.ExecuteReader()
             [ while reader.Read() do yield reader.GetString 0 ])
 
@@ -78,15 +92,15 @@ module ManifestMaintenance =
                     // The keep set can hold every path ever recorded, so it goes through a table, not into the statement.
                     execute connection transaction "CREATE TEMP TABLE live_rows (id INTEGER PRIMARY KEY)"
 
-                    use insert = connection.CreateCommand()
-                    insert.Transaction <- transaction
-                    insert.CommandText <- "INSERT INTO live_rows (id) VALUES ($id)"
-                    let parameter = insert.CreateParameter()
-                    parameter.ParameterName <- "$id"
-                    insert.Parameters.Add parameter |> ignore
+                    use insert =
+                        command connection {
+                            text "INSERT INTO live_rows (id) VALUES ($id)"
+                            CommandBuilder.transaction transaction
+                            parameters { "$id", 0L }
+                        }
 
                     for winner in (resolve connection transaction).Values do
-                        parameter.Value <- winner.WinnerId
+                        insert.Parameters["$id"].Value <- winner.WinnerId
                         insert.ExecuteNonQuery() |> ignore
 
                     execute
@@ -95,11 +109,15 @@ module ManifestMaintenance =
                         $"DELETE FROM file_versions WHERE snapshot_id IN ({idList}) AND id NOT IN (SELECT id FROM live_rows)"
 
                     let removed =
-                        use command = connection.CreateCommand()
-                        command.Transaction <- transaction
-
-                        command.CommandText <-
-                            $"DELETE FROM snapshots WHERE id IN ({idList}) AND id NOT IN (SELECT DISTINCT snapshot_id FROM file_versions)"
+                        use command =
+                            command connection {
+                                text
+                                    $"""
+                                    DELETE FROM snapshots
+                                    WHERE id IN ({idList}) AND id NOT IN (SELECT DISTINCT snapshot_id FROM file_versions)
+                                    """
+                                CommandBuilder.transaction transaction
+                            }
 
                         command.ExecuteNonQuery()
 

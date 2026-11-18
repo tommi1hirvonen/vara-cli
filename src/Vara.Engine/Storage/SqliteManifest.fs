@@ -10,6 +10,7 @@ open Vara.Domain
 /// part of the on-disk format, so that a target stays readable across releases. This module opens it and holds
 /// what a backup run does to it; `ManifestQueries` reads history and `ManifestMaintenance` serves prune and check.
 module SqliteManifest =
+    open CommandBuilder
     open ManifestSql
 
     /// Where the manifest of the target rooted at `targetRoot` lives. Every caller asks here, so the layout is stated
@@ -70,25 +71,40 @@ module SqliteManifest =
 
     /// Marks every snapshot still `Running` as failed: the run that began it died.
     let reconcileIncompleteSnapshots (handle: ManifestHandle) (now: DateTimeOffset) : unit =
-        use command = (requireConnection handle).CreateCommand()
+        use command =
+            command (requireConnection handle) {
+                text
+                    """
+                    UPDATE snapshots
+                    SET status = $failed, completed_at = COALESCE(completed_at, $now)
+                    WHERE status = $running
+                    """
+                parameters {
+                    "$failed", "Failed"
+                    "$running", "Running"
+                    "$now", toIso now
+                }
+            }
 
-        command.CommandText <-
-            "UPDATE snapshots SET status = $failed, completed_at = COALESCE(completed_at, $now) WHERE status = $running"
-
-        addText command "$failed" "Failed"
-        addText command "$running" "Running"
-        addText command "$now" (toIso now)
         command.ExecuteNonQuery() |> ignore
 
     /// Commits at once, outside any batch, so an interrupted run stays discoverable as `Running`.
     let beginSnapshot (handle: ManifestHandle) (startedAt: DateTimeOffset) : int64 =
-        use command = (requireConnection handle).CreateCommand()
+        use command =
+            command (requireConnection handle) {
+                text
+                    """
+                    INSERT INTO snapshots (started_at, status)
+                    VALUES ($startedAt, $status);
 
-        command.CommandText <-
-            "INSERT INTO snapshots (started_at, status) VALUES ($startedAt, $status); SELECT last_insert_rowid();"
+                    SELECT last_insert_rowid();
+                    """
+                parameters {
+                    "$startedAt", toIso startedAt
+                    "$status", "Running"
+                }
+            }
 
-        addText command "$startedAt" (toIso startedAt)
-        addText command "$status" "Running"
         Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture)
 
     /// Opens the run's write transaction, so rows and the final outcome commit together at checkpoints.
@@ -121,21 +137,6 @@ module SqliteManifest =
     /// Records one row in the run's transaction. A link's row has no hash, no size and no time, only its target; a
     /// deleted link has no target.
     let record (batch: ManifestBatch) (snapshotId: int64) (row: ManifestRow) : unit =
-        use command = batch.BatchConnection.CreateCommand()
-        command.Transaction <- batch.Transaction
-
-        command.CommandText <-
-            """
-            INSERT INTO file_versions
-                (snapshot_id, relative_path, previous_relative_path, content_hash,
-                 size, source_modified_at, change_kind, recorded_at, quick_hash,
-                 quick_hash_scheme, link_target)
-            VALUES
-                ($snapshotId, $relativePath, $previousPath, $hash, $size,
-                 $sourceModifiedAt, $changeKind, $recordedAt, $quickHash,
-                 $quickHashScheme, $linkTarget)
-            """
-
         let struct (hash, size, modifiedAt, quick, linkTarget) =
             match row.Content with
             | RowContent.Regular content ->
@@ -146,28 +147,39 @@ module SqliteManifest =
                         ValueNone)
             | RowContent.Linked target -> struct (ValueNone, 0L, DateTimeOffset.MinValue, ValueNone, target)
 
-        let parameters = command.Parameters
-        parameters.AddWithValue("$snapshotId", snapshotId) |> ignore
-        parameters.AddWithValue("$relativePath", MirrorPath.value row.RowPath) |> ignore
+        use command = command batch.BatchConnection {
+            text
+                """
+                INSERT INTO file_versions
+                    (snapshot_id, relative_path, previous_relative_path, content_hash,
+                     size, source_modified_at, change_kind, recorded_at, quick_hash,
+                     quick_hash_scheme, link_target)
+                VALUES
+                    ($snapshotId, $relativePath, $previousPath, $hash, $size,
+                     $sourceModifiedAt, $changeKind, $recordedAt, $quickHash,
+                     $quickHashScheme, $linkTarget)
+                """
+            transaction batch.Transaction
+            parameters {
+                "$snapshotId", snapshotId
+                "$relativePath", MirrorPath.value row.RowPath
+                "$previousPath", nullable (row.PreviousPath |> ValueOption.map MirrorPath.value)
+                "$hash", nullable hash
+                "$size", size
+                "$sourceModifiedAt", toIso modifiedAt
+                "$changeKind", kindName row.Kind
+                "$recordedAt", toIso row.RecordedAt
+                match quick with
+                | ValueSome signature ->
+                    "$quickHash", signature.QuickHash
+                    "$quickHashScheme", signature.QuickScheme
+                | ValueNone ->
+                    "$quickHash", DBNull.Value
+                    "$quickHashScheme", DBNull.Value
+                "$linkTarget", nullable linkTarget
+            }
+        }
 
-        parameters.AddWithValue("$previousPath", nullable (row.PreviousPath |> ValueOption.map MirrorPath.value))
-        |> ignore
-
-        parameters.AddWithValue("$hash", nullable hash) |> ignore
-        parameters.AddWithValue("$size", size) |> ignore
-        parameters.AddWithValue("$sourceModifiedAt", toIso modifiedAt) |> ignore
-        parameters.AddWithValue("$changeKind", kindName row.Kind) |> ignore
-        parameters.AddWithValue("$recordedAt", toIso row.RecordedAt) |> ignore
-
-        match quick with
-        | ValueSome signature ->
-            parameters.AddWithValue("$quickHash", signature.QuickHash) |> ignore
-            parameters.AddWithValue("$quickHashScheme", signature.QuickScheme) |> ignore
-        | ValueNone ->
-            parameters.AddWithValue("$quickHash", DBNull.Value) |> ignore
-            parameters.AddWithValue("$quickHashScheme", DBNull.Value) |> ignore
-
-        parameters.AddWithValue("$linkTarget", nullable linkTarget) |> ignore
         command.ExecuteNonQuery() |> ignore
 
     /// Writes how the snapshot ended, with its totals, inside the run's transaction.
@@ -178,28 +190,30 @@ module SqliteManifest =
         (finishedAt: DateTimeOffset)
         (counts: Counts)
         : unit =
-        use command = batch.BatchConnection.CreateCommand()
-        command.Transaction <- batch.Transaction
+        use command =
+            command batch.BatchConnection {
+                text
+                    """
+                    UPDATE snapshots
+                    SET completed_at = $completedAt, status = $status,
+                        bytes_transferred = $bytes, files_added = $added, files_changed = $changed,
+                        files_moved = $moved, files_deleted = $deleted, files_failed = $failed
+                    WHERE id = $id
+                    """
+                transaction batch.Transaction
+                parameters {
+                    "$completedAt", toIso finishedAt
+                    "$status", statusName status
+                    "$bytes", counts.BytesTransferred
+                    "$added", counts.FilesAdded
+                    "$changed", counts.FilesChanged
+                    "$moved", counts.FilesMoved
+                    "$deleted", counts.FilesDeleted
+                    "$failed", counts.FilesFailed
+                    "$id", snapshotId
+                }
+            }
 
-        command.CommandText <-
-            """
-            UPDATE snapshots
-            SET completed_at = $completedAt, status = $status,
-                bytes_transferred = $bytes, files_added = $added, files_changed = $changed,
-                files_moved = $moved, files_deleted = $deleted, files_failed = $failed
-            WHERE id = $id
-            """
-
-        let parameters = command.Parameters
-        parameters.AddWithValue("$completedAt", toIso finishedAt) |> ignore
-        parameters.AddWithValue("$status", statusName status) |> ignore
-        parameters.AddWithValue("$bytes", counts.BytesTransferred) |> ignore
-        parameters.AddWithValue("$added", counts.FilesAdded) |> ignore
-        parameters.AddWithValue("$changed", counts.FilesChanged) |> ignore
-        parameters.AddWithValue("$moved", counts.FilesMoved) |> ignore
-        parameters.AddWithValue("$deleted", counts.FilesDeleted) |> ignore
-        parameters.AddWithValue("$failed", counts.FilesFailed) |> ignore
-        parameters.AddWithValue("$id", snapshotId) |> ignore
         command.ExecuteNonQuery() |> ignore
 
     /// The manifest's view of every tracked path as of the latest snapshot: the latest non-deleted version of each.

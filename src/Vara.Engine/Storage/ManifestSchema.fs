@@ -7,6 +7,7 @@ open Microsoft.Data.Sqlite
 /// The manifest's tables and the migrations that bring an older database to them.
 module internal ManifestSchema =
     open ManifestSql
+    open CommandBuilder
 
     let private createTables =
         """
@@ -87,9 +88,11 @@ module internal ManifestSchema =
 
     let private migrateCollationIfNeeded (connection: SqliteConnection) (transaction: SqliteTransaction) : unit =
         let tableSql =
-            use check = connection.CreateCommand()
-            check.Transaction <- transaction
-            check.CommandText <- "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'file_versions'"
+            use check =
+                command connection {
+                    text "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'file_versions'"
+                    CommandBuilder.transaction transaction
+                }
 
             match check.ExecuteScalar() with
             | :? string as text -> ValueSome text
@@ -109,9 +112,12 @@ module internal ManifestSchema =
     let private steps: (int * string) list = []
 
     let private scalar (connection: SqliteConnection) (transaction: SqliteTransaction | null) (sql: string) : int64 =
-        use command = connection.CreateCommand()
-        command.Transaction <- transaction
-        command.CommandText <- sql
+        use command =
+            command connection {
+                text sql
+                CommandBuilder.transaction transaction
+            }
+
         Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture)
 
     /// The recorded schema version, 0 when none is recorded (a new file reads the same).
@@ -152,7 +158,10 @@ module internal ManifestSchema =
             use transaction = connection.BeginTransaction()
 
             let hasTables =
-                scalar connection transaction "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'snapshots'" > 0L
+                scalar
+                    connection
+                    transaction
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'snapshots'" > 0L
 
             if hasTables then
                 // Written before versions existed: bring it to the version 1 schema and record that.

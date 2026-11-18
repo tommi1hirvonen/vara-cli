@@ -30,14 +30,16 @@ type ManifestBatch =
 /// read back. Internal to the manifest; its interface is `SqliteManifest`, `ManifestQueries` and
 /// `ManifestMaintenance`.
 module internal ManifestSql =
-    let execute (connection: SqliteConnection) (transaction: SqliteTransaction | null) (sql: string) : unit =
-        use command = connection.CreateCommand()
-        command.Transaction <- transaction
-        command.CommandText <- sql
-        command.ExecuteNonQuery() |> ignore
+    open CommandBuilder
 
-    let addText (command: SqliteCommand) (name: string) (value: string) : unit =
-        command.Parameters.AddWithValue(name, value) |> ignore
+    let execute (connection: SqliteConnection) (transaction: SqliteTransaction | null) (sql: string) : unit =
+        use command =
+            command connection {
+                text sql
+                CommandBuilder.transaction transaction
+            }
+
+        command.ExecuteNonQuery() |> ignore
 
     let toIso (value: DateTimeOffset) : string = value.ToString("o", CultureInfo.InvariantCulture)
 
@@ -142,24 +144,24 @@ module internal ManifestSql =
     /// of another casing outlives a newer one. The removal comes before anything else is decided about a row.
     let resolve (connection: SqliteConnection) (transaction: SqliteTransaction | null) : Dictionary<string, Winner> =
         let winners = Dictionary<string, Winner> StringComparer.OrdinalIgnoreCase
-        use command = connection.CreateCommand()
+        use command =
+            command connection {
+                text
+                    """
+                    SELECT fv.id, fv.relative_path, fv.change_kind, fv.link_target,
+                           fv.content_hash, fv.size, fv.source_modified_at, fv.quick_hash, fv.quick_hash_scheme
+                    FROM file_versions fv
+                    INNER JOIN (
+                        SELECT relative_path, MAX(id) AS max_id
+                        FROM file_versions
+                        GROUP BY relative_path
+                    ) latest ON fv.relative_path = latest.relative_path AND fv.id = latest.max_id
+                    ORDER BY fv.id
+                    """
 
-        // Left unset when there is none: the connection then supplies the open batch's transaction, as for any read.
-        if not (isNull transaction) then
-            command.Transaction <- transaction
-
-        command.CommandText <-
-            """
-            SELECT fv.id, fv.relative_path, fv.change_kind, fv.link_target,
-                   fv.content_hash, fv.size, fv.source_modified_at, fv.quick_hash, fv.quick_hash_scheme
-            FROM file_versions fv
-            INNER JOIN (
-                SELECT relative_path, MAX(id) AS max_id
-                FROM file_versions
-                GROUP BY relative_path
-            ) latest ON fv.relative_path = latest.relative_path AND fv.id = latest.max_id
-            ORDER BY fv.id
-            """
+                if not (isNull transaction) then
+                    CommandBuilder.transaction transaction
+            }
 
         use reader = command.ExecuteReader()
 
