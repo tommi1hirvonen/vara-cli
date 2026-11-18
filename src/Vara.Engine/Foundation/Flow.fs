@@ -1,10 +1,8 @@
 /// Generic combinators the imperative shell is built from.
 module Vara.Engine.Flow
 
-open System
 open System.Collections.Generic
 open System.Runtime.ExceptionServices
-open System.Threading
 open System.Threading.Channels
 open System.Threading.Tasks
 
@@ -46,7 +44,7 @@ let parallelEmit
                     Parallel.ForEachAsync(
                         items,
                         ParallelOptions(MaxDegreeOfParallelism = degree),
-                        Func<'T, CancellationToken, ValueTask>(fun item _ ->
+                        (fun item _ ->
                             if not (shouldStop ()) then
                                 work item
 

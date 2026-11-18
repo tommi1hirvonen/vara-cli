@@ -2,7 +2,6 @@
 /// that escapes the handler is reported as a hard error.
 module Vara.Cli.CommandAction
 
-open System
 open System.CommandLine
 open System.Threading
 open System.Threading.Tasks
@@ -14,17 +13,16 @@ let set
     (handler: ParseResult -> CancellationToken -> Task<Outcome>)
     (command: Command)
     : Command =
-    command.SetAction(
-        Func<ParseResult, CancellationToken, Task<int>>(fun parseResult cancellationToken ->
-            task {
-                try
-                    let! outcome = handler parseResult cancellationToken
-                    return Outcome.exitCode outcome
-                with
-                | :? Vara.Engine.ManifestSchemaTooNew as refusal ->
-                    return Outcome.exitCode (ErrorReporting.report errorConsole refusal.Message)
-                | error -> return Outcome.exitCode (ErrorReporting.unhandled errorConsole error)
-            })
+    command.SetAction(fun parseResult cancellationToken ->
+        task {
+            try
+                let! outcome = handler parseResult cancellationToken
+                return Outcome.exitCode outcome
+            with
+            | :? Vara.Engine.ManifestSchemaTooNew as refusal ->
+                return Outcome.exitCode (ErrorReporting.report errorConsole refusal.Message)
+            | error -> return Outcome.exitCode (ErrorReporting.unhandled errorConsole error)
+        }
     )
 
     command
