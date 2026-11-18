@@ -9,7 +9,6 @@ open Xunit
 open Vara.Engine
 open Vara.Engine.Tests
 open Vara.Engine.Tests.SqliteManifestTests
-open Vara.Testing
 
 let private databaseIn (root: string) : string = Path.Combine(root, "fs", "profile.db")
 

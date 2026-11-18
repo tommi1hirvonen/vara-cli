@@ -191,7 +191,6 @@ module InteractiveSession =
         interactive setup [ KeyEvent.Pressed Key.ExpandAll; KeyEvent.Pressed Key.Quit ] parts |> fst
 
 module ``Interactive snapshot change tree`` =
-    open System
     open System.Collections.Generic
     open Vara.Domain
 
@@ -245,9 +244,6 @@ module ``Interactive snapshot change tree`` =
 
 
 module ``Interactive file rows in the snapshot tree`` =
-    open System.Collections.Generic
-    open Vara.Domain
-
     [<Fact>]
     let ``Showing files in the interactive tree`` () =
         scratch (fun setup ->
@@ -304,8 +300,6 @@ module ``A moved file absorbs its source's deleted row`` =
                 Assert.Contains(expected, result.Output))
 
 module ``Key-driven views leave the terminal as they found it`` =
-    open System
-    open System.Collections.Generic
     open Vara.Domain
 
     [<Fact>]
@@ -337,7 +331,6 @@ module ``Key-driven views leave the terminal as they found it`` =
 
 
 module ``Interactive tree falls back to the static report`` =
-    open System
     open System.Collections.Generic
     open Vara.Domain
 

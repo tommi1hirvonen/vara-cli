@@ -4,7 +4,6 @@ module Vara.Cli.SnapshotCommand
 
 #nowarn "3265"
 
-open System
 open System.CommandLine
 open System.Threading
 open System.Threading.Tasks

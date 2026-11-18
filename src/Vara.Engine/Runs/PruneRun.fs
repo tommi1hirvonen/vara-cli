@@ -1,6 +1,5 @@
 namespace Vara.Engine
 
-open System.IO
 open Vara.Domain
 
 /// The effects a prune performs, as functions. A test passes one that raises in place of a test hook.

@@ -2,7 +2,6 @@
 /// Each test is named after its scenario in openspec/specs/backup-execution/spec.md.
 module Vara.Engine.Tests.BackupScenarioTests
 
-open System
 open System.Diagnostics
 open System.IO
 open Xunit
