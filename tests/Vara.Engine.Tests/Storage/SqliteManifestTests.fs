@@ -6,6 +6,7 @@ open Microsoft.Data.Sqlite
 open Xunit
 open Vara.Domain
 open Vara.Engine
+open Vara.Engine.CommandBuilder
 open Vara.Engine.Tests
 open Vara.Testing
 
@@ -93,6 +94,30 @@ let createLegacy (path: string) =
     command.ExecuteNonQuery() |> ignore
 
 module ``Manifest storage`` =
+    [<Fact>]
+    let ``Command builder applies text transaction and parameters`` () =
+        use connection = new SqliteConnection "Data Source=:memory:"
+        connection.Open()
+        use tx = connection.BeginTransaction()
+
+        use command =
+            CommandBuilder.command connection {
+                text "SELECT $number, $label"
+                transaction tx
+                parameters {
+                    "$number", 42
+                    "$label", "value"
+                }
+            }
+
+        Assert.Equal("SELECT $number, $label", command.CommandText)
+        Assert.Same(tx, command.Transaction)
+
+        use reader = command.ExecuteReader()
+        Assert.True(reader.Read())
+        Assert.Equal(42L, reader.GetInt64 0)
+        Assert.Equal("value", reader.GetString 1)
+
     [<Fact>]
     let ``Rows and snapshot outcomes round trip into the current state`` () =
         TempDir.using (fun root ->
