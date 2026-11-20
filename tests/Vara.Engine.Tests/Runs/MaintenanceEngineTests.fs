@@ -145,8 +145,15 @@ module ``Manifest queries and the prune writer`` =
                 Assert.Equal(2, sizes.Length)
                 Assert.Equal<Set<ContentHash>>(sizes |> List.map fst |> Set.ofList, ManifestMaintenance.referencedHashes handle)
                 Assert.Contains((hashOf setup "a.txt", 5L), sizes)
-                Assert.Equal(2, (ManifestMaintenance.pathsForHash handle (hashOf setup "a.txt")).Length)
-                Assert.Equal(1, (ManifestMaintenance.pathsForHash handle (hashOf setup "c.txt")).Length)))
+                Assert.Equal<string list>(
+                    [ mirrorKey setup "a.txt"; mirrorKey setup "b.txt" ],
+                    ManifestMaintenance.pathsForHash handle (hashOf setup "a.txt")
+                )
+                Assert.Equal<string list>(
+                    [ mirrorKey setup "c.txt" ],
+                    ManifestMaintenance.pathsForHash handle (hashOf setup "c.txt")
+                )
+                Assert.Empty(ManifestMaintenance.pathsForHash handle (hash "unreferenced"))))
 
     [<Fact>]
     let ``a link row has no hash, so it is never a referenced blob`` () =

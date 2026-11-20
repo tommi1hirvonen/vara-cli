@@ -12,6 +12,7 @@ open Vara.Testing
 
 let private at (minutes: int) = DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero).AddMinutes(float minutes)
 let private hash (text: string) = (ContentHash.tryCreate text).Value
+let private iso (value: DateTimeOffset) = value.ToString("o", Globalization.CultureInfo.InvariantCulture)
 
 let private regular (path: string) (hashText: string) (size: int64) (kind: ChangeKind) (minutes: int) : ManifestRow =
     { RowPath = MirrorPath.ofString path
@@ -119,6 +120,61 @@ module ``Manifest storage`` =
         Assert.Equal("value", reader.GetString 1)
 
     [<Fact>]
+    let ``Recording rows binds every regular and link column`` () =
+        TempDir.using (fun root ->
+            let path = database root
+            let handle = SqliteManifest.openAt path true
+            let snapshot = SqliteManifest.beginSnapshot handle (at 0)
+            let batch = SqliteManifest.beginBatch handle
+
+            let moved =
+                { regular "C\\new.txt" "h1" 17L ChangeKind.Moved 2 with
+                    PreviousPath = ValueSome(MirrorPath.ofString "C\\old.txt") }
+
+            SqliteManifest.record batch snapshot moved
+            SqliteManifest.record batch snapshot (linked "C\\link" (ValueSome "D:\\target") ChangeKind.Linked 3)
+            SqliteManifest.finishSnapshot batch snapshot SnapshotStatus.Complete (at 4) (Run.initial (at 0)).Counts
+            SqliteManifest.checkpoint batch |> SqliteManifest.discard
+            SqliteManifest.close handle
+
+            Assert.Equal<string list>(
+                [ $"1|{snapshot}|C\\new.txt|C\\old.txt|h1|17|{iso (at 5)}|Moved|{iso (at 2)}|qh1|1|~"
+                  $"2|{snapshot}|C\\link|~|~|0|{iso DateTimeOffset.MinValue}|Linked|{iso (at 3)}|~|~|D:\\target" ],
+                dumpRows path
+            ))
+
+    [<Fact>]
+    let ``Snapshot commands persist their timestamps status and every counter`` () =
+        TempDir.using (fun root ->
+            let handle = SqliteManifest.openAt (database root) true
+            let startedAt = at 2
+            let completedAt = at 13
+            let snapshot = SqliteManifest.beginSnapshot handle startedAt
+            let batch = SqliteManifest.beginBatch handle
+
+            let counts =
+                { BytesTransferred = 9876L
+                  FilesAdded = 2
+                  FilesChanged = 3
+                  FilesMoved = 4
+                  FilesDeleted = 5
+                  FilesFailed = 6 }
+
+            SqliteManifest.finishSnapshot batch snapshot SnapshotStatus.Cancelled completedAt counts
+            SqliteManifest.checkpoint batch |> SqliteManifest.discard
+
+            match ManifestQueries.snapshots handle with
+            | [ actual ] ->
+                Assert.Equal(snapshot, actual.SnapshotId)
+                Assert.Equal(startedAt, actual.StartedAt)
+                Assert.Equal(ValueSome completedAt, actual.CompletedAt)
+                Assert.Equal(SnapshotStatus.Cancelled, actual.Status)
+                Assert.Equal(counts, actual.Stats)
+            | other -> Assert.Fail $"expected one snapshot, found {other.Length}"
+
+            SqliteManifest.close handle)
+
+    [<Fact>]
     let ``Rows and snapshot outcomes round trip into the current state`` () =
         TempDir.using (fun root ->
             let handle = SqliteManifest.openAt (database root) true
@@ -213,16 +269,60 @@ module ``Manifest batches`` =
     [<Fact>]
     let ``Snapshots still running are reconciled as failed`` () =
         TempDir.using (fun root ->
-            let path = database root
-            let handle = SqliteManifest.openAt path true
-            SqliteManifest.beginSnapshot handle (at 0) |> ignore
-            SqliteManifest.reconcileIncompleteSnapshots handle (at 7)
-            SqliteManifest.close handle
-            use connection = new SqliteConnection $"Data Source={path};Pooling=False"
+            let handle = SqliteManifest.openAt (database root) true
+            let preserved = SqliteManifest.beginSnapshot handle (at 0)
+            let completedByReconciliation = SqliteManifest.beginSnapshot handle (at 1)
+            let completedNormally = SqliteManifest.beginSnapshot handle (at 2)
+            let batch = SqliteManifest.beginBatch handle
+            SqliteManifest.finishSnapshot batch completedNormally SnapshotStatus.Complete (at 4) (Run.initial (at 0)).Counts
+            SqliteManifest.checkpoint batch |> SqliteManifest.discard
+
+            use connection = new SqliteConnection $"Data Source={database root};Pooling=False"
             connection.Open()
             use command = connection.CreateCommand()
-            command.CommandText <- "SELECT status FROM snapshots"
-            Assert.Equal("Failed", string (command.ExecuteScalar())))
+            command.CommandText <- "UPDATE snapshots SET completed_at = $completed WHERE id = $id"
+            command.Parameters.AddWithValue("$completed", iso (at 3)) |> ignore
+            command.Parameters.AddWithValue("$id", preserved) |> ignore
+            command.ExecuteNonQuery() |> ignore
+
+            SqliteManifest.reconcileIncompleteSnapshots handle (at 7)
+
+            let snapshots = ManifestQueries.snapshots handle |> List.sortBy _.SnapshotId
+            Assert.Equal(3, snapshots.Length)
+            Assert.Equal<int64 list>(
+                [ preserved; completedByReconciliation; completedNormally ],
+                snapshots |> List.map _.SnapshotId
+            )
+            Assert.Equal(SnapshotStatus.Failed, snapshots[0].Status)
+            Assert.Equal(ValueSome(at 3), snapshots[0].CompletedAt)
+            Assert.Equal(SnapshotStatus.Failed, snapshots[1].Status)
+            Assert.Equal(ValueSome(at 7), snapshots[1].CompletedAt)
+            Assert.Equal(SnapshotStatus.Complete, snapshots[2].Status)
+            Assert.Equal(ValueSome(at 4), snapshots[2].CompletedAt)
+            SqliteManifest.close handle)
+
+module ``Manifest query parameters`` =
+    [<Fact>]
+    let ``Snapshot versions filter by snapshot id and are newest first`` () =
+        TempDir.using (fun root ->
+            let handle = SqliteManifest.openAt (database root) true
+            let first =
+                write
+                    handle
+                    [ regular "C\\a.txt" "h1" 1L ChangeKind.Added 1
+                      regular "C\\b.txt" "h2" 2L ChangeKind.Added 1 ]
+
+            let second = write handle [ regular "C\\a.txt" "h3" 3L ChangeKind.Changed 2 ]
+
+            let pathsFor snapshot =
+                ManifestQueries.snapshotVersions handle snapshot
+                |> Seq.map (fun version -> MirrorPath.value version.Row.RowPath)
+                |> Seq.toList
+
+            Assert.Equal<string list>([ "C\\b.txt"; "C\\a.txt" ], pathsFor first)
+            Assert.Equal<string list>([ "C\\a.txt" ], pathsFor second)
+            Assert.Empty(ManifestQueries.snapshotVersions handle -1L)
+            SqliteManifest.close handle)
 
 module ``Manifest compatibility`` =
     [<Fact>]
