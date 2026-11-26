@@ -196,14 +196,16 @@ let create (env: CliEnv) : Command =
         Option<bool>(
             "--json",
             Description =
-                "Print a single machine-readable JSON summary of the outcome to stdout instead of the human-oriented output, and suppress the progress display."
+                "Print a single machine-readable JSON summary of the outcome to stdout instead of the human-oriented output, " +
+                "and suppress the progress display."
         )
 
     let depthOption =
         Option<string | null>(
             "--depth",
             Description =
-                "Show the change tree after the summary, limited to this many directory levels below the mirror root (0 shows only the root)."
+                "Show the change tree after the summary, limited to this many directory levels below the mirror root " +
+                "(0 shows only the root)."
         )
 
     let filesOption =

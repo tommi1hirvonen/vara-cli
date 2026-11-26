@@ -16,7 +16,7 @@ let private step (ms: int) (event: ProgressEvent) (tracker: Tracker) : Tracker =
 
 /// A tracker whose transfer phase began at time zero with the given totals.
 let private transferring (bytes: int64) (items: int) : Tracker =
-    Tracker.initial |> step 0 (TransferStarting(bytes, items))
+    Tracker.initial |> step 0 (ProgressEvent.TransferStarting(bytes, items))
 
 let private text (wording: Display.Wording) (ms: int) (tracker: Tracker) : string list =
     Display.viewWith wording width (after ms) tracker |> Display.plainLines
@@ -38,9 +38,9 @@ module ``Count-based progress indication for non-byte-transfer operations`` =
     let ``Total item count known upfront`` () =
         let tracker =
             transferring 0L 10
-            |> step 200 FileTransferred
-            |> step 400 FileTransferred
-            |> step 600 FileTransferred
+            |> step 200 ProgressEvent.FileTransferred
+            |> step 400 ProgressEvent.FileTransferred
+            |> step 600 ProgressEvent.FileTransferred
 
         Assert.Equal(30.0, Tracker.percentBy Basis.Items tracker, 6)
         let shown = screen items 1000 tracker
@@ -63,7 +63,7 @@ module ``Count-based progress indication for non-byte-transfer operations`` =
 
     [<Fact>]
     let ``Non-interactive or redirected output`` () =
-        let tracker = transferring 0L 4 |> step 200 FileTransferred
+        let tracker = transferring 0L 4 |> step 200 ProgressEvent.FileTransferred
         let line = Display.plainProgressWith Basis.Items (after 1000) tracker
         Assert.Contains("Files 1 / 4", line)
         Assert.Contains("25.0%", line)
@@ -72,10 +72,10 @@ module ``Count-based progress indication for non-byte-transfer operations`` =
 
     [<Fact>]
     let ``the percentage of items is the share of items completed and never leaves 0 to 100`` () =
-        let all = transferring 0L 3 |> step 200 FileTransferred |> step 400 FileTransferred |> step 600 FileTransferred
+        let all = transferring 0L 3 |> step 200 ProgressEvent.FileTransferred |> step 400 ProgressEvent.FileTransferred |> step 600 ProgressEvent.FileTransferred
         Assert.Equal(100.0, Tracker.percentBy Basis.Items all, 6)
         // A fourth report, which the total does not allow, is capped.
-        Assert.Equal(100.0, Tracker.percentBy Basis.Items (all |> step 800 FileTransferred), 6)
+        Assert.Equal(100.0, Tracker.percentBy Basis.Items (all |> step 800 ProgressEvent.FileTransferred), 6)
 
 module ``Prune progress indication`` =
     [<Fact>]
@@ -87,7 +87,7 @@ module ``Prune progress indication`` =
 
     [<Fact>]
     let ``Removing unreferenced blobs`` () =
-        let tracker = transferring 0L 8 |> step 200 FileTransferred |> step 400 FileTransferred
+        let tracker = transferring 0L 8 |> step 200 ProgressEvent.FileTransferred |> step 400 ProgressEvent.FileTransferred
         Assert.Contains("Files 2 / 8", screen items 1000 tracker)
         Assert.Equal(25.0, Tracker.percentBy Basis.Items tracker, 6)
 
@@ -98,7 +98,7 @@ module ``Check reports workload progress and estimated time remaining`` =
     [<Fact>]
     let ``Full check reports byte-weighted progress`` () =
         // One blob of 900 bytes and nine of 10: 1 of 10 blobs is 90% of the bytes.
-        let tracker = transferring 990L 10 |> step 200 (BytesCopied 900L) |> step 400 FileTransferred
+        let tracker = transferring 990L 10 |> step 200 (ProgressEvent.BytesCopied 900L) |> step 400 ProgressEvent.FileTransferred
         Assert.Equal(900.0 / 990.0 * 100.0, Tracker.percentBy Basis.Bytes tracker, 6)
         let shown = screen full 1000 tracker
         Assert.Contains("Files 1 / 10", shown)
@@ -110,8 +110,8 @@ module ``Check reports workload progress and estimated time remaining`` =
     let ``Missing blob advances full-check progress`` () =
         let tracker =
             transferring 1000L 2
-            |> step 200 (WorkCredited 600L)
-            |> step 400 FileTransferred
+            |> step 200 (ProgressEvent.WorkCredited 600L)
+            |> step 400 ProgressEvent.FileTransferred
 
         // The percentage moves by the credited size, the count by one blob, and no byte counts as read.
         Assert.Equal(60.0, Tracker.percentBy Basis.Bytes tracker, 6)
@@ -124,9 +124,9 @@ module ``Check reports workload progress and estimated time remaining`` =
         // The bytes do not matter to a quick check: three of ten blobs in one second is 30%, 7 s to go.
         let tracker =
             transferring 123_456L 10
-            |> step 200 FileTransferred
-            |> step 400 FileTransferred
-            |> step 600 FileTransferred
+            |> step 200 ProgressEvent.FileTransferred
+            |> step 400 ProgressEvent.FileTransferred
+            |> step 600 ProgressEvent.FileTransferred
 
         Assert.Equal(30.0, Tracker.percentBy Basis.Items tracker, 6)
         let left = (Tracker.remainingBy Basis.Items (after 1000) tracker).Value
@@ -145,17 +145,17 @@ module ``Check reports workload progress and estimated time remaining`` =
     [<Fact>]
     let ``Empty or zero-size workload completes cleanly`` () =
         // No blobs at all, and blobs whose recorded sizes are all zero: 100% and no division by zero.
-        for tracker in [ transferring 0L 0; transferring 0L 5 |> step 200 FileTransferred ] do
+        for tracker in [ transferring 0L 0; transferring 0L 5 |> step 200 ProgressEvent.FileTransferred ] do
             let percent = Tracker.percentBy Basis.Bytes tracker
             Assert.Equal(100.0, percent, 6)
             Assert.False(Double.IsNaN percent)
 
-        let ended = transferring 0L 0 |> step 300 (RunEnded Outcome.Success)
+        let ended = transferring 0L 0 |> step 300 (ProgressEvent.RunEnded Outcome.Success)
         Assert.Equal(BarFill.Filled 100.0, (bar full 1000 ended).Fill)
 
     [<Fact>]
     let ``Full check progress in plain text names the percentage the count and the estimate`` () =
-        let tracker = transferring 1000L 4 |> step 200 (BytesCopied 500L) |> step 400 FileTransferred
+        let tracker = transferring 1000L 4 |> step 200 (ProgressEvent.BytesCopied 500L) |> step 400 ProgressEvent.FileTransferred
         let line = Display.plainProgressWith Basis.Bytes (after 1000) tracker
         Assert.Contains("50.0%", line)
         Assert.Contains("Files 1 / 4", line)
@@ -163,7 +163,7 @@ module ``Check reports workload progress and estimated time remaining`` =
 
     [<Fact>]
     let ``the terminal indicator follows the basis of the run`` () =
-        let tracker = transferring 0L 4 |> step 200 FileTransferred
+        let tracker = transferring 0L 4 |> step 200 ProgressEvent.FileTransferred
         // By bytes an empty total reads as complete; by items one blob of four is a quarter.
         Assert.Equal(Indicator.Percentage 100, TerminalProgress.indicatorBy Basis.Bytes tracker)
         Assert.Equal(Indicator.Percentage 25, TerminalProgress.indicatorBy Basis.Items tracker)

@@ -48,7 +48,10 @@ let private isTestAttribute (attribute: Attribute) : bool =
 
 let private testsOf (declaringType: Type) : ScenarioId list =
     declaringType.GetMethods(BindingFlags.Public ||| BindingFlags.Static ||| BindingFlags.DeclaredOnly)
-    |> Seq.filter (fun method -> method.GetCustomAttributes true |> Seq.cast<Attribute> |> Seq.exists isTestAttribute)
+    |> Seq.filter (fun method ->
+        method.GetCustomAttributes true
+        |> Seq.cast<Attribute>
+        |> Seq.exists isTestAttribute)
     |> Seq.map (fun method -> comparable { Requirement = declaringType.Name; Scenario = method.Name })
     |> List.ofSeq
 

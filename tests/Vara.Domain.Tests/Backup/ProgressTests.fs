@@ -16,7 +16,7 @@ let private feed (steps: (int * ProgressEvent) list) : Tracker =
     steps |> List.fold (fun tracker (ms, event) -> Tracker.update interval (after ms) event tracker) Tracker.initial
 
 /// A tracker whose transfer phase has begun with the given totals at time zero.
-let private transferring (bytes: int64) (files: int) : Tracker = feed [ (0, TransferStarting(bytes, files)) ]
+let private transferring (bytes: int64) (files: int) : Tracker = feed [ (0, ProgressEvent.TransferStarting(bytes, files)) ]
 
 let private step (ms: int) (event: ProgressEvent) (tracker: Tracker) : Tracker =
     Tracker.update interval (after ms) event tracker
@@ -48,7 +48,7 @@ module ``Byte-based progress`` =
     [<Fact>]
     let ``Mixed file sizes`` () =
         // One file of 900 bytes and ninety-nine of one byte: 1 of 100 files done is not 1% of the bytes.
-        let tracker = transferring 999L 100 |> step 200 (BytesCopied 900L) |> step 400 FileTransferred
+        let tracker = transferring 999L 100 |> step 200 (ProgressEvent.BytesCopied 900L) |> step 400 ProgressEvent.FileTransferred
         Assert.Equal(900.0 / 999.0 * 100.0, Tracker.percent tracker, 6)
         Assert.Equal(1, tracker.Shown.Files)
 
@@ -62,14 +62,14 @@ module ``Upfront work estimation`` =
 module ``Scan-phase progress indication`` =
     [<Fact>]
     let ``Scanning and hashing before transfer begins`` () =
-        let tracker = feed [ (0, ScanCounted 300) ]
+        let tracker = feed [ (0, ProgressEvent.ScanCounted 300) ]
         let bar = barOf (shown tracker)
         Assert.Equal(BarFill.Indeterminate, bar.Fill)
         Assert.Equal(Tone.Neutral, bar.Tone)
 
     [<Fact>]
     let ``Indicator replaced once transfer begins`` () =
-        let tracker = feed [ 0, ScanCounted 300; 10, TransferStarting(100L, 1) ]
+        let tracker = feed [ 0, ProgressEvent.ScanCounted 300; 10, ProgressEvent.TransferStarting(100L, 1) ]
         let bar = barOf (shown tracker)
         Assert.Equal(BarFill.Filled 0.0, bar.Fill)
         Assert.Equal(2, rowsOf (shown tracker) |> List.length)
@@ -80,7 +80,7 @@ module ``Dry-run scan progress indication`` =
     [<Fact>]
     let ``Dry-run planning in a live terminal`` () =
         Assert.Equal(OutputMode.Live, OutputMode.choose false live)
-        Assert.Equal(BarFill.Indeterminate, (barOf (shown (feed [ (0, ScanCounted 5) ]))).Fill)
+        Assert.Equal(BarFill.Indeterminate, (barOf (shown (feed [ (0, ProgressEvent.ScanCounted 5) ]))).Fill)
         // Once planning is over the screen is the summary, which has no bar.
         let summary =
             Display.ofPlan { Added = 1; Changed = 0; Moved = 0; Deleted = 0; PlannedBytes = 5L; Unscanned = [] }
@@ -99,12 +99,12 @@ module ``Dry-run scan progress indication`` =
 module ``Throughput and ETA reporting`` =
     [<Fact>]
     let ``Long-running transfer`` () =
-        let tracker = transferring 1000L 1 |> step 1000 (BytesCopied 250L)
+        let tracker = transferring 1000L 1 |> step 1000 (ProgressEvent.BytesCopied 250L)
         let display = Display.view width (after 1000) tracker
         let second = rowsOf display |> List.item 1 |> List.map _.Text.TrimEnd()
         Assert.Equal<string list>([ "250 B/s"; "ETA 3s" ], second)
         // Later, with more bytes, both figures move.
-        let later = tracker |> step 2000 (BytesCopied 500L)
+        let later = tracker |> step 2000 (ProgressEvent.BytesCopied 500L)
         let rowLater = rowsOf (Display.view width (after 2000) later) |> List.item 1 |> List.map _.Text.TrimEnd()
         Assert.Equal<string list>([ "375 B/s"; "ETA 0.7s" ], rowLater)
 
@@ -127,20 +127,20 @@ module ``Progress bar occupies a dedicated, width-sized line`` =
 module ``Progress bar row includes a leading phase description`` =
     [<Fact>]
     let ``Scan phase in progress`` () =
-        let bar = barOf (shown (feed [ (0, ScanCounted 1) ]))
+        let bar = barOf (shown (feed [ (0, ProgressEvent.ScanCounted 1) ]))
         Assert.StartsWith(" Scanning files...", bar.Label)
         Assert.Equal(Display.trailingWidth, bar.Trailing.Length)
         Assert.Equal("", bar.Trailing.Trim())
 
     [<Fact>]
     let ``Transfer phase in progress`` () =
-        let bar = barOf (shown (transferring 100L 1 |> step 200 (BytesCopied 50L)))
+        let bar = barOf (shown (transferring 100L 1 |> step 200 (ProgressEvent.BytesCopied 50L)))
         Assert.StartsWith(" Backing up...", bar.Label)
         Assert.Equal(" 50.0%".PadLeft Display.trailingWidth, bar.Trailing)
 
     [<Fact>]
     let ``Bar length is consistent across phases`` () =
-        let scan = barOf (shown (feed [ (0, ScanCounted 1) ]))
+        let scan = barOf (shown (feed [ (0, ProgressEvent.ScanCounted 1) ]))
         let transfer = barOf (shown (transferring 100L 1))
         Assert.Equal(scan.Width, transfer.Width)
         Assert.Equal(scan.Label.Length, transfer.Label.Length)
@@ -149,8 +149,8 @@ module ``Progress bar row includes a leading phase description`` =
 module ``Numeric progress fields do not shift layout as values change`` =
     [<Fact>]
     let ``A displayed value crosses a digit-count boundary`` () =
-        let before = transferring 10_000_000L 100 |> step 200 (BytesCopied 9_000L)
-        let afterwards = before |> step 400 (BytesCopied 990_000L)
+        let before = transferring 10_000_000L 100 |> step 200 (ProgressEvent.BytesCopied 9_000L)
+        let afterwards = before |> step 400 (ProgressEvent.BytesCopied 990_000L)
 
         let widths (tracker: Tracker) =
             rowsOf (Display.view width (after 1000) tracker) |> List.map (List.map (fun cell -> cell.Width, cell.Text.Length))
@@ -172,8 +172,8 @@ module ``Numeric progress fields do not shift layout as values change`` =
         Prop.forAll (Arb.fromGen gen) (fun (total, files, copied, doneFiles, elapsed) ->
             let tracker =
                 transferring total files
-                |> step 200 (BytesCopied copied)
-                |> fun t -> Seq.fold (fun t _ -> step 300 FileTransferred t) t (Seq.truncate 5 (Seq.initInfinite id))
+                |> step 200 (ProgressEvent.BytesCopied copied)
+                |> fun t -> Seq.fold (fun t _ -> step 300 ProgressEvent.FileTransferred t) t (Seq.truncate 5 (Seq.initInfinite id))
                 |> fun t -> { t with Shown = { Bytes = copied; Files = doneFiles } }
 
             rowsOf (Display.view width (after elapsed) tracker)
@@ -183,14 +183,14 @@ module ``Lightweight operations reported separately from data transfer`` =
     [<Fact>]
     let ``Backup run consisting mostly of moved files`` () =
         // Moves add no bytes and no transfers: only the one transferred file is in the totals.
-        let tracker = transferring 10L 1 |> step 100 (BytesCopied 10L) |> step 200 FileTransferred
+        let tracker = transferring 10L 1 |> step 100 (ProgressEvent.BytesCopied 10L) |> step 200 ProgressEvent.FileTransferred
         Assert.Equal("10 B / 10 B", (rowsOf (shown tracker) |> List.head |> List.head).Text.TrimEnd())
 
     [<Fact>]
     let ``Lightweight operations precede byte transfer`` () =
         // The transfer phase begins at second 30, after a long metadata pass; throughput counts from there.
         let tracker =
-            feed [ 0, ScanCounted 10; 30_000, TransferStarting(1000L, 1); 31_000, BytesCopied 500L ]
+            feed [ 0, ProgressEvent.ScanCounted 10; 30_000, ProgressEvent.TransferStarting(1000L, 1); 31_000, ProgressEvent.BytesCopied 500L ]
 
         Assert.Equal(500.0, Tracker.throughput (after 31_000) tracker, 6)
 
@@ -237,33 +237,33 @@ module ``Backup run outcome reflects failure severity`` =
         Assert.Equal(Tone.PartialFailure, headlineTone (Display.ofRun TimeSpan.Zero (run [ "x" ])))
 
 module ``Progress bar reflects run outcome severity`` =
-    let private ended (outcome: Outcome) (tracker: Tracker) : Tracker = tracker |> step 5000 (RunEnded outcome)
+    let private ended (outcome: Outcome) (tracker: Tracker) : Tracker = tracker |> step 5000 (ProgressEvent.RunEnded outcome)
 
     [<Fact>]
     let ``Scan phase in progress`` () =
-        Assert.Equal(Tone.Neutral, (barOf (shown (feed [ (0, ScanCounted 1) ]))).Tone)
+        Assert.Equal(Tone.Neutral, (barOf (shown (feed [ (0, ProgressEvent.ScanCounted 1) ]))).Tone)
 
     [<Fact>]
     let ``Transfer phase in progress`` () =
-        Assert.Equal(Tone.PartialFailure, (barOf (shown (transferring 100L 1 |> step 200 (BytesCopied 10L)))).Tone)
+        Assert.Equal(Tone.PartialFailure, (barOf (shown (transferring 100L 1 |> step 200 (ProgressEvent.BytesCopied 10L)))).Tone)
 
     [<Fact>]
     let ``Run completes with no failed files`` () =
-        let bar = barOf (shown (transferring 100L 1 |> step 200 (BytesCopied 100L) |> ended Outcome.Success))
+        let bar = barOf (shown (transferring 100L 1 |> step 200 (ProgressEvent.BytesCopied 100L) |> ended Outcome.Success))
         Assert.Equal(Tone.Success, bar.Tone)
         Assert.Equal(BarFill.Filled 100.0, bar.Fill)
 
     [<Fact>]
     let ``Run completes with one or more failed files`` () =
         // Only half the bytes were copied, yet the whole bar takes the outcome's colour.
-        let bar = barOf (shown (transferring 100L 2 |> step 200 (BytesCopied 50L) |> ended Outcome.PartialFailure))
+        let bar = barOf (shown (transferring 100L 2 |> step 200 (ProgressEvent.BytesCopied 50L) |> ended Outcome.PartialFailure))
         Assert.Equal(Tone.PartialFailure, bar.Tone)
         Assert.Equal(BarFill.Filled 100.0, bar.Fill)
 
     [<Fact>]
     let ``Run terminates with a hard error`` () =
         // During the scan the indicator that was showing turns red; during the transfer the bar does.
-        let scanning = barOf (shown (feed [ (0, ScanCounted 1) ] |> ended Outcome.HardError))
+        let scanning = barOf (shown (feed [ (0, ProgressEvent.ScanCounted 1) ] |> ended Outcome.HardError))
         Assert.Equal(Tone.Error, scanning.Tone)
         Assert.Equal(BarFill.Indeterminate, scanning.Fill)
         Assert.Equal(Tone.Error, (barOf (shown (transferring 100L 1 |> ended Outcome.HardError))).Tone)
@@ -275,7 +275,7 @@ module ``Progress display never regresses to a stale value`` =
         // and no later screen shows less than an earlier one.
         let deliver (deltas: int64 list) =
             deltas
-            |> List.mapi (fun index delta -> (index + 1) * 150, BytesCopied delta)
+            |> List.mapi (fun index delta -> (index + 1) * 150, ProgressEvent.BytesCopied delta)
             |> List.scan (fun (previous: Tracker) (ms, event) -> step ms event previous) (transferring 800L 3)
             |> List.map _.Shown.Bytes
 
@@ -294,7 +294,7 @@ module ``Progress display never regresses to a stale value`` =
                 |> List.fold
                     (fun (tracker: Tracker, clock, seen) (gap, delta) ->
                         let clock = clock + gap
-                        let next = step clock (BytesCopied(int64 delta)) tracker
+                        let next = step clock (ProgressEvent.BytesCopied(int64 delta)) tracker
                         next, clock, next.Shown.Bytes :: seen)
                     (transferring 1_000_000L 10, 0, [])
 
@@ -306,36 +306,36 @@ module ``Incremental progress during in-flight file transfers`` =
     // Here the display's half: every report advances the figures at the next admitted redraw.
     [<Fact>]
     let ``Single large file transfer in progress`` () =
-        let tracker = transferring 1000L 1 |> step 200 (BytesCopied 100L) |> step 400 (BytesCopied 100L)
+        let tracker = transferring 1000L 1 |> step 200 (ProgressEvent.BytesCopied 100L) |> step 400 (ProgressEvent.BytesCopied 100L)
         Assert.Equal(200L, tracker.Shown.Bytes)
 
     [<Fact>]
     let ``Two large files transferred in sequence`` () =
         let tracker =
             transferring 2000L 2
-            |> step 200 (BytesCopied 500L)
-            |> step 400 (BytesCopied 500L)
-            |> step 600 (BytesCopied 500L)
-            |> step 800 (BytesCopied 500L)
+            |> step 200 (ProgressEvent.BytesCopied 500L)
+            |> step 400 (ProgressEvent.BytesCopied 500L)
+            |> step 600 (ProgressEvent.BytesCopied 500L)
+            |> step 800 (ProgressEvent.BytesCopied 500L)
 
         Assert.Equal(2000L, tracker.Shown.Bytes)
 
     [<Fact>]
     let ``Large file placed at its mirror path via a real copy`` () =
         // Both passes report into the same file budget; the total reaches the planned bytes and no more.
-        let tracker = transferring 1000L 1 |> step 200 (BytesCopied 500L) |> step 400 (BytesCopied 500L)
+        let tracker = transferring 1000L 1 |> step 200 (ProgressEvent.BytesCopied 500L) |> step 400 (ProgressEvent.BytesCopied 500L)
         Assert.Equal(1000L, tracker.Shown.Bytes)
 
     [<Fact>]
     let ``Target filesystem without hardlink support does not overshoot 100%`` () =
-        let tracker = transferring 1000L 1 |> step 200 (BytesCopied 700L) |> step 400 (BytesCopied 700L)
+        let tracker = transferring 1000L 1 |> step 200 (ProgressEvent.BytesCopied 700L) |> step 400 (ProgressEvent.BytesCopied 700L)
         Assert.Equal(1000L, tracker.Shown.Bytes)
         Assert.Equal(100.0, Tracker.percent tracker)
 
 module ``Progress heartbeat during stalled transfers`` =
     [<Fact>]
     let ``Transfer stalls with no new bytes reported`` () =
-        let tracker = transferring 1000L 1 |> step 1000 (BytesCopied 500L)
+        let tracker = transferring 1000L 1 |> step 1000 (ProgressEvent.BytesCopied 500L)
 
         let rateAndEta (ms: int) =
             Tracker.throughput (after ms) tracker, Tracker.remaining (after ms) tracker |> ValueOption.get
@@ -348,29 +348,29 @@ module ``Progress heartbeat during stalled transfers`` =
 
     [<Fact>]
     let ``Transfer resumes after a stall`` () =
-        let stalled = transferring 1000L 1 |> step 1000 (BytesCopied 500L)
-        let resumed = stalled |> step 9000 (BytesCopied 250L)
+        let stalled = transferring 1000L 1 |> step 1000 (ProgressEvent.BytesCopied 500L)
+        let resumed = stalled |> step 9000 (ProgressEvent.BytesCopied 250L)
         Assert.Equal(750L, resumed.Shown.Bytes)
 
     [<Fact>]
     let ``Heartbeat stops once the run completes`` () =
         // Domain half: an ended tracker has no active list and its final numbers are admitted. The renderer's
         // timer stopping is tested with withProgress.
-        let ended = transferring 1000L 1 |> step 1000 (BytesCopied 1000L) |> step 1001 (RunEnded Outcome.Success)
+        let ended = transferring 1000L 1 |> step 1000 (ProgressEvent.BytesCopied 1000L) |> step 1001 (ProgressEvent.RunEnded Outcome.Success)
         Assert.True ended.Ended.IsSome
         Assert.Equal(1000L, ended.Shown.Bytes)
 
 module ``File-transfer count progress`` =
     [<Fact>]
     let ``Mixed-size files are transferred`` () =
-        let tracker = transferring 300L 3 |> step 200 (BytesCopied 250L) |> step 400 FileTransferred |> step 600 FileTransferred
+        let tracker = transferring 300L 3 |> step 200 (ProgressEvent.BytesCopied 250L) |> step 400 ProgressEvent.FileTransferred |> step 600 ProgressEvent.FileTransferred
         let first = rowsOf (shown tracker) |> List.head |> List.item 1
         Assert.Equal("Files 2 / 3", first.Text.TrimEnd())
 
     [<Fact>]
     let ``A content transfer fails`` () =
         // A failed file is never reported as transferred, so it stays in the total and out of the count.
-        let tracker = transferring 300L 3 |> step 200 FileTransferred |> step 400 (RunEnded Outcome.PartialFailure)
+        let tracker = transferring 300L 3 |> step 200 ProgressEvent.FileTransferred |> step 400 (ProgressEvent.RunEnded Outcome.PartialFailure)
         Assert.Equal(1, tracker.Shown.Files)
         Assert.Equal(3, tracker.TotalFiles)
 
@@ -382,7 +382,7 @@ module ``File-transfer count progress`` =
 module ``Backup transfer statistics use two aligned interactive rows`` =
     [<Fact>]
     let ``Normal interactive transfer`` () =
-        let rows = rowsOf (Display.view width (after 1000) (transferring 4096L 2 |> step 200 (BytesCopied 1024L)))
+        let rows = rowsOf (Display.view width (after 1000) (transferring 4096L 2 |> step 200 (ProgressEvent.BytesCopied 1024L)))
         Assert.Equal(2, List.length rows)
         Assert.StartsWith("1 KB / 4 KB", (List.head rows |> List.head).Text)
         Assert.StartsWith("Files 0 / 2", (List.head rows |> List.item 1).Text)
@@ -391,15 +391,15 @@ module ``Backup transfer statistics use two aligned interactive rows`` =
 
     [<Fact>]
     let ``A displayed value changes digit count`` () =
-        let before = rowsOf (shown (transferring 9_999L 9 |> step 200 (BytesCopied 9L)))
-        let afterwards = rowsOf (shown (transferring 99_999L 99 |> step 200 (BytesCopied 99_000L)))
+        let before = rowsOf (shown (transferring 9_999L 9 |> step 200 (ProgressEvent.BytesCopied 9L)))
+        let afterwards = rowsOf (shown (transferring 99_999L 99 |> step 200 (ProgressEvent.BytesCopied 99_000L)))
 
         let positions (rows: Cell list list) = rows |> List.map (List.map _.Width)
         Assert.Equal<int list list>(positions before, positions afterwards)
 
     [<Fact>]
     let ``Non-interactive transfer output`` () =
-        let tracker = transferring 1000L 4 |> step 200 (BytesCopied 500L) |> step 400 FileTransferred
+        let tracker = transferring 1000L 4 |> step 200 (ProgressEvent.BytesCopied 500L) |> step 400 ProgressEvent.FileTransferred
         let line = Display.plainProgress (after 1000) tracker
         Assert.Contains("500 B / 1000 B (50.0%)", line)
         Assert.Contains("Files 1 / 4", line)
@@ -407,7 +407,7 @@ module ``Backup transfer statistics use two aligned interactive rows`` =
 
 module ``Active file transfers listed in progress display`` =
     let private withActive (paths: string list) : Tracker =
-        paths |> List.fold (fun tracker path -> step 200 (FileStarted path) tracker) (transferring 100L 10)
+        paths |> List.fold (fun tracker path -> step 200 (ProgressEvent.FileStarted path) tracker) (transferring 100L 10)
 
     let private activeOf (tracker: Tracker) : string list =
         shown tracker |> textLines
@@ -442,7 +442,7 @@ module ``Active file transfers listed in progress display`` =
 
     [<Fact>]
     let ``No files currently being transferred`` () =
-        let tracker = withActive [ @"C:\s\a" ] |> step 300 (FileFinished @"C:\s\a")
+        let tracker = withActive [ @"C:\s\a" ] |> step 300 (ProgressEvent.FileFinished @"C:\s\a")
         Assert.Empty(activeOf tracker)
 
 module ``Progress display updates are rate-limited`` =
@@ -455,7 +455,7 @@ module ``Progress display updates are rate-limited`` =
         let mutable redraws = 0
 
         for index in 1..1000 do
-            let next = tracker |> step index (BytesCopied 1L) |> step index FileTransferred
+            let next = tracker |> step index (ProgressEvent.BytesCopied 1L) |> step index ProgressEvent.FileTransferred
 
             if next.Shown <> tracker.Shown then
                 redraws <- redraws + 1
@@ -466,21 +466,21 @@ module ``Progress display updates are rate-limited`` =
 
     [<Fact>]
     let ``Active-path change does not advance numeric statistics`` () =
-        let tracker = transferring 1000L 10 |> step 200 (BytesCopied 100L)
-        let started = tracker |> step 210 (FileStarted @"C:\s\a") |> step 220 (BytesCopied 100L)
+        let tracker = transferring 1000L 10 |> step 200 (ProgressEvent.BytesCopied 100L)
+        let started = tracker |> step 210 (ProgressEvent.FileStarted @"C:\s\a") |> step 220 (ProgressEvent.BytesCopied 100L)
         // 10 ms after the last admission: the list changed, the numbers did not.
         Assert.Equal(tracker.Shown, started.Shown)
         Assert.Equal<string list>([ @"C:\s\a" ], started.Active)
 
     [<Fact>]
     let ``Completed file is not shown as active`` () =
-        let tracker = transferring 100L 2 |> step 10 (FileStarted "a") |> step 20 (FileStarted "b") |> step 30 (FileFinished "a")
+        let tracker = transferring 100L 2 |> step 10 (ProgressEvent.FileStarted "a") |> step 20 (ProgressEvent.FileStarted "b") |> step 30 (ProgressEvent.FileFinished "a")
         Assert.Equal<string list>([ "b" ], tracker.Active)
 
     [<Fact>]
     let ``Transfer completes before a truthful refresh`` () =
         // Started and finished between two redraws: the path is simply not in the list when it is next drawn.
-        let tracker = transferring 100L 1 |> step 10 (FileStarted "a") |> step 11 (FileFinished "a")
+        let tracker = transferring 100L 1 |> step 10 (ProgressEvent.FileStarted "a") |> step 11 (ProgressEvent.FileFinished "a")
         Assert.Empty tracker.Active
         Assert.Empty(textLines (shown tracker))
 
@@ -489,7 +489,7 @@ module ``Progress display updates are rate-limited`` =
         let started = transferring 100L 1
         Assert.True started.LastAdmitted.IsSome
         // The final update comes 1 ms after the previous one, and is shown at once.
-        let finished = started |> step 200 (BytesCopied 40L) |> step 201 (BytesCopied 60L) |> step 202 (RunEnded Outcome.Success)
+        let finished = started |> step 200 (ProgressEvent.BytesCopied 40L) |> step 201 (ProgressEvent.BytesCopied 60L) |> step 202 (ProgressEvent.RunEnded Outcome.Success)
         Assert.Equal(100L, finished.Shown.Bytes)
 
     [<Property>]
@@ -504,7 +504,7 @@ module ``Progress display updates are rate-limited`` =
 
             for gap, bytes in gaps do
                 clock <- clock + gap
-                let next = step clock (BytesCopied(int64 bytes)) tracker
+                let next = step clock (ProgressEvent.BytesCopied(int64 bytes)) tracker
 
                 if next.LastAdmitted <> tracker.LastAdmitted then
                     admitted <- admitted + 1
@@ -519,8 +519,8 @@ module ``Progress delivery completes before display teardown`` =
     let ``Final progress report delivered asynchronously`` () =
         // A report that arrives after the end event cannot change what the final screen shows as active, and the
         // ended tracker is the last word: the bracket in the CLI tests drains reports before teardown.
-        let ended = transferring 100L 1 |> step 10 (BytesCopied 100L) |> step 20 (RunEnded Outcome.Success)
-        let late = ended |> step 30 (FileStarted "late")
+        let ended = transferring 100L 1 |> step 10 (ProgressEvent.BytesCopied 100L) |> step 20 (ProgressEvent.RunEnded Outcome.Success)
+        let late = ended |> step 30 (ProgressEvent.FileStarted "late")
         let finalLines = shown late |> lines
         Assert.DoesNotContain("late", String.concat "\n" finalLines)
 
@@ -530,7 +530,7 @@ module ``ETA is never negative`` =
         let gen = Gen.zip3 (Gen.choose (0, 1_000_000)) (Gen.choose (0, 1_000_000)) (Gen.choose (-5000, 600_000))
 
         Prop.forAll (Arb.fromGen gen) (fun (total, copied, elapsed) ->
-            let tracker = transferring (int64 total) 1 |> step 200 (BytesCopied(int64 copied))
+            let tracker = transferring (int64 total) 1 |> step 200 (ProgressEvent.BytesCopied(int64 copied))
 
             match Tracker.remaining (after elapsed) tracker with
             | ValueSome left -> left >= TimeSpan.Zero

@@ -37,7 +37,12 @@ let private momentOf (env: CliEnv) (request: Request) : Result<DateTimeOffset vo
     | Some text -> HistorySession.parseDate env "--at" text |> Result.map ValueSome
 
 /// Applies the plan with progress shown. The writes run on a pool thread so the display can redraw meanwhile.
-let private execute (env: CliEnv) (token: CancellationToken) (target: HistorySession.Target) (label: string) (plan: RestorePlan) : Task<RestoreResult> =
+let private execute
+    (env: CliEnv)
+    (token: CancellationToken)
+    (target: HistorySession.Target)
+    (label: string)
+    (plan: RestorePlan) : Task<RestoreResult> =
     let mode = OutputMode.choose false env.Capabilities
 
     let run (publish: ProgressEvent -> unit) : Task<RestoreResult> =
@@ -102,8 +107,12 @@ let private restoreFile
 
             let plan =
                 selected
-                |> Result.bind (fun selector -> History.resolveVersion path selector history |> Result.mapError HistoryError.render)
-                |> Result.bind (fun version -> Restore.planFile path (destinationOf request) version |> Result.mapError HistoryError.render)
+                |> Result.bind (fun selector ->
+                    History.resolveVersion path selector history
+                    |> Result.mapError HistoryError.render)
+                |> Result.bind (fun version ->
+                    Restore.planFile path (destinationOf request) version
+                    |> Result.mapError HistoryError.render)
 
             match plan with
             | Error message -> return HistorySession.fail env message
@@ -228,7 +237,8 @@ let create (env: CliEnv) : Command =
     let pathArgument =
         Argument<string>(
             "path",
-            Description = "The file (or, with --recursive, directory) to restore - a mirror-relative path, an absolute source path, or a path relative to the current directory."
+            Description = "The file (or, with --recursive, directory) to restore - a mirror-relative path, " +
+            "an absolute source path, or a path relative to the current directory."
         )
 
     let profileOption = HistorySession.profileOption "restore from"
@@ -240,7 +250,8 @@ let create (env: CliEnv) : Command =
     let inPlaceOption =
         Option<bool>(
             "--in-place",
-            Description = "Restore back to the original source location instead of an explicit --out destination. Mutually exclusive with --out."
+            Description = "Restore back to the original source location instead of an explicit --out destination. " +
+            "Mutually exclusive with --out."
         )
 
     let atOption =
@@ -248,31 +259,39 @@ let create (env: CliEnv) : Command =
             "--at",
             Description =
                 DateInput.help "Restore the version current as of this date/time"
-                + " With --recursive, omitting this (and --snapshot) restores the directory's current tracked state in a non-interactive session, or presents a snapshot picker interactively. Mutually exclusive with --snapshot."
+                + " With --recursive, omitting this (and --snapshot) restores the directory's current tracked state " +
+                "in a non-interactive session, or presents a snapshot picker interactively. Mutually exclusive with --snapshot."
         )
 
     let versionOption =
         Option<Nullable<int64>>(
             "--version",
-            Description = "Restore this specific version id (see the 'history' command). If neither this nor --at is given in an interactive session, a version picker is shown instead. Mutually exclusive with --recursive."
+            Description = "Restore this specific version id (see the 'history' command). " +
+            "If neither this nor --at is given in an interactive session, " +
+            "a version picker is shown instead. Mutually exclusive with --recursive."
         )
 
     let forceOption =
         Option<bool>(
             "--force",
-            Description = "Skip the overwrite confirmation (single-file restore) or the single directory-restore confirmation (--recursive) without prompting."
+            Description = "Skip the overwrite confirmation (single-file restore) or the single directory-restore " +
+            "confirmation (--recursive) without prompting."
         )
 
     let recursiveOption =
         Option<bool>(
             "--recursive",
-            Description = "Restore an entire directory (subtree) instead of a single file, reconstructing its exact tracked state as of --at/--snapshot (or the current state if neither is given). Mutually exclusive with --version."
+            Description = "Restore an entire directory (subtree) instead of a single file, " +
+            "reconstructing its exact tracked state as of --at/--snapshot (or the current state if neither is given). " +
+            "Mutually exclusive with --version."
         )
 
     let snapshotOption =
         Option<Nullable<int64>>(
             "--snapshot",
-            Description = "Restore the directory's tracked state as of this specific snapshot id (see the 'snapshots' command) - the non-interactive equivalent of selecting it from the --recursive snapshot picker. Only valid with --recursive. Mutually exclusive with --at."
+            Description = "Restore the directory's tracked state as of this specific snapshot id " +
+            "(see the 'snapshots' command) - the non-interactive equivalent of selecting it from the --recursive snapshot picker. " +
+            "Only valid with --recursive. Mutually exclusive with --at."
         )
 
     let command = Command("restore", "Restore a file's historical content, without touching the live mirror.")
@@ -328,7 +347,12 @@ let create (env: CliEnv) : Command =
             match refusal with
             | ValueSome outcome -> return outcome
             | ValueNone ->
-                match HistorySession.resolve env (HistorySession.textOf parseResult configOption) (HistorySession.textOf parseResult profileOption) with
+                let targetResult =
+                    HistorySession.resolve
+                        env
+                        (HistorySession.textOf parseResult configOption)
+                        (HistorySession.textOf parseResult profileOption)
+                match targetResult with
                 | Error error -> return HistorySession.fail env (ConfigError.render error)
                 | Ok target ->
                     // The manifest stays open only while the plan is made; the restore itself reads blobs, not rows.

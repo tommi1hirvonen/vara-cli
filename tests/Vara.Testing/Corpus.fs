@@ -28,7 +28,9 @@ let readRaw (area: string) (name: string) : string =
 /// The file names of an area (without the folder), in ordinal order. An area without files has no names.
 let names (area: string) : string list =
     if Directory.Exists(folder area) then
-        Directory.EnumerateFiles(folder area) |> Seq.map Path.GetFileName |> Seq.sortWith (fun a b -> String.CompareOrdinal(a, b)) |> List.ofSeq
+        Directory.EnumerateFiles(folder area)
+        |> Seq.map Path.GetFileName
+        |> Seq.sortWith (fun a b -> String.CompareOrdinal(a, b)) |> List.ofSeq
     else
         []
 

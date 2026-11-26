@@ -12,7 +12,8 @@ let create (env: CliEnv) : Command =
     let directoryArgument =
         Argument<string | null>(
             "directory",
-            Description = "Scope the report to this directory - a mirror-relative path, an absolute source path, or a path relative to the current directory. Defaults to the whole profile.",
+            Description = "Scope the report to this directory - a mirror-relative path, an absolute source path, " +
+            "or a path relative to the current directory. Defaults to the whole profile.",
             Arity = ArgumentArity.ZeroOrOne
         )
 
@@ -38,8 +39,12 @@ let create (env: CliEnv) : Command =
                 parseResult.GetValue directoryArgument
                 |> Option.ofObj
                 |> Option.filter (fun text -> text.Trim().Length > 0)
-
-            match HistorySession.resolve env (HistorySession.textOf parseResult configOption) (HistorySession.textOf parseResult profileOption) with
+            let targetResult =
+                HistorySession.resolve
+                    env
+                    (HistorySession.textOf parseResult configOption)
+                    (HistorySession.textOf parseResult profileOption)
+            match targetResult with
             | Error error -> return HistorySession.fail env (ConfigError.render error)
             | Ok target ->
                 let since =

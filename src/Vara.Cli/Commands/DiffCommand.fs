@@ -38,7 +38,8 @@ let create (env: CliEnv) : Command =
     let pathArgument =
         Argument<string>(
             "path",
-            Description = "The file whose versions to diff - a mirror-relative path, an absolute source path, or a path relative to the current directory."
+            Description = "The file whose versions to diff - a mirror-relative path, an absolute source path, " +
+            "or a path relative to the current directory."
         )
 
     let profileOption = HistorySession.profileOption "query"
@@ -81,7 +82,12 @@ let create (env: CliEnv) : Command =
             match refusal with
             | ValueSome outcome -> return outcome
             | ValueNone ->
-                match HistorySession.resolve env (HistorySession.textOf parseResult configOption) (HistorySession.textOf parseResult profileOption) with
+                let targetResult =
+                    HistorySession.resolve
+                        env
+                        (HistorySession.textOf parseResult configOption)
+                        (HistorySession.textOf parseResult profileOption)
+                match targetResult with
                 | Error error -> return HistorySession.fail env (ConfigError.render error)
                 | Ok target ->
                     let parse (optionName: string) (text: string option) : Result<DateTimeOffset voption, string> =

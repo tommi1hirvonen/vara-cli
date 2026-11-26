@@ -22,7 +22,8 @@ let create (env: CliEnv) : Command =
     let directoryArgument =
         Argument<string>(
             "directory",
-            Description = "Optionally scope changes to a mirror-relative path, an absolute source path, or a path relative to the current directory.",
+            Description = "Optionally scope changes to a mirror-relative path, an absolute source path, " +
+            "or a path relative to the current directory.",
             Arity = ArgumentArity.ZeroOrOne,
             DefaultValueFactory = (fun _ -> ".")
         )
@@ -36,7 +37,8 @@ let create (env: CliEnv) : Command =
     let depthOption =
         Option<string | null>(
             "--depth",
-            Description = "Limit displayed directory levels below the selected directory (0 shows only that directory; default: unlimited)."
+            Description = "Limit displayed directory levels below the selected directory " +
+            "(0 shows only that directory; default: unlimited)."
         )
 
     let interactiveOption =
@@ -69,7 +71,12 @@ let create (env: CliEnv) : Command =
             match ChangeTree.parseDepth (HistorySession.textOf parseResult depthOption) with
             | Error message -> return ErrorReporting.usage env.ErrorConsole message
             | Ok depth ->
-                match HistorySession.resolve env (HistorySession.textOf parseResult configOption) (HistorySession.textOf parseResult profileOption) with
+                let targetResult =
+                    HistorySession.resolve
+                        env
+                        (HistorySession.textOf parseResult configOption)
+                        (HistorySession.textOf parseResult profileOption)
+                match targetResult with
                 | Error error -> return HistorySession.fail env (ConfigError.render error)
                 | Ok target ->
                     // The manifest is read and closed first, so a browsing session holds nothing open.
@@ -78,9 +85,14 @@ let create (env: CliEnv) : Command =
                     let read =
                         HistorySession.withManifest target (fun handle ->
                             let resolution = HistorySession.resolveDirectory env target handle raw
-
-                            match ManifestQueries.snapshots handle |> List.tryFind (fun snapshot -> snapshot.SnapshotId = snapshotId) with
-                            | None -> ReadOutcome.Finished(HistorySession.fail env (HistoryError.render (HistoryError.UnknownSnapshot(snapshotId, target.Name))))
+                            let snapshotOption =
+                                ManifestQueries.snapshots handle
+                                |> List.tryFind (fun snapshot -> snapshot.SnapshotId = snapshotId)
+                            match snapshotOption with
+                            | None ->
+                                let msg = HistoryError.render (HistoryError.UnknownSnapshot(snapshotId, target.Name))
+                                let outcome = HistorySession.fail env msg
+                                ReadOutcome.Finished outcome
                             | Some snapshot ->
                                 let rollup, viewing =
                                     ChangeTree.loadChanges handle snapshotId resolution.Directory includeFiles treeMode
@@ -89,7 +101,9 @@ let create (env: CliEnv) : Command =
                                 | [] ->
                                     HistorySession.show
                                         env
-                                        [ Line.Text(Tone.Neutral, $"No changes recorded for snapshot #{snapshotId} in '{resolution.Directory}'.") ]
+                                        [ Line.Text(
+                                            Tone.Neutral,
+                                            $"No changes recorded for snapshot #{snapshotId} in '{resolution.Directory}'.") ]
 
                                     ReadOutcome.Finished Outcome.Success
                                 | _ -> ReadOutcome.Changes(snapshot, resolution.Directory, rollup, viewing))

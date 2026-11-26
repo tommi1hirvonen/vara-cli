@@ -3,11 +3,12 @@
 module Vara.Testing.Anonymize
 
 open System
+open System.Runtime.InteropServices
 
 /// The placeholder for the scratch directory of a run, which differs from one run to the next.
 let rootPlaceholder = "<root>"
 
-[<System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, EntryPoint = "GetLongPathNameW")>]
+[<DllImport("kernel32.dll", CharSet = CharSet.Unicode, EntryPoint = "GetLongPathNameW")>]
 extern uint32 private getLongPathName(string shortPath, System.Text.StringBuilder longPath, uint32 size)
 
 /// The path with its 8.3 names expanded: the temporary directory may be given in the short form, and the commands print

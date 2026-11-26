@@ -9,7 +9,7 @@ type Phase =
     | Transferring
 
 /// What the engine's observers report, as plain data. A struct, so a chunk of copied bytes allocates no event.
-[<Struct>]
+[<Struct; RequireQualifiedAccess>]
 type ProgressEvent =
     | ScanCounted of entries: int
     | TransferStarting of totalBytes: int64 * totalFiles: int
@@ -91,23 +91,23 @@ module Tracker =
     /// Folds one event into the tracker. The byte count only grows, so a late or reordered report never lowers it.
     let apply (now: DateTimeOffset) (event: ProgressEvent) (tracker: Tracker) : Tracker =
         match event with
-        | ScanCounted entries ->
+        | ProgressEvent.ScanCounted entries ->
             match tracker.Phase with
             | Phase.Scanning _ -> { tracker with Phase = Phase.Scanning entries }
             | Phase.Transferring -> tracker
-        | TransferStarting(totalBytes, totalFiles) ->
+        | ProgressEvent.TransferStarting(totalBytes, totalFiles) ->
             { tracker with
                 Phase = Phase.Transferring
                 TotalBytes = totalBytes
                 TotalFiles = totalFiles
                 TransferStartedAt = ValueSome now }
-        | BytesCopied delta ->
+        | ProgressEvent.BytesCopied delta ->
             { tracker with Live.Bytes = tracker.Live.Bytes + max 0L delta }
-        | FileStarted path -> { tracker with Active = path :: tracker.Active }
-        | FileFinished path -> { tracker with Active = removeFirst path tracker.Active }
-        | FileTransferred -> { tracker with Live.Files = tracker.Live.Files + 1 }
-        | WorkCredited bytes -> { tracker with Credited = tracker.Credited + max 0L bytes }
-        | RunEnded outcome -> { tracker with Ended = ValueSome outcome }
+        | ProgressEvent.FileStarted path -> { tracker with Active = path :: tracker.Active }
+        | ProgressEvent.FileFinished path -> { tracker with Active = removeFirst path tracker.Active }
+        | ProgressEvent.FileTransferred -> { tracker with Live.Files = tracker.Live.Files + 1 }
+        | ProgressEvent.WorkCredited bytes -> { tracker with Credited = tracker.Credited + max 0L bytes }
+        | ProgressEvent.RunEnded outcome -> { tracker with Ended = ValueSome outcome }
 
     /// Whether the numbers are due for a redraw: always for the first transfer update and the final one, otherwise
     /// once the interval has passed. Nothing is drawn as numbers before the transfer phase.

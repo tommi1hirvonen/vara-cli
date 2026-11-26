@@ -74,7 +74,12 @@ module Run =
           FailedPaths = []
           LastCheckpoint = now }
 
-    let private row (path: MirrorPath) (previous: MirrorPath voption) (content: RowContent) (kind: ChangeKind) (at: DateTimeOffset) : ManifestRow =
+    let private row
+        (path: MirrorPath)
+        (previous: MirrorPath voption)
+        (content: RowContent)
+        (kind: ChangeKind)
+        (at: DateTimeOffset) : ManifestRow =
         { RowPath = path
           PreviousPath = previous
           Content = content
@@ -160,9 +165,15 @@ module Run =
     /// What a dry run reports: the plan's counts and bytes, and the paths a real run would skip. A link is neither
     /// added nor changed, as in a real run's totals.
     let summarizePlan (scanFailures: ScanFailure list) (plan: BackupPlan) : PlanSummary =
-        let countTransfers (kind: TransferKind -> bool) = plan.Transfers |> List.filter (fun transfer -> kind transfer.TransferKind) |> List.length
+        let countTransfers (kind: TransferKind -> bool) =
+            plan.Transfers
+            |> List.filter (fun transfer -> kind transfer.TransferKind)
+            |> List.length
 
-        let countMetadata (isKind: MetadataOperation -> bool) = plan.Metadata |> List.filter isKind |> List.length
+        let countMetadata (isKind: MetadataOperation -> bool) =
+            plan.Metadata
+            |> List.filter isKind
+            |> List.length
 
         let added = countTransfers (function TransferKind.Added -> true | TransferKind.Changed _ -> false)
         let changed = plan.Transfers.Length - added

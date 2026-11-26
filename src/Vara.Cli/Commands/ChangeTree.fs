@@ -19,7 +19,9 @@ let parseDepth (text: string option) : Result<int voption, string> =
 
 /// The part of an option description that says how the interactive tree is driven, shared by the commands that offer it.
 let interactiveHelp: string =
-    "Up/Down move, Right/Left expand and collapse, Home/End jump, * expands all, d shows or hides deleted files, f shows or hides all files, q or Esc quits. Lists the changed files whether or not --files is given. Starts at --depth levels (default 1)."
+    "Up/Down move, Right/Left expand and collapse, Home/End jump, * expands all, d shows or hides deleted files, " +
+    "f shows or hides all files, q or Esc quits. Lists the changed files whether or not --files is given. " +
+    "Starts at --depth levels (default 1)."
 
 /// What a command does with the tree, decided before the changes are read so that a tree that falls back to the static
 /// view is read for the static view.

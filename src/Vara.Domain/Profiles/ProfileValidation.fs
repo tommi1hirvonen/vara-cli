@@ -200,5 +200,7 @@ let private addUnique (accepted: Profile list) (entry: ConfigNode) : Result<Prof
 /// Validates the entries under `profiles`, in order, stopping at the first error.
 let validateProfiles (entries: ConfigNode list) : Result<Profile list, ConfigError> =
     entries
-    |> List.fold (fun accepted entry -> accepted |> Result.bind (fun profiles -> addUnique profiles entry)) (Ok [])
+    |> List.fold (fun accepted entry ->
+        accepted
+        |> Result.bind (fun profiles -> addUnique profiles entry)) (Ok [])
     |> Result.map List.rev

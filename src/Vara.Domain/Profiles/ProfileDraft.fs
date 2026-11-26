@@ -197,7 +197,9 @@ module ProfileDraft =
     let positionOf (saved: Profile list) (draft: ProfileDraft) : int option =
         draft.Original
         |> Option.bind (fun original ->
-            saved |> List.tryFindIndex (fun profile -> String.Equals(Profile.name profile, original, StringComparison.OrdinalIgnoreCase)))
+            saved
+            |> List.tryFindIndex (fun profile ->
+                String.Equals(Profile.name profile, original, StringComparison.OrdinalIgnoreCase)))
 
     /// The draft validated by the loader's own function, against the saved profiles with this draft in place of the
     /// profile it replaces (or after them, for a new one). One function answers "is it valid" for the screen, for Save

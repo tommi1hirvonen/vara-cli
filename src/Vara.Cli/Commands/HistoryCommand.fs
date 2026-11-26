@@ -12,7 +12,8 @@ let create (env: CliEnv) : Command =
     let pathArgument =
         Argument<string>(
             "path",
-            Description = "The file to show history for - a mirror-relative path, an absolute source path, or a path relative to the current directory."
+            Description = "The file to show history for - a mirror-relative path, an absolute source path, " +
+            "or a path relative to the current directory."
         )
 
     let profileOption = HistorySession.profileOption "query"
@@ -25,8 +26,12 @@ let create (env: CliEnv) : Command =
     let handler (parseResult: ParseResult) (_: CancellationToken) : Task<Outcome> =
         task {
             let raw = parseResult.GetValue pathArgument |> nonNull
-
-            match HistorySession.resolve env (HistorySession.textOf parseResult configOption) (HistorySession.textOf parseResult profileOption) with
+            let targetResult =
+                HistorySession.resolve
+                    env
+                    (HistorySession.textOf parseResult configOption)
+                    (HistorySession.textOf parseResult profileOption)
+            match targetResult with
             | Error error -> return HistorySession.fail env (ConfigError.render error)
             | Ok target ->
                 return

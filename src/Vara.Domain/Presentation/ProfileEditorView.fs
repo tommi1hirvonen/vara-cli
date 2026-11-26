@@ -172,7 +172,13 @@ module ProfileEditorView =
                   |> Option.map (sourceBox session)
                   |> Option.defaultValue []
               | Page.Entries(index, list) ->
-                  [ Line.Text(Tone.Plain, "Current entries: " + listText (List.tryItem index session.Draft.DraftSources |> Option.map (SourceDraft.entries list) |> Option.defaultValue [])) ]
+                  let text =
+                      "Current entries: " +
+                      listText (
+                          List.tryItem index session.Draft.DraftSources
+                          |> Option.map (SourceDraft.entries list)
+                          |> Option.defaultValue [])
+                  [ Line.Text(Tone.Plain, text) ]
 
     // ---- Questions ----
 

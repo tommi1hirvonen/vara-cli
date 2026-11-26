@@ -21,7 +21,6 @@ type QuickSignature = { QuickHash: string; QuickScheme: int }
 module QuickSignature =
     /// The scheme of signatures this build records: a 64 KiB prefix window.
     let currentScheme: int = 1
-
     let windowSizeBytes: int = 64 * 1024
 
     let isUsable (signature: QuickSignature) : bool = signature.QuickScheme = currentScheme

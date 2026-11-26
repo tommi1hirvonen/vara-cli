@@ -87,12 +87,12 @@ module ``Windows Terminal progress indicator`` =
 
     [<Fact>]
     let ``Indeterminate phase`` () =
-        Assert.Equal(Indicator.Indeterminate, TerminalProgress.indicator (feed [ ScanCounted 5 ]))
+        Assert.Equal(Indicator.Indeterminate, TerminalProgress.indicator (feed [ ProgressEvent.ScanCounted 5 ]))
         Assert.Equal("\u001b]9;4;3;0\u0007", TerminalProgress.sequence Indicator.Indeterminate)
 
     [<Fact>]
     let ``Determinate phase`` () =
-        let tracker = feed [ TransferStarting(200L, 1); BytesCopied 50L ]
+        let tracker = feed [ ProgressEvent.TransferStarting(200L, 1); ProgressEvent.BytesCopied 50L ]
         // Redraws are rate-limited, so the first admitted update (no bytes yet) is what shows.
         let tracker = { tracker with Shown.Bytes = 50L }
         Assert.Equal(Indicator.Percentage 25, TerminalProgress.indicator tracker)
@@ -100,7 +100,7 @@ module ``Windows Terminal progress indicator`` =
 
     [<Fact>]
     let ``Command completes or stops`` () =
-        let ended = feed [ TransferStarting(200L, 1); RunEnded Outcome.HardError ]
+        let ended = feed [ ProgressEvent.TransferStarting(200L, 1); ProgressEvent.RunEnded Outcome.HardError ]
         Assert.Equal(Indicator.Hidden, TerminalProgress.indicator ended)
         Assert.Equal("\u001b]9;4;0;0\u0007", TerminalProgress.sequence Indicator.Hidden)
 
@@ -110,7 +110,7 @@ module ``Windows Terminal progress indicator`` =
 
         Prop.forAll (Arb.fromGen gen) (fun (total, copied) ->
             let tracker =
-                feed [ TransferStarting(int64 total, 1) ]
+                feed [ ProgressEvent.TransferStarting(int64 total, 1) ]
                 |> fun tracker -> { tracker with Shown.Bytes = int64 copied }
 
             match TerminalProgress.indicator tracker with

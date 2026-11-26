@@ -33,7 +33,7 @@ let private nativeBar (bar: BarRow) : IRenderable =
         member _.Measure(_, maxWidth) = Measurement(bar.Width, min bar.Width maxWidth)
 
         member _.Render(options, maxWidth) =
-            (column.Render(options, task, TimeSpan.Zero)).Render(options, maxWidth) }
+            column.Render(options, task, TimeSpan.Zero).Render(options, maxWidth) }
 
 /// A bar line: the label, the native bar and the trailing field side by side, each in a column of its own width. A
 /// `Grid` places them on one line where `Columns` would stack the greedy bar onto its own row.

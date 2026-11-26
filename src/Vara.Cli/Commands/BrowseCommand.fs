@@ -14,7 +14,8 @@ let create (env: CliEnv) : Command =
     let directoryArgument =
         Argument<string>(
             "directory",
-            Description = "The directory to list - a mirror-relative path, an absolute source path, or a path relative to the current directory. Defaults to the mirror root.",
+            Description = "The directory to list - a mirror-relative path, an absolute source path, " +
+            "or a path relative to the current directory. Defaults to the mirror root.",
             Arity = ArgumentArity.ZeroOrOne,
             DefaultValueFactory = (fun _ -> ".")
         )
@@ -43,8 +44,12 @@ let create (env: CliEnv) : Command =
         task {
             let raw = parseResult.GetValue directoryArgument |> nonNull
             let includeDeleted = parseResult.GetValue deletedOption
-
-            match HistorySession.resolve env (HistorySession.textOf parseResult configOption) (HistorySession.textOf parseResult profileOption) with
+            let targetResult =
+                HistorySession.resolve
+                    env
+                    (HistorySession.textOf parseResult configOption)
+                    (HistorySession.textOf parseResult profileOption)
+            match targetResult with
             | Error error -> return HistorySession.fail env (ConfigError.render error)
             | Ok target ->
                 let moment =
@@ -58,8 +63,13 @@ let create (env: CliEnv) : Command =
                     return
                         HistorySession.withManifest target (fun handle ->
                             let resolution = HistorySession.resolveDirectory env target handle raw
-
-                            match History.listing resolution.Directory moment includeDeleted (ManifestQueries.allVersions handle) with
+                            let entriesResult =
+                                History.listing
+                                    resolution.Directory
+                                    moment
+                                    includeDeleted
+                                    (ManifestQueries.allVersions handle)
+                            match entriesResult with
                             | Error error -> HistorySession.fail env (HistoryError.render error)
                             | Ok entries ->
                                 HistorySession.show env (HistoryView.ofListing entries)

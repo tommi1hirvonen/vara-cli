@@ -70,7 +70,14 @@ let closeExecutor (fixture: ExecutorFixture) (ended: ExecutionEnd voption) : uni
 
 /// The profile of a pipeline run: one recursive source and the target, with the engine's default concurrency.
 let profileOf (sourceRoot: string) (targetRoot: string) : Profile =
-    match Profile.create "benchmark" (BenchmarkFiles.absolute targetRoot) [ BenchmarkFiles.sourceOf sourceRoot ] None None with
+    let profileResult =
+        Profile.create
+            "benchmark"
+            (BenchmarkFiles.absolute targetRoot)
+            [ BenchmarkFiles.sourceOf sourceRoot ]
+            None
+            None
+    match profileResult with
     | Ok profile -> profile
     | Error _ -> failwith "invalid benchmark profile"
 
