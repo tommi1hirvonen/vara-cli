@@ -1,10 +1,16 @@
 <Solution>
-  <Project Path="src/Vara.Domain/Vara.Domain.fsproj" />
-  <Project Path="src/Vara.Engine/Vara.Engine.fsproj" />
-  <Project Path="src/Vara.Cli/Vara.Cli.fsproj" />
-  <Project Path="benchmarks/Vara.Benchmarks/Vara.Benchmarks.fsproj" />
-  <Project Path="tests/Vara.Domain.Tests/Vara.Domain.Tests.fsproj" />
-  <Project Path="tests/Vara.Engine.Tests/Vara.Engine.Tests.fsproj" />
-  <Project Path="tests/Vara.Cli.Tests/Vara.Cli.Tests.fsproj" />
-  <Project Path="tests/Vara.Testing/Vara.Testing.fsproj" />
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/Vara.Benchmarks/Vara.Benchmarks.fsproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Vara.Cli/Vara.Cli.fsproj" />
+    <Project Path="src/Vara.Domain/Vara.Domain.fsproj" />
+    <Project Path="src/Vara.Engine/Vara.Engine.fsproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Vara.Cli.Tests/Vara.Cli.Tests.fsproj" />
+    <Project Path="tests/Vara.Domain.Tests/Vara.Domain.Tests.fsproj" />
+    <Project Path="tests/Vara.Engine.Tests/Vara.Engine.Tests.fsproj" />
+    <Project Path="tests/Vara.Testing/Vara.Testing.fsproj" />
+  </Folder>
 </Solution>
